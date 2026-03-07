@@ -1,0 +1,43 @@
+[package]
+name = "shard-v2-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+shard-format = { path = ".." }
+arbitrary = { version = "1", features = ["derive"] }
+zstd = "0.13"
+lz4_flex = "0.11"
+
+[[bin]]
+name = "fuzz_header"
+path = "fuzz_targets/fuzz_header.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_index_entry"
+path = "fuzz_targets/fuzz_index_entry.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_open"
+path = "fuzz_targets/fuzz_open.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_decompress"
+path = "fuzz_targets/fuzz_decompress.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_lookup"
+path = "fuzz_targets/fuzz_lookup.rs"
+doc = false
+
+[profile.release]
+debug = true

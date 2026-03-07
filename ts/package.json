@@ -1,0 +1,31 @@
+{
+  "name": "shard-format",
+  "version": "0.1.0",
+  "description": "Shard v2 binary container format — O(1) lookup, per-entry compression, CRC32C checksums",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "author": "Neumenon <oss@neumenon.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Neumenon/cowrie"
+  },
+  "homepage": "https://github.com/Neumenon/cowrie",
+  "keywords": ["shard", "binary-format", "tensor", "machine-learning", "mmap", "zero-copy"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "dependencies": {
+    "@bokuweb/zstd-wasm": "^0.0.27",
+    "lz4js": "^0.2.0",
+    "xxhash-wasm": "^1.1.0"
+  }
+}

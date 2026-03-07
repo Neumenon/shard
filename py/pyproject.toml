@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shard-format"
+version = "0.1.0"
+description = "Shard v2 binary container format — O(1) lookup, per-entry compression, CRC32C checksums"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Neumenon", email = "oss@neumenon.com"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Archiving",
+]
+keywords = ["shard", "binary-format", "tensor", "machine-learning", "mmap", "zero-copy"]
+requires-python = ">=3.9"
+dependencies = [
+    "crc32c>=2.3",
+    "xxhash>=3.0",
+    "zstandard>=0.20",
+    "lz4>=4.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Neumenon/cowrie"
+Documentation = "https://github.com/Neumenon/cowrie/tree/main/shard-py"
+Repository = "https://github.com/Neumenon/cowrie"
+Issues = "https://github.com/Neumenon/cowrie/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["shard_v2*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

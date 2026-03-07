@@ -1,0 +1,26 @@
+[package]
+name = "shard-format"
+version = "0.1.0"
+edition = "2021"
+description = "Shard v2 binary container format — O(1) lookup, per-entry compression, CRC32C checksums"
+license = "MIT"
+repository = "https://github.com/Neumenon/cowrie"
+homepage = "https://github.com/Neumenon/cowrie"
+documentation = "https://github.com/Neumenon/cowrie/tree/main/shard-rs"
+keywords = ["shard", "binary-format", "tensor", "machine-learning", "mmap"]
+categories = ["encoding", "data-structures"]
+authors = ["Neumenon <oss@neumenon.com>"]
+
+[dependencies]
+crc32c = "0.6"
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+zstd = "0.13"
+lz4_flex = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+memmap2 = "0.9"
+
+[dev-dependencies]
+sha2 = "0.10"
+hex = "0.4"
+tempfile = "3"
