@@ -422,6 +422,46 @@ fn test_fuzz_decompress_huge_orig_size_triggers_limit() {
     }
 }
 
+#[test]
+fn test_fuzz_decompress_zstd_declared_orig_size_mismatch_is_bounded() {
+    let payload = vec![b'A'; 4096];
+    let compressed = zstd::stream::encode_all(&payload[..], 1).expect("zstd encode");
+
+    let st_offset: usize = HEADER_SIZE + INDEX_ENTRY_SIZE;
+    let data_offset: usize = st_offset + 4;
+    let total: usize = data_offset + compressed.len();
+    let mut buf = vec![0u8; total];
+
+    buf[0..4].copy_from_slice(SHARD_MAGIC);
+    buf[4] = SHARD_VERSION2;
+    buf[5] = ROLE_MOSH;
+    buf[6..8].copy_from_slice(&FLAG_HAS_CHECKSUMS.to_le_bytes());
+    buf[10..12].copy_from_slice(&(INDEX_ENTRY_SIZE as u16).to_le_bytes());
+    buf[12..16].copy_from_slice(&1u32.to_le_bytes());
+    buf[16..24].copy_from_slice(&(st_offset as u64).to_le_bytes());
+    buf[24..32].copy_from_slice(&(data_offset as u64).to_le_bytes());
+    buf[40..48].copy_from_slice(&(total as u64).to_le_bytes());
+
+    let flags: u16 = ENTRY_FLAG_COMPRESSED | ENTRY_FLAG_ZSTD;
+    buf[HEADER_SIZE + 14..HEADER_SIZE + 16].copy_from_slice(&flags.to_le_bytes());
+    buf[HEADER_SIZE + 16..HEADER_SIZE + 24].copy_from_slice(&(data_offset as u64).to_le_bytes());
+    buf[HEADER_SIZE + 24..HEADER_SIZE + 32]
+        .copy_from_slice(&(compressed.len() as u64).to_le_bytes());
+    buf[HEADER_SIZE + 32..HEADER_SIZE + 40].copy_from_slice(&32u64.to_le_bytes());
+
+    buf[st_offset] = b'e';
+    buf[st_offset + 1] = 0;
+    buf[HEADER_SIZE + 12..HEADER_SIZE + 14].copy_from_slice(&1u16.to_le_bytes());
+    buf[data_offset..data_offset + compressed.len()].copy_from_slice(&compressed);
+
+    let reader = ShardV2Reader::from_bytes(buf).expect("reader");
+    let err = reader.read_entry(0).unwrap_err();
+    match err {
+        shard_format::ShardError::DecompressTooLarge(size) => assert_eq!(size, 33),
+        other => panic!("expected DecompressTooLarge, got {:?}", other),
+    }
+}
+
 // ============================================================
 // FuzzReadEntryByName seeds
 // ============================================================

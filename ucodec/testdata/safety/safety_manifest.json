@@ -1,0 +1,143 @@
+{
+  "valid": [
+    {
+      "filename": "valid_basic.shard",
+      "sha256": "90af10d5379d70e975232c8928456f3adf8fad8143facd1588732cb71b530e50",
+      "entry_count": 3,
+      "entries": [
+        {
+          "name": "tensor_a",
+          "data_sha256": "477e0dc549fdaf0f7a6e00a1c693454096d0aecbc6610ec820b377e70e712b17",
+          "size": 1024
+        },
+        {
+          "name": "tensor_b",
+          "data_sha256": "347e635d9369f762d476eee696313d7073a0536d89f2dfe1c0c5712b1a719ed1",
+          "size": 2048
+        },
+        {
+          "name": "tensor_c",
+          "data_sha256": "2034f7bb7a3a79f0b9651811aafd266b605c6d4c817c3fc4ce94e367dff216d8",
+          "size": 512
+        }
+      ]
+    },
+    {
+      "filename": "valid_compressed.shard",
+      "sha256": "ba5a0fff66d6738c85e12263ab6b6da28fd0311678c32bb6c5a22010902ac74b",
+      "entry_count": 3,
+      "entries": [
+        {
+          "name": "comp_a",
+          "data_sha256": "c622005493c4cb75f3e08eda4cc0bfe172e2c5eeca661ec4908c5490fc3d6994",
+          "size": 4096
+        },
+        {
+          "name": "comp_b",
+          "data_sha256": "1082f036b4e470e2bb00ff9499e9aa8069fbbb3c7f1f3c3561de41ccd07aa7f6",
+          "size": 8192
+        },
+        {
+          "name": "comp_c",
+          "data_sha256": "5dec520a7765b98483edad2fa2efc130ee94987ad8e2e0e394339a24ec5bb197",
+          "size": 2048
+        }
+      ]
+    },
+    {
+      "filename": "valid_empty_entry.shard",
+      "sha256": "1a4788a4072fb12e16e9b2e31380710cf28df7ca407b0e1be6541f7935cb2efb",
+      "entry_count": 1,
+      "entries": [
+        {
+          "name": "empty",
+          "data_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "filename": "valid_long_name.shard",
+      "sha256": "ea5ed054abc6a7f6f85f7e664309bdb0c6a060b72980806e8db0bcb38d73d251",
+      "entry_count": 1,
+      "entries": [
+        {
+          "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "data_sha256": "a37ee4c3cfe84cb853359a1cff12324456dee4bebee08c55a4e8952725004177",
+          "size": 21
+        }
+      ]
+    },
+    {
+      "filename": "valid_unicode_name.shard",
+      "sha256": "5709721282fcf8bd02e3369f13bd4ad74676f698df50c51f1dc2282897e92753",
+      "entry_count": 4,
+      "entries": [
+        {
+          "name": "日本語",
+          "data_sha256": "3712f83343c539d2fc101eb0a6f053f7e2a32188a6972d3ec8877995457222a6",
+          "size": 12
+        },
+        {
+          "name": "émoji_😀",
+          "data_sha256": "620ae50ca1986dc18f016d2324c41756536a28345dbf36b812c181505126bf97",
+          "size": 11
+        },
+        {
+          "name": "中文/层/权重",
+          "data_sha256": "dba0c6c1ffcbdc39cbeee07dbb6ebd9021a905218ba93c627f07ee0fbaff3699",
+          "size": 12
+        },
+        {
+          "name": "АБВГ",
+          "data_sha256": "53ba3680cddbbd70cee9ba8d0822d77ec607fc4680b3ab9dda594c042338f2e2",
+          "size": 13
+        }
+      ]
+    },
+    {
+      "filename": "valid_binary_data.shard",
+      "sha256": "c9ab1e93e8c9948afcca5db06c22e4481c1f4959bba155e6bf18dcd337dc1518",
+      "entry_count": 1,
+      "entries": [
+        {
+          "name": "all_256_bytes",
+          "data_sha256": "40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880",
+          "size": 256
+        }
+      ]
+    }
+  ],
+  "corrupt": [
+    {
+      "filename": "corrupt_bad_magic.shard",
+      "expected_error": "invalid magic",
+      "description": "First 4 bytes are XXXX instead of SHRD"
+    },
+    {
+      "filename": "corrupt_truncated_header.shard",
+      "expected_error": "header too short",
+      "description": "Only 32 bytes, header requires 64"
+    },
+    {
+      "filename": "corrupt_crc_mismatch.shard",
+      "expected_error": "checksum mismatch",
+      "description": "Valid shard with first entry CRC32 bits flipped"
+    },
+    {
+      "filename": "corrupt_truncated_data.shard",
+      "expected_error": "truncated data",
+      "description": "Valid header and index but data section cut short by 100 bytes"
+    },
+    {
+      "filename": "corrupt_entry_count_overflow.shard",
+      "expected_error": "entry count overflow",
+      "description": "Header claims 0xFFFFFFFF entries (4 billion+), exceeds MaxV2EntryCount"
+    },
+    {
+      "filename": "corrupt_huge_string_table.shard",
+      "expected_error": "string table beyond file",
+      "description": "String table offset is 10x the actual file size"
+    }
+  ]
+}

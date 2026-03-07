@@ -131,6 +131,23 @@ describe('Zstd Compression', () => {
     const r = new ShardV2Reader(buf);
     expect(Buffer.compare(r.readEntry(0), data)).toBe(0);
   });
+
+  it('rejects zstd size mismatches against the shard index', () => {
+    const data = makeRepetitiveData(4096);
+
+    const w = new ShardV2Writer();
+    w.setCompression(COMPRESS_ZSTD);
+    w.writeEntryCompressed('big', data);
+
+    const buf = Buffer.from(w.toBuffer());
+    const indexOffset = 64;
+    buf.writeUInt32LE(1, indexOffset + 32);
+    buf.writeUInt32LE(0, indexOffset + 36);
+
+    const r = new ShardV2Reader(buf);
+    expect(r.getEntryInfo(0).compressed).toBe(true);
+    expect(() => r.readEntry(0)).toThrow(/does not match expected size 1/);
+  });
 });
 
 // ============================================================

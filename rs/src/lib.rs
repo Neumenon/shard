@@ -33,6 +33,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 
 use memmap2::Mmap;
@@ -176,7 +177,7 @@ impl std::fmt::Display for ShardError {
             ShardError::EntryNotFound(name) => write!(f, "entry not found: {}", name),
             ShardError::CompressionNotSupported => write!(f, "compression not supported"),
             ShardError::DecompressTooLarge(size) => {
-                write!(f, "decompressed size {} exceeds 1 GB limit", size)
+                write!(f, "decompressed size {} exceeds allowed limit", size)
             }
             ShardError::DecompressFailed(msg) => write!(f, "decompression failed: {}", msg),
             ShardError::SecurityLimitExceeded(msg) => write!(f, "security limit exceeded: {}", msg),
@@ -216,6 +217,77 @@ pub fn compute_xxhash64(name: &str) -> u64 {
     xxhash_rust::xxh64::xxh64(name.as_bytes(), 0)
 }
 
+fn entry_data_range(data_len: usize, offset: u64, size: u64) -> Result<std::ops::Range<usize>, ShardError> {
+    let offset = usize::try_from(offset).map_err(|_| {
+        ShardError::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "entry data offset does not fit in memory address space",
+        ))
+    })?;
+    let size = usize::try_from(size).map_err(|_| {
+        ShardError::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "entry data size does not fit in memory address space",
+        ))
+    })?;
+    let end = offset.checked_add(size).ok_or_else(|| {
+        ShardError::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "entry data range overflows address space",
+        ))
+    })?;
+    if end > data_len {
+        return Err(ShardError::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "entry data extends past end of file",
+        )));
+    }
+    Ok(offset..end)
+}
+
+fn decompress_zstd_bounded(raw: &[u8], expected_size: u64) -> Result<Vec<u8>, ShardError> {
+    if expected_size > MAX_DECOMPRESS_SIZE {
+        return Err(ShardError::DecompressTooLarge(expected_size));
+    }
+
+    let mut decoder = zstd::stream::read::Decoder::new(raw)
+        .map_err(|e| ShardError::DecompressFailed(e.to_string()))?;
+    let mut limited = decoder.by_ref().take(expected_size.saturating_add(1));
+    let capacity = usize::try_from(expected_size).unwrap_or(usize::MAX).min(64 * 1024);
+    let mut out = Vec::with_capacity(capacity);
+    limited
+        .read_to_end(&mut out)
+        .map_err(|e| ShardError::DecompressFailed(e.to_string()))?;
+
+    if out.len() as u64 > expected_size {
+        return Err(ShardError::DecompressTooLarge(out.len() as u64));
+    }
+    if out.len() as u64 != expected_size {
+        return Err(ShardError::DecompressFailed(format!(
+            "zstd size mismatch: got {}, expected {}",
+            out.len(),
+            expected_size
+        )));
+    }
+
+    Ok(out)
+}
+
+fn decompress_entry_data(raw: &[u8], entry: &IndexEntryV2) -> Result<Vec<u8>, ShardError> {
+    if entry.orig_size > MAX_DECOMPRESS_SIZE {
+        return Err(ShardError::DecompressTooLarge(entry.orig_size));
+    }
+
+    if entry.flags & ENTRY_FLAG_ZSTD != 0 {
+        decompress_zstd_bounded(raw, entry.orig_size)
+    } else if entry.flags & ENTRY_FLAG_LZ4 != 0 {
+        lz4_flex::decompress(raw, entry.orig_size as usize)
+            .map_err(|e| ShardError::DecompressFailed(e.to_string()))
+    } else {
+        Err(ShardError::CompressionNotSupported)
+    }
+}
+
 /// Align `offset` upward to the given `alignment`. Returns `offset` when `alignment` is 0.
 fn align_up(offset: usize, alignment: u8) -> usize {
     if alignment == 0 {
@@ -223,6 +295,66 @@ fn align_up(offset: usize, alignment: u8) -> usize {
     }
     let a = alignment as usize;
     (offset + a - 1) & !(a - 1)
+}
+
+fn max_entry_data_end(entries: &[IndexEntryV2], data_section_offset: usize) -> Result<usize, ShardError> {
+    let mut max_end = data_section_offset;
+    for (index, entry) in entries.iter().enumerate() {
+        let offset = usize::try_from(entry.data_offset)
+            .map_err(|_| ShardError::EntryOffsetOutOfRange { index })?;
+        let size = usize::try_from(entry.disk_size)
+            .map_err(|_| ShardError::EntryOffsetOutOfRange { index })?;
+        let end = offset
+            .checked_add(size)
+            .ok_or(ShardError::EntryOffsetOutOfRange { index })?;
+        max_end = max_end.max(end);
+    }
+    Ok(max_end)
+}
+
+fn validate_schema_offset(
+    header: &ShardV2Header,
+    file_size: usize,
+    min_schema_offset: usize,
+) -> Result<Option<usize>, ShardError> {
+    let schema_offset = usize::try_from(header.schema_offset).map_err(|_| {
+        ShardError::SecurityLimitExceeded(format!(
+            "schema_offset {} does not fit in usize",
+            header.schema_offset
+        ))
+    })?;
+
+    if schema_offset == 0 {
+        return Ok(None);
+    }
+    if schema_offset > file_size {
+        return Err(ShardError::SecurityLimitExceeded(format!(
+            "schema_offset {} beyond file size {}",
+            schema_offset, file_size
+        )));
+    }
+    if schema_offset < min_schema_offset {
+        return Err(ShardError::SecurityLimitExceeded(format!(
+            "schema_offset {} overlaps data ending at {}",
+            schema_offset, min_schema_offset
+        )));
+    }
+
+    Ok(Some(schema_offset))
+}
+
+fn metadata_slice<'a>(
+    buf: &'a [u8],
+    header: &ShardV2Header,
+    entries: &[IndexEntryV2],
+) -> Result<Option<&'a [u8]>, ShardError> {
+    let min_schema_offset = max_entry_data_end(entries, header.data_section_offset as usize)?;
+    let Some(schema_offset) = validate_schema_offset(header, buf.len(), min_schema_offset)? else {
+        return Ok(None);
+    };
+
+    let total_file_size = header.total_file_size as usize;
+    Ok(Some(&buf[schema_offset..total_file_size]))
 }
 
 // ============================================================
@@ -492,37 +624,6 @@ impl ShardV2Reader {
 
         let header = ShardV2Header::from_bytes(&data[..HEADER_SIZE])?;
 
-        // Security: validate entry_count
-        let entry_count = header.entry_count as usize;
-        if entry_count > MAX_ENTRY_COUNT {
-            return Err(ShardError::SecurityLimitExceeded(format!(
-                "entry_count {} exceeds MAX_ENTRY_COUNT {}",
-                entry_count, MAX_ENTRY_COUNT
-            )));
-        }
-
-        // Security: validate index size
-        let index_size = entry_count * INDEX_ENTRY_SIZE;
-        if index_size > MAX_INDEX_SIZE {
-            return Err(ShardError::SecurityLimitExceeded(format!(
-                "index size {} exceeds MAX_INDEX_SIZE {}",
-                index_size, MAX_INDEX_SIZE
-            )));
-        }
-
-        // Security: validate string table size
-        let string_table_offset = header.string_table_offset as usize;
-        let data_section_offset = header.data_section_offset as usize;
-        if data_section_offset >= string_table_offset {
-            let st_size = data_section_offset - string_table_offset;
-            if st_size > MAX_STRING_TABLE_SIZE {
-                return Err(ShardError::SecurityLimitExceeded(format!(
-                    "string table size {} exceeds MAX_STRING_TABLE_SIZE {}",
-                    st_size, MAX_STRING_TABLE_SIZE
-                )));
-            }
-        }
-
         // Security: validate total_file_size
         if header.total_file_size != data.len() as u64 {
             return Err(ShardError::FileSizeMismatch {
@@ -530,76 +631,7 @@ impl ShardV2Reader {
                 actual: data.len() as u64,
             });
         }
-
-        // Parse index entries (immediately after header).
-        let index_start = HEADER_SIZE;
-        let index_end = index_start + entry_count * INDEX_ENTRY_SIZE;
-
-        if data.len() < index_end {
-            return Err(ShardError::Io(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "file too small for index",
-            )));
-        }
-
-        if string_table_offset > data.len() || data_section_offset > data.len() {
-            return Err(ShardError::SecurityLimitExceeded(format!(
-                "string table or data section beyond file: string_table_offset={}, data_section_offset={}, file_size={}",
-                string_table_offset, data_section_offset, data.len()
-            )));
-        }
-
-        if data_section_offset < string_table_offset {
-            return Err(ShardError::SecurityLimitExceeded(format!(
-                "data_section_offset {} < string_table_offset {}",
-                data_section_offset, string_table_offset
-            )));
-        }
-
-        let string_table = &data[string_table_offset..data_section_offset];
-
-        // Parse each index entry and resolve name from string table.
-        let mut entries = Vec::with_capacity(entry_count);
-        for i in 0..entry_count {
-            let off = index_start + i * INDEX_ENTRY_SIZE;
-            let mut entry = IndexEntryV2::from_bytes(&data[off..off + INDEX_ENTRY_SIZE]);
-
-            // Resolve name from string table.
-            let name_off = entry.name_offset as usize;
-            let name_len = entry.name_len as usize;
-            if name_off + name_len <= string_table.len() {
-                entry.name =
-                    String::from_utf8_lossy(&string_table[name_off..name_off + name_len])
-                        .into_owned();
-            }
-
-            entries.push(entry);
-        }
-
-        // Security: validate entry data offsets
-        let file_size = data.len();
-        let mut prev_end: usize = 0;
-        for (i, entry) in entries.iter().enumerate() {
-            let offset = entry.data_offset as usize;
-            let size = entry.disk_size as usize;
-
-            if offset < data_section_offset {
-                return Err(ShardError::EntryOffsetOutOfRange { index: i });
-            }
-            if offset.saturating_add(size) > file_size {
-                return Err(ShardError::EntryOffsetOutOfRange { index: i });
-            }
-            if i > 0 && offset < prev_end {
-                return Err(ShardError::EntryOffsetOutOfRange { index: i });
-            }
-            prev_end = offset + size;
-        }
-
-        // Build name → index map.
-        let mut name_to_index = HashMap::with_capacity(entry_count);
-        for (i, e) in entries.iter().enumerate() {
-            name_to_index.insert(e.name.clone(), i);
-        }
+        let (entries, name_to_index) = parse_index_from_bytes(&data, &header)?;
 
         Ok(ShardV2Reader {
             data,
@@ -651,31 +683,11 @@ impl ShardV2Reader {
     /// against the decompressed content.
     pub fn read_entry(&self, i: usize) -> Result<Vec<u8>, ShardError> {
         let entry = &self.entries[i];
-        let offset = entry.data_offset as usize;
-        let size = entry.disk_size as usize;
-
-        if offset + size > self.data.len() {
-            return Err(ShardError::Io(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "entry data extends past end of file",
-            )));
-        }
-
-        let raw = &self.data[offset..offset + size];
+        let range = entry_data_range(self.data.len(), entry.data_offset, entry.disk_size)?;
+        let raw = &self.data[range];
 
         let data = if entry.compressed() {
-            if entry.orig_size > MAX_DECOMPRESS_SIZE {
-                return Err(ShardError::DecompressTooLarge(entry.orig_size));
-            }
-            if entry.flags & ENTRY_FLAG_ZSTD != 0 {
-                zstd::decode_all(raw)
-                    .map_err(|e| ShardError::DecompressFailed(e.to_string()))?
-            } else if entry.flags & ENTRY_FLAG_LZ4 != 0 {
-                lz4_flex::decompress(raw, entry.orig_size as usize)
-                    .map_err(|e| ShardError::DecompressFailed(e.to_string()))?
-            } else {
-                return Err(ShardError::CompressionNotSupported);
-            }
+            decompress_entry_data(raw, entry)?
         } else {
             raw.to_vec()
         };
@@ -773,12 +785,9 @@ impl ShardV2Reader {
     ///
     /// Returns `None` if no schema (`schema_offset == 0`).
     pub fn read_metadata(&self) -> Result<Option<ShardMetadata>, ShardError> {
-        let schema_offset = self.header.schema_offset as usize;
-        if schema_offset == 0 {
+        let Some(meta_bytes) = metadata_slice(&self.data, &self.header, &self.entries)? else {
             return Ok(None);
-        }
-        let total_file_size = self.header.total_file_size as usize;
-        let meta_bytes = &self.data[schema_offset..total_file_size];
+        };
         let meta: ShardMetadata = serde_json::from_slice(meta_bytes)
             .map_err(|e| ShardError::JsonError(e.to_string()))?;
         Ok(Some(meta))
@@ -878,18 +887,24 @@ fn parse_index_from_bytes(
     for (i, entry) in entries.iter().enumerate() {
         let offset = entry.data_offset as usize;
         let size = entry.disk_size as usize;
+        let end = offset
+            .checked_add(size)
+            .ok_or(ShardError::EntryOffsetOutOfRange { index: i })?;
 
         if offset < data_section_offset {
             return Err(ShardError::EntryOffsetOutOfRange { index: i });
         }
-        if offset.saturating_add(size) > file_size {
+        if end > file_size {
             return Err(ShardError::EntryOffsetOutOfRange { index: i });
         }
         if i > 0 && offset < prev_end {
             return Err(ShardError::EntryOffsetOutOfRange { index: i });
         }
-        prev_end = offset + size;
+        prev_end = end;
     }
+
+    let min_schema_offset = prev_end.max(data_section_offset);
+    let _ = validate_schema_offset(header, file_size, min_schema_offset)?;
 
     // Build name → index map.
     let mut name_to_index = HashMap::with_capacity(entry_count);
@@ -1049,31 +1064,11 @@ impl MmapShardV2Reader {
     /// CRC32C is verified against the decompressed content.
     pub fn read_entry_decompressed(&self, i: usize) -> Result<Vec<u8>, ShardError> {
         let entry = &self.entries[i];
-        let offset = entry.data_offset as usize;
-        let size = entry.disk_size as usize;
-
-        if offset + size > self.mmap.len() {
-            return Err(ShardError::Io(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "entry data extends past end of file",
-            )));
-        }
-
-        let raw = &self.mmap[offset..offset + size];
+        let range = entry_data_range(self.mmap.len(), entry.data_offset, entry.disk_size)?;
+        let raw = &self.mmap[range];
 
         let data = if entry.compressed() {
-            if entry.orig_size > MAX_DECOMPRESS_SIZE {
-                return Err(ShardError::DecompressTooLarge(entry.orig_size));
-            }
-            if entry.flags & ENTRY_FLAG_ZSTD != 0 {
-                zstd::decode_all(raw)
-                    .map_err(|e| ShardError::DecompressFailed(e.to_string()))?
-            } else if entry.flags & ENTRY_FLAG_LZ4 != 0 {
-                lz4_flex::decompress(raw, entry.orig_size as usize)
-                    .map_err(|e| ShardError::DecompressFailed(e.to_string()))?
-            } else {
-                return Err(ShardError::CompressionNotSupported);
-            }
+            decompress_entry_data(raw, entry)?
         } else {
             raw.to_vec()
         };
@@ -1134,12 +1129,9 @@ impl MmapShardV2Reader {
 
     /// Read JSON metadata from schema section, if present.
     pub fn read_metadata(&self) -> Result<Option<ShardMetadata>, ShardError> {
-        let schema_offset = self.header.schema_offset as usize;
-        if schema_offset == 0 {
+        let Some(meta_bytes) = metadata_slice(&self.mmap, &self.header, &self.entries)? else {
             return Ok(None);
-        }
-        let total_file_size = self.header.total_file_size as usize;
-        let meta_bytes = &self.mmap[schema_offset..total_file_size];
+        };
         let meta: ShardMetadata = serde_json::from_slice(meta_bytes)
             .map_err(|e| ShardError::JsonError(e.to_string()))?;
         Ok(Some(meta))

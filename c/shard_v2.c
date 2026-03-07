@@ -95,6 +95,21 @@ static inline void write_le64(uint8_t* p, uint64_t v) {
     p[7] = (uint8_t)(v >> 56);
 }
 
+static bool checked_u64_add(uint64_t a, uint64_t b, uint64_t* out) {
+    if (!out) return false;
+    if (UINT64_MAX - a < b) return false;
+    *out = a + b;
+    return true;
+}
+
+static bool range_within_size(size_t total, uint64_t offset, uint64_t len, uint64_t* end_out) {
+    uint64_t end = 0;
+    if (!checked_u64_add(offset, len, &end)) return false;
+    if (end > (uint64_t)total) return false;
+    if (end_out) *end_out = end;
+    return true;
+}
+
 /* ============================================================
  * CRC32C (Castagnoli, polynomial 0x82F63B78)
  * ============================================================ */
@@ -358,6 +373,9 @@ static shard_v2_reader_t* reader_parse(shard_v2_reader_t* r) {
     if (r->header.total_file_size != (uint64_t)r->data_len) {
         goto fail;
     }
+    if (r->header.schema_offset > (uint64_t)r->data_len) {
+        goto fail;
+    }
 
     n = r->header.entry_count;
     r->entry_count = n;
@@ -389,8 +407,11 @@ static shard_v2_reader_t* reader_parse(shard_v2_reader_t* r) {
     for (uint32_t i = 0; i < n; i++) {
         uint32_t name_off = r->entries[i].name_offset;
         uint16_t name_len = r->entries[i].name_len;
-        uint64_t abs_off  = st_off + name_off;
-        if (abs_off + name_len > r->data_len) goto fail;
+        uint64_t abs_off = 0;
+        if (!checked_u64_add(st_off, name_off, &abs_off) ||
+            !range_within_size(r->data_len, abs_off, name_len, NULL)) {
+            goto fail;
+        }
         r->names[i] = (char*)malloc(name_len + 1);
         if (!r->names[i]) goto fail;
         memcpy(r->names[i], r->data + abs_off, name_len);
@@ -404,10 +425,11 @@ static shard_v2_reader_t* reader_parse(shard_v2_reader_t* r) {
         for (uint32_t i = 0; i < n; i++) {
             uint64_t off  = r->entries[i].data_offset;
             uint64_t size = r->entries[i].disk_size;
+            uint64_t end  = 0;
             if (off < ds_off) goto fail;
-            if (off + size > (uint64_t)r->data_len) goto fail;
+            if (!range_within_size(r->data_len, off, size, &end)) goto fail;
             if (i > 0 && off < prev_end) goto fail;
-            prev_end = off + size;
+            prev_end = end;
         }
     }
 
@@ -606,7 +628,7 @@ const uint8_t* shard_v2_read_entry(const shard_v2_reader_t* r, uint32_t i, size_
     if (!r || i >= r->entry_count) return NULL;
     const shard_v2_index_entry_t* e = &r->entries[i];
 
-    if (e->data_offset + e->disk_size > r->data_len) return NULL;
+    if (!range_within_size(r->data_len, e->data_offset, e->disk_size, NULL)) return NULL;
 
     if (shard_v2_is_compressed(e)) {
         /* Compressed path: decompress into cache on first access. */
@@ -691,7 +713,7 @@ const uint8_t* shard_v2_read_entry_prefix(const shard_v2_reader_t* r, uint32_t i
     if (shard_v2_is_compressed(e)) return NULL;
     size_t sz = (size_t)e->disk_size;
     if (max_bytes < sz) sz = max_bytes;
-    if (e->data_offset + sz > r->data_len) return NULL;
+    if (!range_within_size(r->data_len, e->data_offset, sz, NULL)) return NULL;
     if (out_size) *out_size = sz;
     return r->data + e->data_offset;
 }

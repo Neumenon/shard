@@ -1,0 +1,348 @@
+{
+  "files": [
+    {
+      "filename": "golden_basic.shard",
+      "sha256": "487228df14dc2eff0ed316ec55c759ea7459ab33be61a29a1708411cd13fd67f",
+      "header": {
+        "version": 2,
+        "role": 1,
+        "flags": 162,
+        "alignment": 64,
+        "compression_default": 0,
+        "entry_count": 3,
+        "index_entry_size": 48,
+        "string_table_offset": 208,
+        "data_section_offset": 256,
+        "schema_offset": 0,
+        "total_file_size": 1407
+      },
+      "entries": [
+        {
+          "name": "greeting",
+          "name_hash": 16700977181434310015,
+          "content_type": 5,
+          "orig_size": 11,
+          "disk_size": 11,
+          "checksum": 3381945770,
+          "compressed": false,
+          "data_sha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+        },
+        {
+          "name": "pattern/1k",
+          "name_hash": 11449517142474649281,
+          "content_type": 10,
+          "orig_size": 1024,
+          "disk_size": 1024,
+          "checksum": 752840335,
+          "compressed": false,
+          "data_sha256": "785b0751fc2c53dc14a4ce3d800e69ef9ce1009eb327ccf458afe09c242c26c9"
+        },
+        {
+          "name": "metadata/model",
+          "name_hash": 7724208215623586332,
+          "content_type": 2,
+          "orig_size": 63,
+          "disk_size": 63,
+          "checksum": 4262061395,
+          "compressed": false,
+          "data_sha256": "1b4c9b4a3b92d7b9e6f8cf692cb886a9cbd9fb12f7c6750a420371b968b30e17"
+        }
+      ]
+    },
+    {
+      "filename": "golden_types.shard",
+      "sha256": "cf9d193f9ca96c7d94230b80aa4a7e3ca4774266c576c23daeb44eeb994a9523",
+      "header": {
+        "version": 2,
+        "role": 2,
+        "flags": 162,
+        "alignment": 64,
+        "compression_default": 0,
+        "entry_count": 5,
+        "index_entry_size": 48,
+        "string_table_offset": 304,
+        "data_section_offset": 384,
+        "schema_offset": 0,
+        "total_file_size": 4928
+      },
+      "entries": [
+        {
+          "name": "tensor/weights",
+          "name_hash": 14268158869293769122,
+          "content_type": 1,
+          "orig_size": 4096,
+          "disk_size": 4096,
+          "checksum": 1817819105,
+          "compressed": false,
+          "data_sha256": "fb612d9b9b653549700a30f29e6cef04bcd35f7a122f91a8fa61c79bf605347a"
+        },
+        {
+          "name": "config.json",
+          "name_hash": 4010899755935844745,
+          "content_type": 2,
+          "orig_size": 27,
+          "disk_size": 27,
+          "checksum": 2923727015,
+          "compressed": false,
+          "data_sha256": "ef478e2fad8508eafab8776872f59fbd658353d9f97f860bfcd58daedcbd580b"
+        },
+        {
+          "name": "config.glyph",
+          "name_hash": 8537223467359895312,
+          "content_type": 4,
+          "orig_size": 22,
+          "disk_size": 22,
+          "checksum": 2175825978,
+          "compressed": false,
+          "data_sha256": "849eb0bf68979141a52432cbc998a767cd37eb304f5e8fc0a0bd5d9001611263"
+        },
+        {
+          "name": "readme.txt",
+          "name_hash": 7447530330435853781,
+          "content_type": 5,
+          "orig_size": 35,
+          "disk_size": 35,
+          "checksum": 436240408,
+          "compressed": false,
+          "data_sha256": "9b9484324c91a5a001dc746f0cf31d8176cef85db8405aee0781b8511adf1dc7"
+        },
+        {
+          "name": "image/thumbnail",
+          "name_hash": 12685321276006778552,
+          "content_type": 6,
+          "orig_size": 256,
+          "disk_size": 256,
+          "checksum": 4184433400,
+          "compressed": false,
+          "data_sha256": "8868762847d186a2fd707ac60cf0069b8caae69c5d90310848ab94e033c61db4"
+        }
+      ]
+    },
+    {
+      "filename": "golden_align16.shard",
+      "sha256": "e0056ea463fc94ab58967fef9fd464fc3ec96bc649e643e3377223fc85c585ce",
+      "header": {
+        "version": 2,
+        "role": 1,
+        "flags": 162,
+        "alignment": 16,
+        "compression_default": 0,
+        "entry_count": 2,
+        "index_entry_size": 48,
+        "string_table_offset": 160,
+        "data_section_offset": 176,
+        "schema_offset": 0,
+        "total_file_size": 292
+      },
+      "entries": [
+        {
+          "name": "a",
+          "name_hash": 15154266338359012955,
+          "content_type": 5,
+          "orig_size": 5,
+          "disk_size": 5,
+          "checksum": 1623414395,
+          "compressed": false,
+          "data_sha256": "f9b0078b5df596d2ea19010c001bbd009e651de2c57e8fb7e355f31eb9d3f739"
+        },
+        {
+          "name": "b",
+          "name_hash": 8666379929374662555,
+          "content_type": 10,
+          "orig_size": 100,
+          "disk_size": 100,
+          "checksum": 3235686185,
+          "compressed": false,
+          "data_sha256": "a5cf82ae547e6976caebaff6d459598385fa73084c685782c7edb12da34d1b3d"
+        }
+      ]
+    },
+    {
+      "filename": "golden_noalign.shard",
+      "sha256": "7e3b4acbdea04d981ed1c635a5e571ccfce1db8d82aed108c9937ba60cab9ead",
+      "header": {
+        "version": 2,
+        "role": 1,
+        "flags": 162,
+        "alignment": 0,
+        "compression_default": 0,
+        "entry_count": 2,
+        "index_entry_size": 48,
+        "string_table_offset": 160,
+        "data_section_offset": 164,
+        "schema_offset": 0,
+        "total_file_size": 176
+      },
+      "entries": [
+        {
+          "name": "x",
+          "name_hash": 6665539201184043299,
+          "content_type": 10,
+          "orig_size": 4,
+          "disk_size": 4,
+          "checksum": 4057757582,
+          "compressed": false,
+          "data_sha256": "5f78c33274e43fa9de5659265c1d917e25c03722dcb0b8d27db8d5feaa813953"
+        },
+        {
+          "name": "y",
+          "name_hash": 13923454618160480178,
+          "content_type": 10,
+          "orig_size": 8,
+          "disk_size": 8,
+          "checksum": 3145601971,
+          "compressed": false,
+          "data_sha256": "117638e8b13b2ae24ea0bc41a271dbeede26f6a6b5e5c2daef495c0d1d7b5568"
+        }
+      ]
+    },
+    {
+      "filename": "golden_wshard.shard",
+      "sha256": "43b3474161442989a2938a235010e5cf2a0e153a4b12b68a59e2931e6bf21328",
+      "header": {
+        "version": 2,
+        "role": 5,
+        "flags": 162,
+        "alignment": 64,
+        "compression_default": 0,
+        "entry_count": 3,
+        "index_entry_size": 48,
+        "string_table_offset": 208,
+        "data_section_offset": 320,
+        "schema_offset": 0,
+        "total_file_size": 1675
+      },
+      "entries": [
+        {
+          "name": "signal/imu",
+          "name_hash": 4930816044968525988,
+          "content_type": 10,
+          "orig_size": 600,
+          "disk_size": 600,
+          "checksum": 3613665374,
+          "compressed": false,
+          "data_sha256": "bd2b96fab3834f67e55e3fec0c7df78b1274159085e4cd6b18602558d14740ef"
+        },
+        {
+          "name": "omen/imu/mlp_v1",
+          "name_hash": 16966689604114254082,
+          "content_type": 10,
+          "orig_size": 600,
+          "disk_size": 600,
+          "checksum": 4013429539,
+          "compressed": false,
+          "data_sha256": "e20146da666455879b899668b08160152cd2eca558549e98676402f71e287825"
+        },
+        {
+          "name": "residual/imu/sign2nddiff",
+          "name_hash": 4414458669179889149,
+          "content_type": 10,
+          "orig_size": 75,
+          "disk_size": 75,
+          "checksum": 4037150595,
+          "compressed": false,
+          "data_sha256": "af6f764b02da66ff0151cc883b97b61afc314c85cc3ff5d2e57fd579e53cf053"
+        }
+      ]
+    },
+    {
+      "filename": "golden_hierarchical.shard",
+      "sha256": "aea0e2a1239a59ec9d2260c540ff755b96351b9517d60688eae95b30041583f1",
+      "header": {
+        "version": 2,
+        "role": 1,
+        "flags": 162,
+        "alignment": 64,
+        "compression_default": 0,
+        "entry_count": 8,
+        "index_entry_size": 48,
+        "string_table_offset": 448,
+        "data_section_offset": 704,
+        "schema_offset": 0,
+        "total_file_size": 9024
+      },
+      "entries": [
+        {
+          "name": "layer.0/attention/q_proj/weight",
+          "name_hash": 5849259052093732705,
+          "content_type": 1,
+          "orig_size": 512,
+          "disk_size": 512,
+          "checksum": 3374896620,
+          "compressed": false,
+          "data_sha256": "28398ff046bc535a237de195155297befb0482729ae810c6238564f440be76a1"
+        },
+        {
+          "name": "layer.0/attention/k_proj/weight",
+          "name_hash": 14695571574228440880,
+          "content_type": 1,
+          "orig_size": 512,
+          "disk_size": 512,
+          "checksum": 3600458702,
+          "compressed": false,
+          "data_sha256": "2272ae691b6ae9a5e6a2e73399ac0f4940a92d89bef1656332176cf9fe37d8a3"
+        },
+        {
+          "name": "layer.0/attention/v_proj/weight",
+          "name_hash": 8985939025931988576,
+          "content_type": 1,
+          "orig_size": 512,
+          "disk_size": 512,
+          "checksum": 2404250664,
+          "compressed": false,
+          "data_sha256": "72c4a922e03dc0b0b47e1b9b8f84568e4d1fbcb7b4126c399a1474dd3232fadc"
+        },
+        {
+          "name": "layer.0/attention/o_proj/weight",
+          "name_hash": 4427070529554003615,
+          "content_type": 1,
+          "orig_size": 512,
+          "disk_size": 512,
+          "checksum": 3252991925,
+          "compressed": false,
+          "data_sha256": "88b9475b5af74e27d7a222713694e964899f9e57e240807d1131e1efcd92e340"
+        },
+        {
+          "name": "layer.0/ffn/gate/weight",
+          "name_hash": 7777247805686235758,
+          "content_type": 1,
+          "orig_size": 2048,
+          "disk_size": 2048,
+          "checksum": 3801602145,
+          "compressed": false,
+          "data_sha256": "a04ab91887f01a03f81447c52555daf8bdd12b05820fdeee5bf51034fd5f582f"
+        },
+        {
+          "name": "layer.0/ffn/up/weight",
+          "name_hash": 5945135977106567835,
+          "content_type": 1,
+          "orig_size": 2048,
+          "disk_size": 2048,
+          "checksum": 1273217590,
+          "compressed": false,
+          "data_sha256": "2761e1042571671571a4ed60fd051780facb7ff339f5f62f95a9ade9b5ec9a0b"
+        },
+        {
+          "name": "layer.0/ffn/down/weight",
+          "name_hash": 9799028502101065133,
+          "content_type": 1,
+          "orig_size": 2048,
+          "disk_size": 2048,
+          "checksum": 324665330,
+          "compressed": false,
+          "data_sha256": "45ecbadc7ec56f219b77bfddc2ea8af29d941fba75c80542362c00b18ec29f79"
+        },
+        {
+          "name": "layer.0/norm",
+          "name_hash": 5070234111195826601,
+          "content_type": 1,
+          "orig_size": 128,
+          "disk_size": 128,
+          "checksum": 412440727,
+          "compressed": false,
+          "data_sha256": "d1b27fdf2fa02f6d6a716b42c0036008b698de461afc05cc274aeeb69bb5a3bf"
+        }
+      ]
+    }
+  ]
+}

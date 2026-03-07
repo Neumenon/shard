@@ -19,6 +19,17 @@ import (
 	"github.com/phenomenon0/Agent-GO/pkg/quant"
 )
 
+const (
+	maxGenerateBodyBytes = 1 << 20
+	maxGenerateTokens    = 4096
+)
+
+type generateRequest struct {
+	Prompt      string  `json:"prompt"`
+	MaxTokens   int     `json:"max_tokens"`
+	Temperature float64 `json:"temperature"`
+}
+
 func runRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	umshPath := fs.String("umsh", "", "Path to UMSH/MoSH model file (.umsh or .mosh)")
@@ -368,28 +379,16 @@ func runInferenceServer(model *inference.LLaMAModel, tokenizer llm.Tokenizer, po
 	fmt.Printf("  POST /api/generate - Generate text\n")
 	fmt.Printf("  GET  /api/health   - Health check\n\n")
 
-	http.HandleFunc("/api/generate", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/generate", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		var req struct {
-			Prompt      string  `json:"prompt"`
-			MaxTokens   int     `json:"max_tokens"`
-			Temperature float64 `json:"temperature"`
-		}
-
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		req, ok := decodeGenerateRequest(w, r)
+		if !ok {
 			return
-		}
-
-		if req.MaxTokens <= 0 {
-			req.MaxTokens = 100
-		}
-		if req.Temperature <= 0 {
-			req.Temperature = 0.7
 		}
 
 		// Encode
@@ -451,12 +450,12 @@ func runInferenceServer(model *inference.LLaMAModel, tokenizer llm.Tokenizer, po
 		json.NewEncoder(w).Encode(resp)
 	})
 
-	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
-	return http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
+	return newHTTPServer(fmt.Sprintf(":%d", port), mux).ListenAndServe()
 }
 
 // logMemoryUsage logs current memory statistics
@@ -562,32 +561,20 @@ func runLegacyInteractive(engine *quant.InferenceEngine, maxTokens int, temperat
 func runLegacyServer(engine *quant.InferenceEngine, port int) error {
 	fmt.Printf("Starting legacy server on port %d\n", port)
 
-	http.HandleFunc("/api/generate", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/generate", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		var req struct {
-			Prompt      string  `json:"prompt"`
-			MaxTokens   int     `json:"max_tokens"`
-			Temperature float32 `json:"temperature"`
-		}
-
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		req, ok := decodeGenerateRequest(w, r)
+		if !ok {
 			return
 		}
 
-		if req.MaxTokens <= 0 {
-			req.MaxTokens = 100
-		}
-		if req.Temperature <= 0 {
-			req.Temperature = 0.7
-		}
-
 		tokens := simpleTokenize(req.Prompt)
-		output, err := engine.Generate(tokens, req.MaxTokens, req.Temperature)
+		output, err := engine.Generate(tokens, req.MaxTokens, float32(req.Temperature))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -607,12 +594,49 @@ func runLegacyServer(engine *quant.InferenceEngine, port int) error {
 		json.NewEncoder(w).Encode(resp)
 	})
 
-	http.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprint(w, engine.ModelInfo())
 	})
 
-	return http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
+	return newHTTPServer(fmt.Sprintf(":%d", port), mux).ListenAndServe()
+}
+
+func decodeGenerateRequest(w http.ResponseWriter, r *http.Request) (generateRequest, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxGenerateBodyBytes)
+	defer r.Body.Close()
+
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	var req generateRequest
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return generateRequest{}, false
+	}
+	if req.MaxTokens <= 0 {
+		req.MaxTokens = 100
+	}
+	if req.MaxTokens > maxGenerateTokens {
+		http.Error(w, fmt.Sprintf("max_tokens too large: %d > %d", req.MaxTokens, maxGenerateTokens), http.StatusBadRequest)
+		return generateRequest{}, false
+	}
+	if req.Temperature <= 0 {
+		req.Temperature = 0.7
+	}
+
+	return req, true
+}
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      2 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+	}
 }
 
 // Placeholder tokenizer for legacy engine
