@@ -1,8 +1,8 @@
 //! Compression roundtrip and edge-case tests for Shard v2.
 
 use shard_format::{
-    compute_crc32c, ShardV2Reader, ShardV2Writer,
-    COMPRESS_LZ4, COMPRESS_NONE, COMPRESS_ZSTD, ROLE_MOSH,
+    compute_crc32c, ShardError, ShardV2Reader, ShardV2Writer,
+    COMPRESS_LZ4, COMPRESS_NONE, COMPRESS_ZSTD, HEADER_SIZE, ROLE_MOSH,
 };
 
 #[test]
@@ -155,4 +155,28 @@ fn test_incompressible_data_stored_uncompressed() {
     let r = ShardV2Reader::from_bytes(bytes).unwrap();
     // Whether compressed or not, the decompressed data must round-trip correctly.
     assert_eq!(r.read_entry(0).unwrap(), data);
+}
+
+#[test]
+fn test_zstd_declared_orig_size_is_enforced() {
+    let payload = vec![0xABu8; 4096];
+    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    w.set_compression(COMPRESS_ZSTD);
+    w.write_entry_compressed("bomb", &payload);
+    let mut bytes = w.to_bytes();
+
+    let info = ShardV2Reader::from_bytes(bytes.clone()).unwrap().get_entry_info(0).clone();
+    assert!(info.compressed(), "payload should be stored compressed for this test");
+
+    let declared_size = 64u64;
+    let orig_size_off = HEADER_SIZE + 32;
+    bytes[orig_size_off..orig_size_off + 8].copy_from_slice(&declared_size.to_le_bytes());
+
+    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let err = r.read_entry(0).unwrap_err();
+    assert!(
+        matches!(err, ShardError::DecompressTooLarge(size) if size > declared_size),
+        "expected bounded zstd decode failure, got: {:?}",
+        err
+    );
 }

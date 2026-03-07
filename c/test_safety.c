@@ -49,6 +49,29 @@ static void make_path(char* out, size_t outsz, const char* dir, const char* file
     snprintf(out, outsz, "%s/%s", dir, file);
 }
 
+static void write_u16_le(uint8_t* p, uint16_t v) {
+    p[0] = (uint8_t)(v & 0xFFu);
+    p[1] = (uint8_t)((v >> 8) & 0xFFu);
+}
+
+static void write_u32_le(uint8_t* p, uint32_t v) {
+    p[0] = (uint8_t)(v & 0xFFu);
+    p[1] = (uint8_t)((v >> 8) & 0xFFu);
+    p[2] = (uint8_t)((v >> 16) & 0xFFu);
+    p[3] = (uint8_t)((v >> 24) & 0xFFu);
+}
+
+static void write_u64_le(uint8_t* p, uint64_t v) {
+    p[0] = (uint8_t)(v & 0xFFu);
+    p[1] = (uint8_t)((v >> 8) & 0xFFu);
+    p[2] = (uint8_t)((v >> 16) & 0xFFu);
+    p[3] = (uint8_t)((v >> 24) & 0xFFu);
+    p[4] = (uint8_t)((v >> 32) & 0xFFu);
+    p[5] = (uint8_t)((v >> 40) & 0xFFu);
+    p[6] = (uint8_t)((v >> 48) & 0xFFu);
+    p[7] = (uint8_t)((v >> 56) & 0xFFu);
+}
+
 /* ============================================================
  * Signal-based crash guard for corrupt shard tests
  *
@@ -361,6 +384,46 @@ static void test_corrupt_all_zeros(void) {
     printf("\n");
 }
 
+static void test_corrupt_overflowing_entry_range(void) {
+    printf("[ corrupt_overflowing_entry_range (synthetic) ]\n");
+
+    uint8_t buf[SHARD_HEADER_SIZE + SHARD_INDEX_ENTRY_SIZE + 2];
+    memset(buf, 0, sizeof(buf));
+
+    memcpy(buf, SHARD_MAGIC, 4);
+    buf[4] = SHARD_VERSION2;
+    buf[5] = ROLE_UNKNOWN;
+    write_u16_le(buf + 6, FLAG_LITTLE_ENDIAN);
+    buf[8] = ALIGN_NONE;
+    buf[9] = COMPRESS_NONE;
+    write_u16_le(buf + 10, SHARD_INDEX_ENTRY_SIZE);
+    write_u32_le(buf + 12, 1);
+    write_u64_le(buf + 16, SHARD_HEADER_SIZE + SHARD_INDEX_ENTRY_SIZE);
+    write_u64_le(buf + 24, SHARD_HEADER_SIZE + SHARD_INDEX_ENTRY_SIZE + 2);
+    write_u64_le(buf + 32, 0);
+    write_u64_le(buf + 40, sizeof(buf));
+
+    uint8_t* entry = buf + SHARD_HEADER_SIZE;
+    write_u64_le(entry + 0, 0);
+    write_u32_le(entry + 8, 0);
+    write_u16_le(entry + 12, 1);
+    write_u16_le(entry + 14, 0);
+    write_u64_le(entry + 16, UINT64_MAX - 7);
+    write_u64_le(entry + 24, 16);
+    write_u64_le(entry + 32, 16);
+    write_u32_le(entry + 40, 0);
+    write_u32_le(entry + 44, 0);
+
+    buf[SHARD_HEADER_SIZE + SHARD_INDEX_ENTRY_SIZE] = 'x';
+    buf[SHARD_HEADER_SIZE + SHARD_INDEX_ENTRY_SIZE + 1] = '\0';
+
+    shard_v2_reader_t* r = shard_v2_from_buffer(buf, sizeof(buf));
+    check(r == NULL, "corrupt_overflowing_entry_range: open returns NULL (overflowing data range rejected)");
+    if (r) shard_v2_close(r);
+
+    printf("\n");
+}
+
 /* ============================================================
  * Concurrent reads test (pthreads)
  *
@@ -590,6 +653,7 @@ int main(int argc, char* argv[]) {
     test_corrupt_wrong_magic();
     test_corrupt_random_bytes();
     test_corrupt_all_zeros();
+    test_corrupt_overflowing_entry_range();
 
     /* ============================================================
      * Concurrent reads test

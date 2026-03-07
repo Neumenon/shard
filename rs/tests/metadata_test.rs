@@ -329,6 +329,33 @@ fn metadata_default_schema_version() {
     assert_eq!(got.schema_version, "shard-v2.1");
 }
 
+#[test]
+fn security_schema_offset_beyond_file_is_rejected() {
+    let mut buf = make_shard_with_meta(&[("data", b"hello")], ShardMetadata::default());
+    let invalid = (buf.len() as u64) + 1;
+    buf[32..40].copy_from_slice(&invalid.to_le_bytes());
+
+    let err = ShardV2Reader::from_bytes(buf).unwrap_err();
+    let msg = format!("{}", err);
+    assert!(msg.contains("schema_offset"), "expected schema_offset error, got: {}", msg);
+}
+
+#[test]
+fn security_schema_offset_overlapping_data_is_rejected() {
+    let mut buf = make_shard_with_meta(&[("data", b"hello world")], ShardMetadata::default());
+    let entry_data_offset_off = HEADER_SIZE + 16;
+    let data_offset = u64::from_le_bytes(
+        buf[entry_data_offset_off..entry_data_offset_off + 8]
+            .try_into()
+            .unwrap(),
+    );
+    buf[32..40].copy_from_slice(&data_offset.to_le_bytes());
+
+    let err = ShardV2Reader::from_bytes(buf).unwrap_err();
+    let msg = format!("{}", err);
+    assert!(msg.contains("schema_offset"), "expected schema_offset error, got: {}", msg);
+}
+
 // ============================================================
 // Security limits
 // ============================================================

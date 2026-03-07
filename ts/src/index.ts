@@ -53,6 +53,7 @@ async function getXxhashModule() {
 // ============================================================
 
 let _zstdReady = false;
+const ZSTD_FRAME_MAGIC = 0xFD2FB528;
 
 /**
  * Initialize compression libraries (zstd WASM).
@@ -74,11 +75,122 @@ function zstdCompress(data: Uint8Array): Uint8Array {
 }
 
 /** Decompress zstd data. */
-function zstdDecompress(data: Uint8Array): Uint8Array {
+function zstdDecompress(
+  data: Uint8Array,
+  expectedSize?: number,
+  maxOutputSize: number = MAX_DECOMPRESS_SIZE,
+): Uint8Array {
   if (!_zstdReady) {
     throw new Error('zstd not initialized — call await initCompression() first');
   }
-  return zstdWasmDecompress(data);
+
+  if (expectedSize !== undefined && expectedSize > maxOutputSize) {
+    throw new Error(`decompressed size ${expectedSize} exceeds limit ${maxOutputSize}`);
+  }
+
+  const declaredSize = zstdFrameContentSize(data);
+  if (declaredSize !== null) {
+    if (declaredSize > maxOutputSize) {
+      throw new Error(`zstd frame content size ${declaredSize} exceeds limit ${maxOutputSize}`);
+    }
+    if (expectedSize !== undefined && declaredSize !== expectedSize) {
+      throw new Error(
+        `zstd frame content size ${declaredSize} does not match expected size ${expectedSize}`,
+      );
+    }
+  }
+
+  const output = zstdWasmDecompress(data);
+  if (output.length > maxOutputSize) {
+    throw new Error(`zstd output size ${output.length} exceeds limit ${maxOutputSize}`);
+  }
+  if (expectedSize !== undefined && output.length !== expectedSize) {
+    throw new Error(`zstd output size ${output.length} does not match expected size ${expectedSize}`);
+  }
+  return output;
+}
+
+function zstdFrameContentSize(data: Uint8Array): number | null {
+  const buf = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  if (buf.length < 5) {
+    throw new Error('truncated zstd frame');
+  }
+  if (buf.readUInt32LE(0) !== ZSTD_FRAME_MAGIC) {
+    throw new Error('invalid zstd frame magic');
+  }
+
+  const descriptor = buf[4];
+  const frameContentSizeFlag = descriptor >> 6;
+  const singleSegment = (descriptor & 0x20) !== 0;
+  const dictIdFlag = descriptor & 0x03;
+
+  let offset = 5;
+  if (!singleSegment) {
+    if (buf.length < offset + 1) {
+      throw new Error('truncated zstd window descriptor');
+    }
+    offset += 1;
+  }
+
+  switch (dictIdFlag) {
+    case 0:
+      break;
+    case 1:
+      offset += 1;
+      break;
+    case 2:
+      offset += 2;
+      break;
+    case 3:
+      offset += 4;
+      break;
+  }
+
+  let fcsSize = 0;
+  switch (frameContentSizeFlag) {
+    case 0:
+      fcsSize = singleSegment ? 1 : 0;
+      break;
+    case 1:
+      fcsSize = 2;
+      break;
+    case 2:
+      fcsSize = 4;
+      break;
+    case 3:
+      fcsSize = 8;
+      break;
+  }
+
+  if (fcsSize === 0) {
+    return null;
+  }
+  if (buf.length < offset + fcsSize) {
+    throw new Error('truncated zstd frame content size');
+  }
+
+  let size: bigint;
+  switch (fcsSize) {
+    case 1:
+      size = BigInt(buf[offset]);
+      break;
+    case 2:
+      size = BigInt(buf.readUInt16LE(offset) + 256);
+      break;
+    case 4:
+      size = BigInt(buf.readUInt32LE(offset));
+      break;
+    case 8:
+      size = readUint64LE(buf, offset);
+      break;
+    default:
+      return null;
+  }
+
+  if (size > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`zstd frame content size ${size.toString()} exceeds Number.MAX_SAFE_INTEGER`);
+  }
+  return Number(size);
 }
 
 /**
@@ -684,7 +796,7 @@ export class ShardV2Reader {
         throw new Error(`decompressed size ${origSize} exceeds limit ${MAX_DECOMPRESS_SIZE}`);
       }
       if (entry.flags & ENTRY_FLAG_ZSTD) {
-        data = Buffer.from(zstdDecompress(data));
+        data = Buffer.from(zstdDecompress(data, origSize, MAX_DECOMPRESS_SIZE));
       } else if (entry.flags & ENTRY_FLAG_LZ4) {
         data = lz4BlockDecompress(data, origSize);
       } else {

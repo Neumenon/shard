@@ -3,8 +3,8 @@
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use shard_format::{
-    MmapShardV2Reader, ShardV2Writer,
-    ROLE_MOSH, FLAG_HAS_CHECKSUMS,
+    MmapShardV2Reader, ShardError, ShardV2Writer,
+    ROLE_MOSH, FLAG_HAS_CHECKSUMS, HEADER_SIZE,
 };
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -361,6 +361,35 @@ fn test_mmap_compressed_entry_lz4() {
         let via_decompress = r.read_entry_decompressed(0).unwrap();
         assert_eq!(via_zero_copy, via_decompress.as_slice());
     }
+}
+
+#[test]
+fn test_mmap_zstd_declared_orig_size_is_enforced() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("bounded_zstd.shard");
+
+    let payload = vec![0xAAu8; 4096];
+    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    w.set_compression(shard_format::COMPRESS_ZSTD);
+    w.write_entry_compressed("bomb", &payload);
+    w.write_to_file(&path).unwrap();
+
+    let info = MmapShardV2Reader::open(&path).unwrap().get_entry_info(0).clone();
+    assert!(info.compressed(), "payload should be stored compressed for this test");
+
+    let mut bytes = std::fs::read(&path).unwrap();
+    let declared_size = 64u64;
+    let orig_size_off = HEADER_SIZE + 32;
+    bytes[orig_size_off..orig_size_off + 8].copy_from_slice(&declared_size.to_le_bytes());
+    std::fs::write(&path, bytes).unwrap();
+
+    let r = MmapShardV2Reader::open(&path).unwrap();
+    let err = r.read_entry_decompressed(0).unwrap_err();
+    assert!(
+        matches!(err, ShardError::DecompressTooLarge(size) if size > declared_size),
+        "expected bounded zstd decode failure, got: {:?}",
+        err
+    );
 }
 
 // ============================================================
