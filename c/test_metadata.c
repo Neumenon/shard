@@ -263,7 +263,9 @@ TEST(join_path_multi) {
  * list_children tests
  * ============================================================ */
 
-static shard_v2_reader_t* make_layered_reader(void) {
+/* make_layered_reader returns reader + buffer.  Caller must free buf AFTER closing reader,
+ * because shard_v2_from_buffer borrows the pointer (owns_buf=false). */
+static shard_v2_reader_t* make_layered_reader(uint8_t** out_buf) {
     test_entry_t entries[] = {
         {"layer.0/weight", (const uint8_t*)"w0", 2},
         {"layer.0/bias",   (const uint8_t*)"b0", 2},
@@ -271,10 +273,8 @@ static shard_v2_reader_t* make_layered_reader(void) {
         {"embed",          (const uint8_t*)"tok", 3},
     };
     size_t len;
-    uint8_t* buf = build_shard(entries, 4, 64, &len);
-    shard_v2_reader_t* r = shard_v2_from_buffer(buf, len);
-    free(buf);
-    return r;
+    *out_buf = build_shard(entries, 4, 64, &len);
+    return shard_v2_from_buffer(*out_buf, len);
 }
 
 /* Helper: check that array `arr` of `n` strings contains `needle`. */
@@ -286,7 +286,8 @@ static bool arr_contains(char** arr, uint32_t n, const char* needle) {
 }
 
 TEST(list_children_exact_prefix_with_slash) {
-    shard_v2_reader_t* r = make_layered_reader();
+    uint8_t* buf;
+    shard_v2_reader_t* r = make_layered_reader(&buf);
     assert(r != NULL);
     uint32_t count = 0;
     char** children = shard_v2_list_children(r, "layer.0/", &count);
@@ -296,10 +297,12 @@ TEST(list_children_exact_prefix_with_slash) {
     assert(arr_contains(children, count, "layer.0/bias"));
     shard_v2_list_children_free(children, count);
     shard_v2_close(r);
+    free(buf);
 }
 
 TEST(list_children_empty_prefix_returns_top_level) {
-    shard_v2_reader_t* r = make_layered_reader();
+    uint8_t* buf;
+    shard_v2_reader_t* r = make_layered_reader(&buf);
     assert(r != NULL);
     uint32_t count = 0;
     char** children = shard_v2_list_children(r, "", &count);
@@ -311,10 +314,12 @@ TEST(list_children_empty_prefix_returns_top_level) {
     assert(count == 3);
     shard_v2_list_children_free(children, count);
     shard_v2_close(r);
+    free(buf);
 }
 
 TEST(list_children_partial_prefix) {
-    shard_v2_reader_t* r = make_layered_reader();
+    uint8_t* buf;
+    shard_v2_reader_t* r = make_layered_reader(&buf);
     assert(r != NULL);
     uint32_t count = 0;
     char** children = shard_v2_list_children(r, "layer.", &count);
@@ -324,10 +329,12 @@ TEST(list_children_partial_prefix) {
     assert(arr_contains(children, count, "layer.1/"));
     shard_v2_list_children_free(children, count);
     shard_v2_close(r);
+    free(buf);
 }
 
 TEST(list_children_nonexistent_prefix) {
-    shard_v2_reader_t* r = make_layered_reader();
+    uint8_t* buf;
+    shard_v2_reader_t* r = make_layered_reader(&buf);
     assert(r != NULL);
     uint32_t count = 0;
     char** children = shard_v2_list_children(r, "nonexistent/", &count);
@@ -335,6 +342,7 @@ TEST(list_children_nonexistent_prefix) {
     assert(count == 0);
     shard_v2_list_children_free(children, count);
     shard_v2_close(r);
+    free(buf);
 }
 
 TEST(list_children_deduplicated_directories) {
@@ -346,7 +354,6 @@ TEST(list_children_deduplicated_directories) {
     size_t len;
     uint8_t* buf = build_shard(entries, 3, 64, &len);
     shard_v2_reader_t* r = shard_v2_from_buffer(buf, len);
-    free(buf);
     assert(r != NULL);
 
     uint32_t count = 0;
@@ -360,6 +367,7 @@ TEST(list_children_deduplicated_directories) {
     assert(a_count == 1);
     shard_v2_list_children_free(children, count);
     shard_v2_close(r);
+    free(buf);
 }
 
 TEST(list_children_hierarchical_three_levels) {
@@ -372,7 +380,6 @@ TEST(list_children_hierarchical_three_levels) {
     size_t len;
     uint8_t* buf = build_shard(entries, 4, 64, &len);
     shard_v2_reader_t* r = shard_v2_from_buffer(buf, len);
-    free(buf);
     assert(r != NULL);
 
     /* Top-level */
@@ -399,6 +406,7 @@ TEST(list_children_hierarchical_three_levels) {
     shard_v2_list_children_free(under_ab, count);
 
     shard_v2_close(r);
+    free(buf);
 }
 
 /* ============================================================
@@ -415,7 +423,6 @@ TEST(read_entry_prefix_first_n_bytes) {
     size_t buf_len;
     uint8_t* buf = build_shard(entries, 1, 64, &buf_len);
     shard_v2_reader_t* r = shard_v2_from_buffer(buf, buf_len);
-    free(buf);
     assert(r != NULL);
 
     size_t out_size = 0;
@@ -424,6 +431,7 @@ TEST(read_entry_prefix_first_n_bytes) {
     assert(out_size == 5);
     assert(memcmp(got, "Hello", 5) == 0);
     shard_v2_close(r);
+    free(buf);
 }
 
 TEST(read_entry_prefix_full_entry) {
@@ -433,7 +441,6 @@ TEST(read_entry_prefix_full_entry) {
     size_t buf_len;
     uint8_t* buf = build_shard(entries, 1, 64, &buf_len);
     shard_v2_reader_t* r = shard_v2_from_buffer(buf, buf_len);
-    free(buf);
     assert(r != NULL);
 
     size_t out_size = 0;
@@ -442,6 +449,7 @@ TEST(read_entry_prefix_full_entry) {
     assert(out_size == PAYLOAD_LEN);
     assert(memcmp(got, PAYLOAD, PAYLOAD_LEN) == 0);
     shard_v2_close(r);
+    free(buf);
 }
 
 TEST(read_entry_prefix_exceeds_entry_length) {
@@ -451,7 +459,6 @@ TEST(read_entry_prefix_exceeds_entry_length) {
     size_t buf_len;
     uint8_t* buf = build_shard(entries, 1, 64, &buf_len);
     shard_v2_reader_t* r = shard_v2_from_buffer(buf, buf_len);
-    free(buf);
     assert(r != NULL);
 
     size_t out_size = 0;
@@ -460,6 +467,7 @@ TEST(read_entry_prefix_exceeds_entry_length) {
     assert(out_size == PAYLOAD_LEN);
     assert(memcmp(got, PAYLOAD, PAYLOAD_LEN) == 0);
     shard_v2_close(r);
+    free(buf);
 }
 
 TEST(read_entry_prefix_zero_bytes) {
@@ -469,7 +477,6 @@ TEST(read_entry_prefix_zero_bytes) {
     size_t buf_len;
     uint8_t* buf = build_shard(entries, 1, 64, &buf_len);
     shard_v2_reader_t* r = shard_v2_from_buffer(buf, buf_len);
-    free(buf);
     assert(r != NULL);
 
     size_t out_size = 99;
@@ -477,6 +484,7 @@ TEST(read_entry_prefix_zero_bytes) {
     assert(got != NULL);
     assert(out_size == 0);
     shard_v2_close(r);
+    free(buf);
 }
 
 TEST(read_entry_prefix_one_byte) {
@@ -486,7 +494,6 @@ TEST(read_entry_prefix_one_byte) {
     size_t buf_len;
     uint8_t* buf = build_shard(entries, 1, 64, &buf_len);
     shard_v2_reader_t* r = shard_v2_from_buffer(buf, buf_len);
-    free(buf);
     assert(r != NULL);
 
     size_t out_size = 0;
@@ -495,6 +502,7 @@ TEST(read_entry_prefix_one_byte) {
     assert(out_size == 1);
     assert(got[0] == 'H');
     shard_v2_close(r);
+    free(buf);
 }
 
 /* ============================================================
