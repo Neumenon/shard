@@ -665,7 +665,10 @@ func (w *ShardV2Writer) Close() error {
 	currentPos := dataSectionOffset
 	for i, e := range w.entries {
 		// Alignment padding
-		expectedOffset := int64(dataOffsets[i])
+		expectedOffset, ok := uint64ToInt64(dataOffsets[i])
+		if !ok {
+			return fmt.Errorf("shard v2: data offset %d exceeds int64 range", dataOffsets[i])
+		}
 		if currentPos < expectedOffset {
 			padding := make([]byte, expectedOffset-currentPos)
 			if _, err := w.file.Write(padding); err != nil {
@@ -705,7 +708,11 @@ func (w *ShardV2Writer) Close() error {
 	}
 
 	// VALIDATION: Assert final file size matches header
-	if currentPos != int64(w.header.TotalFileSize) {
+	totalFileSize, ok := uint64ToInt64(w.header.TotalFileSize)
+	if !ok {
+		return fmt.Errorf("shard v2: total file size %d exceeds int64 range", w.header.TotalFileSize)
+	}
+	if currentPos != totalFileSize {
 		return fmt.Errorf("shard v2: file size mismatch: header says %d, actual %d",
 			w.header.TotalFileSize, currentPos)
 	}
@@ -1121,7 +1128,12 @@ func OpenShardV2(path string) (*ShardV2Reader, error) {
 		f.Close()
 		return nil, err
 	}
-	if header.TotalFileSize != uint64(info.Size()) {
+	totalFileSize, ok := uint64ToInt64(header.TotalFileSize)
+	if !ok {
+		f.Close()
+		return nil, fmt.Errorf("%w: total file size %d exceeds int64 range", ErrV2IndexCorrupt, header.TotalFileSize)
+	}
+	if totalFileSize != info.Size() {
 		f.Close()
 		return nil, fmt.Errorf("%w: TotalFileSize %d != actual file size %d", ErrV2IndexCorrupt, header.TotalFileSize, info.Size())
 	}

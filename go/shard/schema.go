@@ -336,7 +336,15 @@ func (s *ShardSchema) Validate(tensors map[string]TensorInfo) []ValidationError 
 				})
 			} else {
 				for i, expected := range spec.Shape {
-					if expected >= 0 && expected != int64(info.Shape[i]) {
+					actualDim, ok := uint64ToInt64(info.Shape[i])
+					if !ok {
+						errors = append(errors, ValidationError{
+							TensorName: name,
+							Message:    fmt.Sprintf("dim[%d] exceeds int64 range: %d", i, info.Shape[i]),
+						})
+						break
+					}
+					if expected >= 0 && expected != actualDim {
 						errors = append(errors, ValidationError{
 							TensorName: name,
 							Message:    fmt.Sprintf("dim[%d] mismatch: expected %d, got %d", i, expected, info.Shape[i]),
