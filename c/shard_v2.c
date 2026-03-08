@@ -110,6 +110,13 @@ static bool range_within_size(size_t total, uint64_t offset, uint64_t len, uint6
     return true;
 }
 
+/* Overflow-safe size_t multiplication: returns false on overflow */
+static bool safe_size_mul(size_t a, size_t b, size_t* result) {
+    if (a != 0 && b > SIZE_MAX / a) return false;
+    *result = a * b;
+    return true;
+}
+
 /* ============================================================
  * CRC32C (Castagnoli, polynomial 0x82F63B78)
  * ============================================================ */
@@ -382,11 +389,13 @@ static shard_v2_reader_t* reader_parse(shard_v2_reader_t* r) {
 
     /* Parse index entries */
     size_t index_start = SHARD_HEADER_SIZE;
-    size_t index_size  = (size_t)n * SHARD_INDEX_ENTRY_SIZE;
+    size_t index_size;
+    if (!safe_size_mul((size_t)n, SHARD_INDEX_ENTRY_SIZE, &index_size)) goto fail;
     if (index_start + index_size > r->data_len) goto fail;
 
-    r->entries = (shard_v2_index_entry_t*)malloc(
-        sizeof(shard_v2_index_entry_t) * (n + 1));
+    size_t entries_alloc;
+    if (!safe_size_mul(sizeof(shard_v2_index_entry_t), (size_t)n + 1, &entries_alloc)) goto fail;
+    r->entries = (shard_v2_index_entry_t*)malloc(entries_alloc);
     if (!r->entries) goto fail;
 
     for (uint32_t i = 0; i < n; i++) {
@@ -645,6 +654,8 @@ const uint8_t* shard_v2_read_entry(const shard_v2_reader_t* r, uint32_t i, size_
 
         if (orig_size > MAX_DECOMPRESS_SIZE) return NULL;
         if (orig_size == 0) return NULL;
+        /* Guard against truncation on 32-bit: ensure cast didn't lose bits */
+        if ((uint64_t)orig_size != e->orig_size) return NULL;
 
         const uint8_t* compressed = r->data + e->data_offset;
 

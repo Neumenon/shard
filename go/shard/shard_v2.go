@@ -126,7 +126,7 @@ const (
 	ContentTypeUnknown uint16 = 0
 	ContentTypeTensor  uint16 = 1  // TensorV1 encoded tensor
 	ContentTypeJSON    uint16 = 2  // Standard JSON
-	ContentTypeCowrie   uint16 = 3  // Cowrie binary format
+	ContentTypeCowrie  uint16 = 3  // Cowrie binary format
 	ContentTypeGLYPH   uint16 = 4  // GLYPH text format
 	ContentTypeText    uint16 = 5  // Plain text (UTF-8)
 	ContentTypeImage   uint16 = 6  // Image (PNG, JPEG, etc.)
@@ -1088,15 +1088,25 @@ func OpenShardV2(path string) (*ShardV2Reader, error) {
 		f.Close()
 		return nil, fmt.Errorf("%w: invalid section offsets", ErrV2IndexCorrupt)
 	}
-	stringTableSize := int64(header.DataSectionOffset) - int64(header.StringTableOffset)
-	if stringTableSize < 0 || stringTableSize > MaxV2StringTableSize {
+	stringTableSize := header.DataSectionOffset - header.StringTableOffset
+	if stringTableSize > uint64(MaxV2StringTableSize) {
 		f.Close()
 		return nil, fmt.Errorf("%w: string table size %d invalid or exceeds limit %d", ErrV2IndexCorrupt, stringTableSize, MaxV2StringTableSize)
 	}
+	stringTableSizeInt, ok := uint64ToInt(stringTableSize)
+	if !ok {
+		f.Close()
+		return nil, fmt.Errorf("%w: string table size %d exceeds int range", ErrV2IndexCorrupt, stringTableSize)
+	}
+	stringTableOffset, ok := uint64ToInt64(header.StringTableOffset)
+	if !ok {
+		f.Close()
+		return nil, fmt.Errorf("%w: string table offset %d exceeds int64 range", ErrV2IndexCorrupt, header.StringTableOffset)
+	}
 
 	// Read string table
-	r.stringTable = make([]byte, stringTableSize)
-	if _, err := f.Seek(int64(header.StringTableOffset), io.SeekStart); err != nil {
+	r.stringTable = make([]byte, stringTableSizeInt)
+	if _, err := f.Seek(stringTableOffset, io.SeekStart); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -1231,16 +1241,34 @@ func (r *ShardV2Reader) ReadEntryWithVerify(i int, verify bool) ([]byte, error) 
 	var rawData []byte
 	if r.data != nil {
 		// mmap path
-		if int64(e.DataOffset)+int64(e.DiskSize) > int64(len(r.data)) {
+		dataLen := uint64(len(r.data))
+		if e.DataOffset > dataLen || e.DiskSize > dataLen-e.DataOffset {
 			return nil, io.ErrUnexpectedEOF
 		}
-		rawData = r.data[e.DataOffset : e.DataOffset+e.DiskSize]
+		start, ok := uint64ToInt(e.DataOffset)
+		if !ok {
+			return nil, io.ErrUnexpectedEOF
+		}
+		endOffset := e.DataOffset + e.DiskSize
+		end, ok := uint64ToInt(endOffset)
+		if !ok {
+			return nil, io.ErrUnexpectedEOF
+		}
+		rawData = r.data[start:end]
 	} else {
 		// file read path — use ReadAt (pread) for concurrent safety.
 		// Unlike Seek+Read, ReadAt does not mutate the file offset,
 		// so multiple goroutines can call it simultaneously.
-		rawData = make([]byte, e.DiskSize)
-		if _, err := r.file.ReadAt(rawData, int64(e.DataOffset)); err != nil {
+		size, ok := uint64ToInt(e.DiskSize)
+		if !ok {
+			return nil, io.ErrUnexpectedEOF
+		}
+		offset, ok := uint64ToInt64(e.DataOffset)
+		if !ok {
+			return nil, io.ErrUnexpectedEOF
+		}
+		rawData = make([]byte, size)
+		if _, err := r.file.ReadAt(rawData, offset); err != nil {
 			return nil, err
 		}
 	}
@@ -1292,6 +1320,9 @@ func (r *ShardV2Reader) ReadEntryPrefix(i int, maxBytes int64) ([]byte, error) {
 	if i < 0 || i >= len(r.index) {
 		return nil, ErrEntryNotFound
 	}
+	if maxBytes < 0 {
+		return nil, fmt.Errorf("%w: negative prefix size %d", ErrV2IndexCorrupt, maxBytes)
+	}
 
 	e := r.index[i]
 
@@ -1309,22 +1340,40 @@ func (r *ShardV2Reader) ReadEntryPrefix(i int, maxBytes int64) ([]byte, error) {
 	}
 
 	// For uncompressed entries, read only what we need
-	readSize := int64(e.DiskSize)
-	if maxBytes < readSize {
-		readSize = maxBytes
+	readSize := e.DiskSize
+	if uint64(maxBytes) < readSize {
+		readSize = uint64(maxBytes)
 	}
 
 	var rawData []byte
 	if r.data != nil {
 		// mmap path - just slice
-		if int64(e.DataOffset)+readSize > int64(len(r.data)) {
+		dataLen := uint64(len(r.data))
+		if e.DataOffset > dataLen || readSize > dataLen-e.DataOffset {
 			return nil, io.ErrUnexpectedEOF
 		}
-		rawData = r.data[e.DataOffset : int64(e.DataOffset)+readSize]
+		start, ok := uint64ToInt(e.DataOffset)
+		if !ok {
+			return nil, io.ErrUnexpectedEOF
+		}
+		endOffset := e.DataOffset + readSize
+		end, ok := uint64ToInt(endOffset)
+		if !ok {
+			return nil, io.ErrUnexpectedEOF
+		}
+		rawData = r.data[start:end]
 	} else {
 		// file read path — use ReadAt (pread) for concurrent safety
-		rawData = make([]byte, readSize)
-		if _, err := r.file.ReadAt(rawData, int64(e.DataOffset)); err != nil {
+		size, ok := uint64ToInt(readSize)
+		if !ok {
+			return nil, io.ErrUnexpectedEOF
+		}
+		offset, ok := uint64ToInt64(e.DataOffset)
+		if !ok {
+			return nil, io.ErrUnexpectedEOF
+		}
+		rawData = make([]byte, size)
+		if _, err := r.file.ReadAt(rawData, offset); err != nil {
 			return nil, err
 		}
 	}
@@ -1387,6 +1436,9 @@ func (r *ShardV2Reader) ReadMetadata() (*ShardMetadata, error) {
 	if r.header.SchemaOffset == 0 {
 		return nil, nil // No metadata
 	}
+	if r.header.SchemaOffset > r.header.TotalFileSize {
+		return nil, fmt.Errorf("%w: schema offset %d exceeds total file size %d", ErrV2IndexCorrupt, r.header.SchemaOffset, r.header.TotalFileSize)
+	}
 
 	// Calculate metadata size: from SchemaOffset to TotalFileSize
 	metadataSize := r.header.TotalFileSize - r.header.SchemaOffset
@@ -1398,14 +1450,32 @@ func (r *ShardV2Reader) ReadMetadata() (*ShardMetadata, error) {
 	var metadataBytes []byte
 	if r.data != nil {
 		// mmap path
-		if int64(r.header.SchemaOffset)+int64(metadataSize) > int64(len(r.data)) {
+		dataLen := uint64(len(r.data))
+		if r.header.SchemaOffset > dataLen || metadataSize > dataLen-r.header.SchemaOffset {
 			return nil, io.ErrUnexpectedEOF
 		}
-		metadataBytes = r.data[r.header.SchemaOffset : r.header.SchemaOffset+metadataSize]
+		start, ok := uint64ToInt(r.header.SchemaOffset)
+		if !ok {
+			return nil, io.ErrUnexpectedEOF
+		}
+		endOffset := r.header.SchemaOffset + metadataSize
+		end, ok := uint64ToInt(endOffset)
+		if !ok {
+			return nil, io.ErrUnexpectedEOF
+		}
+		metadataBytes = r.data[start:end]
 	} else {
 		// file read path — use ReadAt (pread) for concurrent safety
-		metadataBytes = make([]byte, metadataSize)
-		if _, err := r.file.ReadAt(metadataBytes, int64(r.header.SchemaOffset)); err != nil {
+		size, ok := uint64ToInt(metadataSize)
+		if !ok {
+			return nil, io.ErrUnexpectedEOF
+		}
+		offset, ok := uint64ToInt64(r.header.SchemaOffset)
+		if !ok {
+			return nil, io.ErrUnexpectedEOF
+		}
+		metadataBytes = make([]byte, size)
+		if _, err := r.file.ReadAt(metadataBytes, offset); err != nil {
 			return nil, err
 		}
 	}

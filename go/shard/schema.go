@@ -34,7 +34,6 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
-
 )
 
 // Schema magic bytes
@@ -45,10 +44,10 @@ const SchemaVersion = 1
 
 // TensorSpec describes expected properties for matching tensors.
 type TensorSpec struct {
-	Pattern  string      // Glob pattern (e.g., "layers.*.attention.*.weight")
-	DType    DType // Expected dtype (0 = any)
-	Shape    []int64     // Expected shape (-1 = any dimension)
-	Optional bool        // Whether tensor is required
+	Pattern  string  // Glob pattern (e.g., "layers.*.attention.*.weight")
+	DType    DType   // Expected dtype (0 = any)
+	Shape    []int64 // Expected shape (-1 = any dimension)
+	Optional bool    // Whether tensor is required
 }
 
 // ShardSchema defines expected tensors for a shard.
@@ -210,7 +209,12 @@ func DecodeSchema(data []byte) (*ShardSchema, error) {
 		}
 		spec.Shape = make([]int64, rank)
 		for j := 0; j < rank; j++ {
-			spec.Shape[j] = int64(binary.LittleEndian.Uint64(data[offset:]))
+			rawDim := binary.LittleEndian.Uint64(data[offset:])
+			dim, ok := uint64ToInt64(rawDim)
+			if !ok {
+				return nil, fmt.Errorf("%w: shape dimension %d exceeds int64 range", ErrInvalidSchemaMagic, rawDim)
+			}
+			spec.Shape[j] = dim
 			offset += 8
 		}
 
