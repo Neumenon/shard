@@ -45,6 +45,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <limits.h>
 
 /* ============================================================
  * Endian helpers (always write/read LE regardless of host)
@@ -668,6 +669,10 @@ const uint8_t* shard_v2_read_entry(const shard_v2_reader_t* r, uint32_t i, size_
             if (ZSTD_isError(ret)) { free(decompressed); return NULL; }
             result = ret;
         } else if (e->flags & ENTRY_FLAG_LZ4) {
+            /* Guard against int truncation: LZ4 API takes int parameters */
+            if (comp_size > (size_t)INT_MAX || orig_size > (size_t)INT_MAX) {
+                free(decompressed); return NULL;
+            }
             int ret = LZ4_decompress_safe((const char*)compressed, (char*)decompressed,
                                           (int)comp_size, (int)orig_size);
             if (ret < 0) { free(decompressed); return NULL; }
@@ -971,6 +976,8 @@ static int writer_add_raw(shard_v2_writer_t* w, const char* name,
                            size_t orig_len, uint32_t checksum,
                            uint16_t flags, uint16_t ct) {
     if (!w || !name || !disk_data) return -1;
+    /* Name length must fit in uint16 for the wire format */
+    if (strlen(name) > UINT16_MAX) return -1;
 
     /* Grow array if needed */
     if (w->entry_count == w->entry_cap) {
@@ -1050,7 +1057,7 @@ int shard_v2_writer_add_entry_compressed(shard_v2_writer_t* w, const char* name,
                 entry_flags = ENTRY_FLAG_COMPRESSED | ENTRY_FLAG_ZSTD;
             }
         }
-    } else if (comp_type == COMPRESS_LZ4) {
+    } else if (comp_type == COMPRESS_LZ4 && len <= (size_t)INT_MAX) {
         int bound = LZ4_compressBound((int)len);
         if (bound > 0) {
             compressed_buf = (uint8_t*)malloc((size_t)bound);
@@ -1091,7 +1098,9 @@ int shard_v2_writer_write(shard_v2_writer_t* w, const char* path) {
     /* Build string table */
     size_t st_size = 0;
     for (uint32_t i = 0; i < n; i++) {
-        st_size += strlen(w->entries[i].name) + 1; /* +1 null terminator */
+        size_t nlen = strlen(w->entries[i].name) + 1; /* +1 null terminator */
+        if (st_size > SIZE_MAX - nlen) return -1;
+        st_size += nlen;
     }
 
     uint8_t* st = NULL;
@@ -1436,7 +1445,9 @@ int shard_v2_stream_writer_finalize(shard_v2_stream_writer_t* sw) {
     uint8_t*  st           = NULL;
 
     for (uint32_t i = 0; i < n; i++) {
-        st_size += strlen(sw->entries[i].name) + 1;
+        size_t nlen = strlen(sw->entries[i].name) + 1;
+        if (st_size > SIZE_MAX - nlen) return -1;
+        st_size += nlen;
     }
 
     if (n > 0) {
