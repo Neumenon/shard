@@ -1086,7 +1086,16 @@ func cmdDownload(repoID, pattern string) int {
 	startTime := time.Now()
 
 	for i, f := range matched {
-		outPath := filepath.Join(outputDir, filepath.Base(f.Path))
+		outPath := filepath.Join(outputDir, f.Path)
+
+		// Ensure parent directory exists (preserves relative directory structure)
+		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
+			failed++
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "  ERROR: failed to create directory: %v\n", err)
+			}
+			continue
+		}
 
 		if !jsonOutput {
 			fmt.Printf("[%d/%d] Downloading %s...\n", i+1, len(matched), f.Path)
@@ -1253,6 +1262,12 @@ func downloadHFFile(repoID, filePath, outPath string) (int64, error) {
 	if err != nil {
 		os.Remove(outPath) // Clean up partial file
 		return 0, fmt.Errorf("download failed: %w", err)
+	}
+
+	// Verify complete download when Content-Length is known
+	if resp.ContentLength > 0 && written != resp.ContentLength {
+		os.Remove(outPath) // Clean up incomplete file
+		return 0, fmt.Errorf("short write: got %d bytes, expected %d", written, resp.ContentLength)
 	}
 
 	return written, nil

@@ -151,6 +151,8 @@ pub enum ShardError {
     FileSizeMismatch { expected: u64, actual: u64 },
     /// An entry's data_offset or disk_size is out of valid range.
     EntryOffsetOutOfRange { index: usize },
+    /// Entry index is out of bounds.
+    IndexOutOfBounds { index: usize, count: usize },
     /// JSON serialization/deserialization error (metadata).
     JsonError(String),
     /// I/O error.
@@ -188,6 +190,9 @@ impl std::fmt::Display for ShardError {
             ),
             ShardError::EntryOffsetOutOfRange { index } => {
                 write!(f, "entry {} data_offset/disk_size out of range", index)
+            }
+            ShardError::IndexOutOfBounds { index, count } => {
+                write!(f, "entry index {} out of bounds (count: {})", index, count)
             }
             ShardError::JsonError(msg) => write!(f, "JSON error: {}", msg),
             ShardError::Io(e) => write!(f, "I/O error: {}", e),
@@ -652,8 +657,11 @@ impl ShardV2Reader {
     }
 
     /// Name of entry `i`.
-    pub fn entry_name(&self, i: usize) -> &str {
-        &self.entries[i].name
+    pub fn entry_name(&self, i: usize) -> Result<&str, ShardError> {
+        self.entries
+            .get(i)
+            .map(|e| e.name.as_str())
+            .ok_or(ShardError::IndexOutOfBounds { index: i, count: self.entries.len() })
     }
 
     /// All entry names in index order.
@@ -662,8 +670,10 @@ impl ShardV2Reader {
     }
 
     /// Return the index entry metadata for entry `i`.
-    pub fn get_entry_info(&self, i: usize) -> &IndexEntryV2 {
-        &self.entries[i]
+    pub fn get_entry_info(&self, i: usize) -> Result<&IndexEntryV2, ShardError> {
+        self.entries
+            .get(i)
+            .ok_or(ShardError::IndexOutOfBounds { index: i, count: self.entries.len() })
     }
 
     /// Look up the index of `name`. Returns `None` if not found.
@@ -682,7 +692,10 @@ impl ShardV2Reader {
     /// For compressed entries the data is decompressed and the checksum is verified
     /// against the decompressed content.
     pub fn read_entry(&self, i: usize) -> Result<Vec<u8>, ShardError> {
-        let entry = &self.entries[i];
+        let entry = self.entries.get(i).ok_or(ShardError::IndexOutOfBounds {
+            index: i,
+            count: self.entries.len(),
+        })?;
         let range = entry_data_range(self.data.len(), entry.data_offset, entry.disk_size)?;
         let raw = &self.data[range];
 
@@ -766,7 +779,10 @@ impl ShardV2Reader {
     /// For compressed entries, decompresses fully then truncates.
     /// For uncompressed entries, returns a direct slice without full read.
     pub fn read_entry_prefix(&self, i: usize, max_bytes: usize) -> Result<Vec<u8>, ShardError> {
-        let entry = &self.entries[i];
+        let entry = self.entries.get(i).ok_or(ShardError::IndexOutOfBounds {
+            index: i,
+            count: self.entries.len(),
+        })?;
         if entry.compressed() {
             let data = self.read_entry(i)?;
             let end = max_bytes.min(data.len());
@@ -983,8 +999,11 @@ impl MmapShardV2Reader {
     }
 
     /// Name of entry `i`.
-    pub fn entry_name(&self, i: usize) -> &str {
-        &self.entries[i].name
+    pub fn entry_name(&self, i: usize) -> Result<&str, ShardError> {
+        self.entries
+            .get(i)
+            .map(|e| e.name.as_str())
+            .ok_or(ShardError::IndexOutOfBounds { index: i, count: self.entries.len() })
     }
 
     /// All entry names in index order.
@@ -993,8 +1012,10 @@ impl MmapShardV2Reader {
     }
 
     /// Return the index entry metadata for entry `i`.
-    pub fn get_entry_info(&self, i: usize) -> &IndexEntryV2 {
-        &self.entries[i]
+    pub fn get_entry_info(&self, i: usize) -> Result<&IndexEntryV2, ShardError> {
+        self.entries
+            .get(i)
+            .ok_or(ShardError::IndexOutOfBounds { index: i, count: self.entries.len() })
     }
 
     /// Look up the index of `name`.  Returns `None` if not found.
@@ -1015,7 +1036,10 @@ impl MmapShardV2Reader {
     /// Returns `Err(ShardError::CompressionNotSupported)` for compressed
     /// entries — use `read_entry_decompressed` instead.
     pub fn read_entry(&self, i: usize) -> Result<&[u8], ShardError> {
-        let entry = &self.entries[i];
+        let entry = self.entries.get(i).ok_or(ShardError::IndexOutOfBounds {
+            index: i,
+            count: self.entries.len(),
+        })?;
 
         if entry.compressed() {
             return Err(ShardError::CompressionNotSupported);
@@ -1063,7 +1087,10 @@ impl MmapShardV2Reader {
     /// For uncompressed entries the raw bytes are copied into a new `Vec`.
     /// CRC32C is verified against the decompressed content.
     pub fn read_entry_decompressed(&self, i: usize) -> Result<Vec<u8>, ShardError> {
-        let entry = &self.entries[i];
+        let entry = self.entries.get(i).ok_or(ShardError::IndexOutOfBounds {
+            index: i,
+            count: self.entries.len(),
+        })?;
         let range = entry_data_range(self.mmap.len(), entry.data_offset, entry.disk_size)?;
         let raw = &self.mmap[range];
 
@@ -1313,7 +1340,7 @@ pub fn validate_schema(reader: &ShardV2Reader, schema: &ShardSchema) -> Vec<Vali
         if spec.content_type != 0 {
             for name in &matches {
                 if let Some(idx) = reader.lookup(name) {
-                    let info = reader.get_entry_info(idx);
+                    let Ok(info) = reader.get_entry_info(idx) else { continue };
                     if info.content_type() != spec.content_type {
                         errors.push(ValidationError {
                             spec_pattern: spec.pattern.clone(),
