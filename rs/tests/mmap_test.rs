@@ -73,8 +73,8 @@ fn test_mmap_basic_read() {
 
     let r = MmapShardV2Reader::open(&path).unwrap();
     assert_eq!(r.entry_count(), 2);
-    assert_eq!(r.entry_name(0), "hello");
-    assert_eq!(r.entry_name(1), "foo");
+    assert_eq!(r.entry_name(0).unwrap(), "hello");
+    assert_eq!(r.entry_name(1).unwrap(), "foo");
     assert_eq!(r.read_entry(0).unwrap(), b"world");
     assert_eq!(r.read_entry(1).unwrap(), b"bar");
 }
@@ -145,7 +145,7 @@ fn test_mmap_entry_info() {
     w.write_to_file(&path).unwrap();
 
     let r = MmapShardV2Reader::open(&path).unwrap();
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
 
     assert_eq!(info.disk_size, 256);
     assert_eq!(info.orig_size, 256);
@@ -312,7 +312,7 @@ fn test_mmap_compressed_entry_zstd() {
     w.write_to_file(&path).unwrap();
 
     let r = MmapShardV2Reader::open(&path).unwrap();
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
 
     if info.compressed() {
         // Zero-copy read should return error for compressed entries
@@ -345,7 +345,7 @@ fn test_mmap_compressed_entry_lz4() {
     w.write_to_file(&path).unwrap();
 
     let r = MmapShardV2Reader::open(&path).unwrap();
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
 
     if info.compressed() {
         let err = r.read_entry(0);
@@ -374,7 +374,7 @@ fn test_mmap_zstd_declared_orig_size_is_enforced() {
     w.write_entry_compressed("bomb", &payload);
     w.write_to_file(&path).unwrap();
 
-    let info = MmapShardV2Reader::open(&path).unwrap().get_entry_info(0).clone();
+    let info = MmapShardV2Reader::open(&path).unwrap().get_entry_info(0).unwrap().clone();
     assert!(info.compressed(), "payload should be stored compressed for this test");
 
     let mut bytes = std::fs::read(&path).unwrap();
@@ -416,13 +416,13 @@ fn test_mmap_golden_files() {
         for (i, ge) in gf.entries.iter().enumerate() {
             // Name
             assert_eq!(
-                r.entry_name(i), ge.name,
+                r.entry_name(i).unwrap(), ge.name,
                 "{} entry {}: name",
                 gf.filename, i
             );
 
             // Index entry metadata
-            let info = r.get_entry_info(i);
+            let info = r.get_entry_info(i).unwrap();
             assert_eq!(info.orig_size, ge.orig_size, "{} entry {}: orig_size", gf.filename, i);
             assert_eq!(info.disk_size, ge.disk_size, "{} entry {}: disk_size", gf.filename, i);
             assert_eq!(info.checksum, ge.checksum, "{} entry {}: checksum", gf.filename, i);
@@ -512,7 +512,7 @@ fn test_mmap_golden_data_matches_regular_reader() {
             );
 
             // For uncompressed, also check zero-copy slice
-            let info = mmap.get_entry_info(i);
+            let info = mmap.get_entry_info(i).unwrap();
             if !info.compressed() {
                 let zero_copy = mmap
                     .read_entry(i)

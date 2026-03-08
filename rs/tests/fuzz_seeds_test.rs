@@ -173,7 +173,7 @@ fn test_fuzz_index_entry_compressed_flags() {
     // disk_size=0, orig_size=0
     let buf = shard_with_raw_entry(&entry);
     if let Ok(reader) = ShardV2Reader::from_bytes(buf) {
-        let info = reader.get_entry_info(0);
+        let info = reader.get_entry_info(0).unwrap();
         assert!(info.compressed());
         // Attempt read — decompression of empty bytes will fail gracefully.
         let _ = reader.read_entry(0);

@@ -212,8 +212,8 @@ fn test_entry_details() {
         let reader = ShardV2Reader::from_file(&dir.join(&gf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", gf.filename, e));
         for (i, ge) in gf.entries.iter().enumerate() {
-            let info = reader.get_entry_info(i);
-            let name = reader.entry_name(i);
+            let info = reader.get_entry_info(i).unwrap();
+            let name = reader.entry_name(i).unwrap();
 
             assert_eq!(name, ge.name, "{} entry {}: name", gf.filename, i);
             assert_eq!(

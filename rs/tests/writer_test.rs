@@ -29,7 +29,7 @@ fn test_single_entry_roundtrip() {
     let r = roundtrip(w);
 
     assert_eq!(r.entry_count(), 1);
-    assert_eq!(r.entry_name(0), "hello");
+    assert_eq!(r.entry_name(0).unwrap(), "hello");
     let data = r.read_entry(0).expect("read_entry");
     assert_eq!(data, b"world");
 }
@@ -65,9 +65,9 @@ fn test_typed_entries_roundtrip() {
     let r = roundtrip(w);
 
     assert_eq!(r.entry_count(), 3);
-    assert_eq!(r.get_entry_info(0).content_type(), CONTENT_TYPE_TENSOR);
-    assert_eq!(r.get_entry_info(1).content_type(), CONTENT_TYPE_JSON);
-    assert_eq!(r.get_entry_info(2).content_type(), CONTENT_TYPE_TEXT);
+    assert_eq!(r.get_entry_info(0).unwrap().content_type(), CONTENT_TYPE_TENSOR);
+    assert_eq!(r.get_entry_info(1).unwrap().content_type(), CONTENT_TYPE_JSON);
+    assert_eq!(r.get_entry_info(2).unwrap().content_type(), CONTENT_TYPE_TEXT);
 
     assert_eq!(r.read_entry(0).unwrap(), &[0u8; 256]);
     assert_eq!(r.read_entry(1).unwrap(), b"{\"layers\":8}");
@@ -158,7 +158,7 @@ fn test_alignment_16() {
 
     // Each entry's data_offset must be 16-byte aligned
     for i in 0..r.entry_count() {
-        let info = r.get_entry_info(i);
+        let info = r.get_entry_info(i).unwrap();
         assert_eq!(
             info.data_offset as usize % 16,
             0,
@@ -191,7 +191,7 @@ fn test_alignment_64() {
     assert_eq!(dso % 64, 0, "data_section_offset not 64-byte aligned");
 
     for i in 0..r.entry_count() {
-        let info = r.get_entry_info(i);
+        let info = r.get_entry_info(i).unwrap();
         assert_eq!(
             info.data_offset as usize % 64,
             0,
@@ -215,7 +215,7 @@ fn test_checksum_verification() {
     w.write_entry("data", b"hello world");
     let r = roundtrip(w);
 
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
     let expected_crc = compute_crc32c(b"hello world");
     assert_eq!(info.checksum, expected_crc, "checksum field");
     assert_eq!(info.checksum, 3381945770, "checksum known value");
@@ -233,7 +233,7 @@ fn test_checksum_mismatch_detected() {
     // Corrupt the data byte — entry data starts at data_section_offset.
     // Parse the header to find the offset.
     let r_original = ShardV2Reader::from_bytes(bytes.clone()).unwrap();
-    let data_off = r_original.get_entry_info(0).data_offset as usize;
+    let data_off = r_original.get_entry_info(0).unwrap().data_offset as usize;
     bytes[data_off] ^= 0xFF; // flip bits to corrupt
 
     let r_corrupt = ShardV2Reader::from_bytes(bytes).expect("parse should succeed with corrupt data");
@@ -257,12 +257,12 @@ fn test_name_hash_is_xxhash64() {
     let r = roundtrip(w);
 
     assert_eq!(
-        r.get_entry_info(0).name_hash,
+        r.get_entry_info(0).unwrap().name_hash,
         compute_xxhash64("greeting"),
         "name_hash for 'greeting'"
     );
     assert_eq!(
-        r.get_entry_info(1).name_hash,
+        r.get_entry_info(1).unwrap().name_hash,
         compute_xxhash64("pattern/1k"),
         "name_hash for 'pattern/1k'"
     );
@@ -376,7 +376,7 @@ fn test_entry_sizes() {
     w.write_entry("item", data);
     let r = roundtrip(w);
 
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
     assert_eq!(info.disk_size, data.len() as u64);
     assert_eq!(info.orig_size, data.len() as u64);
 }
@@ -387,7 +387,7 @@ fn test_entry_not_compressed() {
     w.write_entry("plain", b"uncompressed data");
     let r = roundtrip(w);
 
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
     assert!(!info.compressed(), "plain entry should not be compressed");
     assert_eq!(info.flags & ENTRY_FLAG_COMPRESSED, 0);
 }
@@ -524,7 +524,7 @@ fn test_empty_entry_data() {
     let r = roundtrip(w);
 
     assert_eq!(r.entry_count(), 1);
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
     assert_eq!(info.disk_size, 0);
     assert_eq!(info.orig_size, 0);
     assert_eq!(info.checksum, 0, "crc32c of empty is 0");
@@ -542,7 +542,7 @@ fn test_blob_content_type() {
     w.write_entry_typed("raw", &[0u8; 100], CONTENT_TYPE_BLOB);
     let r = roundtrip(w);
 
-    assert_eq!(r.get_entry_info(0).content_type(), CONTENT_TYPE_BLOB);
+    assert_eq!(r.get_entry_info(0).unwrap().content_type(), CONTENT_TYPE_BLOB);
 }
 
 // ============================================================
@@ -572,7 +572,7 @@ fn test_data_offsets_within_file() {
     let r = ShardV2Reader::from_bytes(bytes).unwrap();
 
     for i in 0..r.entry_count() {
-        let info = r.get_entry_info(i);
+        let info = r.get_entry_info(i).unwrap();
         assert!(
             info.data_offset + info.disk_size <= file_size,
             "entry {} data extends past file end",

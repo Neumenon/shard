@@ -37,8 +37,8 @@ fn test_basic_roundtrip() {
     assert_eq!(r.entry_count(), 2);
     assert_eq!(r.read_entry(0).unwrap(), b"world");
     assert_eq!(r.read_entry(1).unwrap(), b"bar");
-    assert_eq!(r.entry_name(0), "hello");
-    assert_eq!(r.entry_name(1), "foo");
+    assert_eq!(r.entry_name(0).unwrap(), "hello");
+    assert_eq!(r.entry_name(1).unwrap(), "foo");
     // FLAG_STREAMING must be set
     assert!(r.header().flags & FLAG_STREAMING != 0, "FLAG_STREAMING must be set");
 
@@ -158,7 +158,7 @@ fn test_checksum_stored_correctly() {
     sw.finalize().unwrap();
 
     let r = ShardV2Reader::from_file(&path).unwrap();
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
     assert_eq!(info.checksum, compute_crc32c(data));
     let _ = std::fs::remove_file(&path);
 }
@@ -179,7 +179,7 @@ fn test_alignment_64_default() {
     let r = ShardV2Reader::from_file(&path).unwrap();
     assert_eq!(r.header().alignment, ALIGN_64);
     for i in 0..r.entry_count() {
-        let offset = r.get_entry_info(i).data_offset;
+        let offset = r.get_entry_info(i).unwrap().data_offset;
         assert_eq!(offset % 64, 0, "entry {} offset {} not 64-aligned", i, offset);
     }
     let _ = std::fs::remove_file(&path);
@@ -197,7 +197,7 @@ fn test_alignment_64_explicit() {
 
     let r = ShardV2Reader::from_file(&path).unwrap();
     for i in 0..r.entry_count() {
-        assert_eq!(r.get_entry_info(i).data_offset % 64, 0);
+        assert_eq!(r.get_entry_info(i).unwrap().data_offset % 64, 0);
     }
     let _ = std::fs::remove_file(&path);
 }
@@ -215,7 +215,7 @@ fn test_alignment_16() {
     let r = ShardV2Reader::from_file(&path).unwrap();
     assert_eq!(r.header().alignment, ALIGN_16);
     for i in 0..r.entry_count() {
-        let offset = r.get_entry_info(i).data_offset;
+        let offset = r.get_entry_info(i).unwrap().data_offset;
         assert_eq!(offset % 16, 0, "entry {} offset {} not 16-aligned", i, offset);
     }
     assert_eq!(r.read_entry(0).unwrap(), b"hello");
@@ -236,7 +236,7 @@ fn test_alignment_32() {
     let r = ShardV2Reader::from_file(&path).unwrap();
     assert_eq!(r.header().alignment, ALIGN_32);
     for i in 0..r.entry_count() {
-        assert_eq!(r.get_entry_info(i).data_offset % 32, 0);
+        assert_eq!(r.get_entry_info(i).unwrap().data_offset % 32, 0);
     }
     let _ = std::fs::remove_file(&path);
 }
@@ -289,7 +289,7 @@ fn test_many_entries() {
     let r = ShardV2Reader::from_file(&path).unwrap();
     assert_eq!(r.entry_count(), n);
     for i in 0..n {
-        assert_eq!(r.entry_name(i), format!("entry_{:04}", i));
+        assert_eq!(r.entry_name(i).unwrap(), format!("entry_{:04}", i));
         assert_eq!(r.read_entry(i).unwrap(), format!("data_{}", i).as_bytes());
     }
     let _ = std::fs::remove_file(&path);
@@ -379,7 +379,7 @@ fn test_zstd_compressed_entry() {
 
     let r = ShardV2Reader::from_file(&path).unwrap();
     // Note: Rust reader doesn't decompress; we verify the flags and sizes
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
     assert!(info.compressed(), "entry should be marked compressed");
     assert!(info.disk_size < info.orig_size, "compressed size should be smaller");
     assert_eq!(info.orig_size, data.len() as u64);
@@ -397,7 +397,7 @@ fn test_lz4_compressed_entry() {
     sw.finalize().unwrap();
 
     let r = ShardV2Reader::from_file(&path).unwrap();
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
     assert!(info.compressed(), "entry should be marked compressed");
     assert!(info.disk_size < info.orig_size, "compressed size should be smaller");
     let _ = std::fs::remove_file(&path);
@@ -413,7 +413,7 @@ fn test_small_data_not_compressed() {
     sw.finalize().unwrap();
 
     let r = ShardV2Reader::from_file(&path).unwrap();
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
     assert!(!info.compressed(), "tiny entry should not be compressed");
     assert_eq!(r.read_entry(0).unwrap(), b"hello");
     let _ = std::fs::remove_file(&path);
@@ -432,8 +432,8 @@ fn test_mixed_compressed_uncompressed() {
     sw.finalize().unwrap();
 
     let r = ShardV2Reader::from_file(&path).unwrap();
-    assert!(r.get_entry_info(0).compressed(), "big should be compressed");
-    assert!(!r.get_entry_info(1).compressed(), "small should not be compressed");
+    assert!(r.get_entry_info(0).unwrap().compressed(), "big should be compressed");
+    assert!(!r.get_entry_info(1).unwrap().compressed(), "small should not be compressed");
     // Verify small entry reads back correctly (uncompressed)
     assert_eq!(r.read_entry(1).unwrap(), b"tiny");
     let _ = std::fs::remove_file(&path);

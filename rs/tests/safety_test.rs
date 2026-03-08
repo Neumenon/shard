@@ -666,7 +666,7 @@ fn test_cross_write_roundtrip() {
 
     for (i, (name, data)) in entries.iter().enumerate() {
         assert_eq!(
-            reader.entry_name(i),
+            reader.entry_name(i).unwrap(),
             *name,
             "entry {} name mismatch",
             i
@@ -722,7 +722,7 @@ fn test_cross_write_empty_entry() {
     let (reader, _tmp) = write_and_read(&[("empty_entry", &[])]);
 
     assert_eq!(reader.entry_count(), 1, "should have 1 entry");
-    assert_eq!(reader.entry_name(0), "empty_entry");
+    assert_eq!(reader.entry_name(0).unwrap(), "empty_entry");
 
     let data = reader.read_entry(0).expect("read empty entry");
     assert_eq!(data.len(), 0, "empty entry should have 0 bytes");
@@ -750,7 +750,7 @@ fn test_cross_write_unicode_names() {
 
     for (i, (name, data)) in entries.iter().enumerate() {
         assert_eq!(
-            reader.entry_name(i), *name,
+            reader.entry_name(i).unwrap(), *name,
             "entry {} unicode name mismatch",
             i
         );
@@ -788,7 +788,7 @@ fn test_cross_write_large_entry() {
 
     let reader = ShardV2Reader::from_file(tmp.path()).expect("from_file failed");
     assert_eq!(reader.entry_count(), 1);
-    assert_eq!(reader.entry_name(0), "large_tensor");
+    assert_eq!(reader.entry_name(0).unwrap(), "large_tensor");
 
     let read_data = reader.read_entry(0).expect("read large entry");
     assert_eq!(read_data.len(), size, "large entry size mismatch");
@@ -827,7 +827,7 @@ fn test_cross_write_many_entries() {
 
     for (i, (name, data)) in entries.iter().enumerate() {
         assert_eq!(
-            reader.entry_name(i), name.as_str(),
+            reader.entry_name(i).unwrap(), name.as_str(),
             "entry {} name mismatch",
             i
         );
@@ -943,7 +943,7 @@ fn test_cross_write_duplicate_like_names() {
 
     assert_eq!(reader.entry_count(), 4);
     for (i, (name, data)) in entries.iter().enumerate() {
-        assert_eq!(reader.entry_name(i), *name);
+        assert_eq!(reader.entry_name(i).unwrap(), *name);
         let read = reader.read_entry(i).expect("read entry");
         assert_eq!(read, *data, "entry {} ({}) data mismatch", i, name);
         assert_eq!(reader.lookup(name), Some(i));
@@ -1014,7 +1014,7 @@ fn test_concurrent_reads() {
             );
 
             for (i, (expected_name, expected_sha)) in expected_hashes.iter().enumerate() {
-                let name = reader_clone.entry_name(i);
+                let name = reader_clone.entry_name(i).unwrap();
                 assert_eq!(
                     name, *expected_name,
                     "thread {} entry {}: name mismatch",
@@ -1083,7 +1083,7 @@ fn test_concurrent_reads_all_valid() {
                 );
 
                 for (i, (expected_name, expected_sha)) in expected_c.iter().enumerate() {
-                    let name = reader_c.entry_name(i);
+                    let name = reader_c.entry_name(i).unwrap();
                     assert_eq!(
                         name, expected_name.as_str(),
                         "thread {} {} entry {}: name mismatch",
@@ -1153,7 +1153,7 @@ fn test_concurrent_reads_stress() {
                 for (i, (expected_name, expected_sha, expected_size)) in
                     expected_c.iter().enumerate()
                 {
-                    let name = reader_c.entry_name(i);
+                    let name = reader_c.entry_name(i).unwrap();
                     assert_eq!(
                         name, expected_name.as_str(),
                         "thread {} iter {} entry {}: name mismatch",
@@ -1285,7 +1285,7 @@ fn test_cross_write_entry_names_with_special_chars() {
 
     assert_eq!(reader.entry_count(), entries.len());
     for (i, (name, data)) in entries.iter().enumerate() {
-        assert_eq!(reader.entry_name(i), *name);
+        assert_eq!(reader.entry_name(i).unwrap(), *name);
         assert_eq!(reader.lookup(name), Some(i));
         let read = reader.read_entry(i).expect("read entry");
         assert_eq!(read, *data);

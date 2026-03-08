@@ -15,7 +15,7 @@ fn test_zstd_roundtrip() {
 
     let r = ShardV2Reader::from_bytes(bytes).unwrap();
     assert_eq!(r.read_entry(0).unwrap(), data);
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
     assert!(info.compressed(), "entry should be marked compressed");
     assert!(
         info.disk_size < info.orig_size,
@@ -36,7 +36,7 @@ fn test_lz4_roundtrip() {
 
     let r = ShardV2Reader::from_bytes(bytes).unwrap();
     assert_eq!(r.read_entry(0).unwrap(), data);
-    let info = r.get_entry_info(0);
+    let info = r.get_entry_info(0).unwrap();
     assert!(info.compressed(), "entry should be marked compressed");
     assert_eq!(info.orig_size, data.len() as u64);
 }
@@ -51,7 +51,7 @@ fn test_small_data_not_compressed() {
     let r = ShardV2Reader::from_bytes(bytes).unwrap();
     assert_eq!(r.read_entry(0).unwrap(), b"hello");
     assert!(
-        !r.get_entry_info(0).compressed(),
+        !r.get_entry_info(0).unwrap().compressed(),
         "small data should not be compressed"
     );
 }
@@ -67,7 +67,7 @@ fn test_checksum_on_uncompressed_data() {
     let r = ShardV2Reader::from_bytes(bytes).unwrap();
     // Checksum in the index must be over the ORIGINAL (uncompressed) data.
     assert_eq!(
-        r.get_entry_info(0).checksum,
+        r.get_entry_info(0).unwrap().checksum,
         compute_crc32c(&data),
         "checksum must be CRC32C of uncompressed data"
     );
@@ -87,8 +87,8 @@ fn test_mixed_compressed_and_plain() {
     let r = ShardV2Reader::from_bytes(bytes).unwrap();
     assert_eq!(r.read_entry(0).unwrap(), big);
     assert_eq!(r.read_entry(1).unwrap(), small.as_ref());
-    assert!(r.get_entry_info(0).compressed(), "first entry should be compressed");
-    assert!(!r.get_entry_info(1).compressed(), "second entry should not be compressed");
+    assert!(r.get_entry_info(0).unwrap().compressed(), "first entry should be compressed");
+    assert!(!r.get_entry_info(1).unwrap().compressed(), "second entry should not be compressed");
 }
 
 #[test]
@@ -102,8 +102,8 @@ fn test_write_entry_with_options() {
     let r = ShardV2Reader::from_bytes(bytes).unwrap();
     assert_eq!(r.read_entry(0).unwrap(), data);
     assert_eq!(r.read_entry(1).unwrap(), data);
-    assert!(r.get_entry_info(0).compressed(), "zstd entry should be compressed");
-    assert!(!r.get_entry_info(1).compressed(), "none entry should not be compressed");
+    assert!(r.get_entry_info(0).unwrap().compressed(), "zstd entry should be compressed");
+    assert!(!r.get_entry_info(1).unwrap().compressed(), "none entry should not be compressed");
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn test_lz4_write_entry_with_options() {
 
     let r = ShardV2Reader::from_bytes(bytes).unwrap();
     assert_eq!(r.read_entry(0).unwrap(), data);
-    assert!(r.get_entry_info(0).compressed());
+    assert!(r.get_entry_info(0).unwrap().compressed());
 }
 
 #[test]
@@ -165,7 +165,7 @@ fn test_zstd_declared_orig_size_is_enforced() {
     w.write_entry_compressed("bomb", &payload);
     let mut bytes = w.to_bytes();
 
-    let info = ShardV2Reader::from_bytes(bytes.clone()).unwrap().get_entry_info(0).clone();
+    let info = ShardV2Reader::from_bytes(bytes.clone()).unwrap().get_entry_info(0).unwrap().clone();
     assert!(info.compressed(), "payload should be stored compressed for this test");
 
     let declared_size = 64u64;
