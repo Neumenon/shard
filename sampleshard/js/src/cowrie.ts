@@ -1,7 +1,7 @@
 /**
- * Cowrie v2 encoder/decoder for TypeScript.
+ * Cowrie v3 encoder/decoder for TypeScript.
  *
- * Implements the Cowrie v2 binary format to ensure byte-identical output
+ * Implements the Cowrie v3 binary format to ensure byte-identical output
  * with Go and Python implementations.
  *
  * Wire format:
@@ -20,6 +20,10 @@
  * - 0x07: OBJECT (count:uvarint + (fieldID:uvarint + value) pairs)
  * - 0x08: BYTES (len:uvarint + raw bytes)
  * - 0x09: UINT64 (uvarint)
+ * - 0x40-0xBF: FIXINT (value = tag - 0x40)
+ * - 0xC0-0xCF: FIXARRAY (count = tag - 0xC0)
+ * - 0xD0-0xDF: FIXMAP (count = tag - 0xD0)
+ * - 0xE0-0xEF: FIXNEG (value = -(tag - 0xE0) - 1)
  */
 
 // Magic bytes and version
@@ -37,6 +41,16 @@ const TAG_ARRAY = 0x06;
 const TAG_OBJECT = 0x07;
 const TAG_BYTES = 0x08;
 const TAG_UINT64 = 0x09;
+
+// v3 inline types
+const FIXINT_BASE = 0x40;
+const FIXINT_MAX = 0xBF;
+const FIXARRAY_BASE = 0xC0;
+const FIXARRAY_MAX = 0xCF;
+const FIXMAP_BASE = 0xD0;
+const FIXMAP_MAX = 0xDF;
+const FIXNEG_BASE = 0xE0;
+const FIXNEG_MAX = 0xEF;
 
 /**
  * Encode a JavaScript value to Cowrie v2 binary format.
@@ -153,8 +167,14 @@ function encodeValue(value: unknown, keyIndex: Map<string, number>, chunks: Buff
   }
   if (typeof value === 'number') {
     if (Number.isInteger(value)) {
-      chunks.push(Buffer.from([TAG_INT64]));
-      chunks.push(writeUvarint(zigzagEncode(BigInt(value))));
+      if (value >= 0 && value <= 127) {
+        chunks.push(Buffer.from([FIXINT_BASE + value]));
+      } else if (value >= -16 && value <= -1) {
+        chunks.push(Buffer.from([FIXNEG_BASE + (-1 - value)]));
+      } else {
+        chunks.push(Buffer.from([TAG_INT64]));
+        chunks.push(writeUvarint(zigzagEncode(BigInt(value))));
+      }
     } else {
       chunks.push(Buffer.from([TAG_FLOAT64]));
       const buf = Buffer.alloc(8);
@@ -164,8 +184,14 @@ function encodeValue(value: unknown, keyIndex: Map<string, number>, chunks: Buff
     return;
   }
   if (typeof value === 'bigint') {
-    chunks.push(Buffer.from([TAG_INT64]));
-    chunks.push(writeUvarint(zigzagEncode(value)));
+    if (value >= 0n && value <= 127n) {
+      chunks.push(Buffer.from([FIXINT_BASE + Number(value)]));
+    } else if (value >= -16n && value <= -1n) {
+      chunks.push(Buffer.from([FIXNEG_BASE + Number(-1n - value)]));
+    } else {
+      chunks.push(Buffer.from([TAG_INT64]));
+      chunks.push(writeUvarint(zigzagEncode(value)));
+    }
     return;
   }
   if (typeof value === 'string') {
@@ -182,8 +208,12 @@ function encodeValue(value: unknown, keyIndex: Map<string, number>, chunks: Buff
     return;
   }
   if (Array.isArray(value)) {
-    chunks.push(Buffer.from([TAG_ARRAY]));
-    chunks.push(writeUvarint(value.length));
+    if (value.length <= 15) {
+      chunks.push(Buffer.from([FIXARRAY_BASE + value.length]));
+    } else {
+      chunks.push(Buffer.from([TAG_ARRAY]));
+      chunks.push(writeUvarint(value.length));
+    }
     for (const item of value) {
       encodeValue(item, keyIndex, chunks);
     }
@@ -191,8 +221,12 @@ function encodeValue(value: unknown, keyIndex: Map<string, number>, chunks: Buff
   }
   if (typeof value === 'object') {
     const entries = Object.entries(value);
-    chunks.push(Buffer.from([TAG_OBJECT]));
-    chunks.push(writeUvarint(entries.length));
+    if (entries.length <= 15) {
+      chunks.push(Buffer.from([FIXMAP_BASE + entries.length]));
+    } else {
+      chunks.push(Buffer.from([TAG_OBJECT]));
+      chunks.push(writeUvarint(entries.length));
+    }
     for (const [k, v] of entries) {
       const idx = keyIndex.get(k);
       if (idx === undefined) {
@@ -315,6 +349,39 @@ function decodeValue(data: Buffer, pos: number, keys: string[]): [unknown, numbe
       return [result, pos];
     }
     default:
+      // v3 inline types
+      if (tag >= FIXINT_BASE && tag <= FIXINT_MAX) {
+        return [tag - FIXINT_BASE, pos];
+      }
+      if (tag >= FIXARRAY_BASE && tag <= FIXARRAY_MAX) {
+        const count = tag - FIXARRAY_BASE;
+        const result: unknown[] = [];
+        for (let i = 0; i < count; i++) {
+          const [item, itemPos] = decodeValue(data, pos, keys);
+          result.push(item);
+          pos = itemPos;
+        }
+        return [result, pos];
+      }
+      if (tag >= FIXMAP_BASE && tag <= FIXMAP_MAX) {
+        const count = tag - FIXMAP_BASE;
+        const result: Record<string, unknown> = {};
+        for (let i = 0; i < count; i++) {
+          const [keyIdx, keyPos] = readUvarint(data, pos);
+          pos = keyPos;
+          if (keyIdx >= keys.length) {
+            throw new Error(`Invalid field ID: ${keyIdx}`);
+          }
+          const key = keys[keyIdx];
+          const [value, valuePos] = decodeValue(data, pos, keys);
+          result[key] = value;
+          pos = valuePos;
+        }
+        return [result, pos];
+      }
+      if (tag >= FIXNEG_BASE && tag <= FIXNEG_MAX) {
+        return [-(tag - FIXNEG_BASE) - 1, pos];
+      }
       throw new Error(`Unknown type tag: 0x${tag.toString(16).padStart(2, '0')}`);
   }
 }
