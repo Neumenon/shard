@@ -1,3 +1,8 @@
+//go:build ignore
+// +build ignore
+
+// TODO: Update imports from github.com/phenomenon0/Agent-GO/... to the correct module path.
+
 package main
 
 import (

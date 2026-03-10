@@ -11,8 +11,8 @@ Shard v2 layout (matching Go implementation):
     Data section (aligned entries)
 """
 
+import json
 import os
-import struct
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -24,10 +24,17 @@ from .types import (
     ShardHeader,
     IndexEntry,
     ShardRole,
+    ShardMetadata,
+    SampleProfile,
+    ManifestFileRef,
+    ManifestProfile,
     SHARD_V2_HEADER_SIZE,
     SHARD_V2_INDEX_ENTRY_SIZE,
     ALIGN_64,
     COMPRESS_NONE,
+    SHARD_FLAG_HAS_SCHEMA,
+    PROFILE_MANIFEST_V1,
+    PROFILE_SAMPLESHARD_V1,
     xxhash64,
     crc32c,
 )
@@ -90,7 +97,9 @@ class SampleShardWriter:
         self._temp_file = None
         self._temp_offset = 0
         self._entries: List[PendingEntry] = []
+        self._seen_names: set = set()
         self._closed = False
+        self._metadata: Optional[ShardMetadata] = None
 
     def __enter__(self) -> "SampleShardWriter":
         self.open()
@@ -112,6 +121,67 @@ class SampleShardWriter:
             delete=False, prefix="shard_data_"
         )
         self._temp_offset = 0
+
+    def set_metadata(self, metadata: Union[Dict[str, Any], ShardMetadata]) -> None:
+        """Attach shard metadata to be written at schema_offset."""
+        if isinstance(metadata, ShardMetadata):
+            self._metadata = metadata
+            return
+        self._metadata = ShardMetadata.from_json(
+            json.dumps(metadata, separators=(",", ":")).encode("utf-8")
+        )
+
+    def set_sample_profile(
+        self,
+        *,
+        dataset_name: Optional[str] = None,
+        sample_id_type: str = "uint64",
+        key_encoding: str = "decimal-string",
+        dataset_schema: Optional[Dict[str, Any]] = None,
+        splits: Optional[Dict[str, Any]] = None,
+        label_map: Optional[Dict[str, Any]] = None,
+        feature_stats: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Populate the standardized SampleShard profile metadata."""
+        meta = self._metadata or ShardMetadata()
+        meta.profile = PROFILE_SAMPLESHARD_V1
+        profile = meta.sample_shard or SampleProfile()
+        if dataset_name is not None:
+            profile.dataset_name = dataset_name
+        if sample_id_type:
+            profile.sample_id_type = sample_id_type
+        if key_encoding:
+            profile.key_encoding = key_encoding
+        if dataset_schema:
+            profile.dataset_schema = dataset_schema
+        if splits:
+            profile.splits = splits
+        if label_map:
+            profile.label_map = label_map
+        if feature_stats:
+            profile.feature_stats = feature_stats
+        meta.sample_shard = profile
+        self._metadata = meta
+
+    def set_manifest_profile(
+        self,
+        *,
+        files: Optional[List[Union[Dict[str, Any], ManifestFileRef]]] = None,
+        partitions: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Attach standardized manifest metadata."""
+        meta = self._metadata or ShardMetadata()
+        meta.profile = PROFILE_MANIFEST_V1
+        manifest = meta.manifest or ManifestProfile()
+        if files:
+            manifest.files = [
+                entry if isinstance(entry, ManifestFileRef) else ManifestFileRef.from_dict(entry)
+                for entry in files
+            ]
+        if partitions:
+            manifest.partitions = partitions
+        meta.manifest = manifest
+        self._metadata = meta
 
     def add_sample(self, sample_id: int, sample: Any) -> None:
         """
@@ -152,6 +222,10 @@ class SampleShardWriter:
 
     def _write_entry(self, name: str, data: bytes) -> None:
         """Write an entry to the temp file (data buffered for later)."""
+        if name in self._seen_names:
+            raise ValueError(f"Duplicate sample ID: {name}")
+        self._seen_names.add(name)
+
         # Record temp file offset before writing
         temp_offset = self._temp_offset
 
@@ -226,17 +300,36 @@ class SampleShardWriter:
             data_offsets.append(current_data_offset)
             current_data_offset += entry.disk_size
 
-        total_size = current_data_offset
+        metadata_bytes = b""
+        schema_offset = 0
+        flags = 0
+        if self._metadata is not None:
+            metadata = ShardMetadata.from_json(self._metadata.to_json())
+            if metadata.profile == PROFILE_SAMPLESHARD_V1:
+                profile = metadata.sample_shard or SampleProfile()
+                if not profile.sample_id_type:
+                    profile.sample_id_type = "uint64"
+                if not profile.key_encoding:
+                    profile.key_encoding = "decimal-string"
+                profile.sample_count = entry_count
+                metadata.sample_shard = profile
+            metadata_bytes = metadata.to_json()
+            schema_offset = current_data_offset
+            total_size = current_data_offset + len(metadata_bytes)
+            flags |= SHARD_FLAG_HAS_SCHEMA
+        else:
+            total_size = current_data_offset
 
         # Write header
         header = ShardHeader(
             role=ShardRole.SAMPLE,
+            flags=flags,
             alignment=self.alignment,
             compression_default=self.compression,
             entry_count=entry_count,
             string_table_offset=string_table_offset,
             data_section_offset=data_section_offset,
-            schema_offset=0,
+            schema_offset=schema_offset,
             total_file_size=total_size,
         )
         self._file.write(header.to_bytes())
@@ -283,6 +376,9 @@ class SampleShardWriter:
             entry_data = self._temp_file.read(entry.disk_size)
             self._file.write(entry_data)
             current_pos += entry.disk_size
+
+        if metadata_bytes:
+            self._file.write(metadata_bytes)
 
         self._file.close()
         self._file = None

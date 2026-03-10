@@ -44,6 +44,9 @@ from .types import (
     ShardHeader,
     IndexEntry,
     ShardRole,
+    ShardMetadata,
+    SampleProfile,
+    ManifestProfile,
     SHARD_V2_HEADER_SIZE,
     SHARD_V2_INDEX_ENTRY_SIZE,
     crc32c,
@@ -80,6 +83,7 @@ class SampleShardReader:
         self._entry_by_name: Dict[str, IndexEntry] = {}  # name -> entry (O(1) lookup)
         self._id_map: Dict[int, int] = {}  # sample_id -> index in _sample_ids
         self._sample_ids: List[int] = []  # ordered sample IDs
+        self._metadata: Optional[ShardMetadata] = None
         self._closed = False
 
     def __enter__(self) -> "SampleShardReader":
@@ -196,6 +200,45 @@ class SampleShardReader:
             raise IndexError(f"Sample index out of range: {index}")
         return self._sample_ids[index]
 
+    def read_metadata(self) -> Optional[ShardMetadata]:
+        """Read shard metadata from schema_offset."""
+        if self._metadata is not None:
+            return self._metadata
+        if self._header is None:
+            raise RuntimeError("Reader not open")
+        if self._header.schema_offset == 0:
+            return None
+
+        total_size = self._header.total_file_size
+        schema_offset = self._header.schema_offset
+        if schema_offset > total_size:
+            raise ValueError(
+                f"schema_offset {schema_offset} exceeds total_file_size {total_size}"
+            )
+
+        if self._mmap is not None:
+            raw = self._mmap[schema_offset:total_size]
+        else:
+            self._file.seek(schema_offset)
+            raw = self._file.read(total_size - schema_offset)
+
+        self._metadata = ShardMetadata.from_json(bytes(raw))
+        return self._metadata
+
+    def sample_profile(self) -> Optional[SampleProfile]:
+        """Return the standardized SampleShard profile metadata."""
+        meta = self.read_metadata()
+        if meta is None:
+            return None
+        return meta.sample_shard
+
+    def manifest_profile(self) -> Optional[ManifestProfile]:
+        """Return the manifest profile metadata if present."""
+        meta = self.read_metadata()
+        if meta is None:
+            return None
+        return meta.manifest
+
     def has_sample(self, sample_id: int) -> bool:
         """Check if a sample exists by ID."""
         return sample_id in self._id_map
@@ -243,15 +286,7 @@ class SampleShardReader:
             self._file.seek(entry.data_offset)
             data = self._file.read(entry.disk_size)
 
-        # Verify checksum
-        actual_crc = crc32c(data)
-        if actual_crc != entry.checksum:
-            raise ValueError(
-                f"Checksum mismatch for entry '{entry.name}': "
-                f"expected 0x{entry.checksum:08x}, got 0x{actual_crc:08x}"
-            )
-
-        # Decompress if needed
+        # Decompress if needed (before CRC check — Go checks CRC on decompressed data)
         if entry.is_compressed():
             comp_type = entry.compression_type()
             if comp_type == 1:  # zstd
@@ -265,11 +300,21 @@ class SampleShardReader:
                     )
             elif comp_type == 2:  # lz4
                 try:
-                    import lz4.frame
+                    import lz4.block
 
-                    data = lz4.frame.decompress(data)
+                    data = lz4.block.decompress(
+                        data, uncompressed_size=entry.orig_size
+                    )
                 except ImportError:
                     raise RuntimeError("lz4 library required: pip install lz4")
+
+        # Verify checksum on decompressed data (matches Go reference)
+        actual_crc = crc32c(data)
+        if actual_crc != entry.checksum:
+            raise ValueError(
+                f"Checksum mismatch for entry '{entry.name}': "
+                f"expected 0x{entry.checksum:08x}, got 0x{actual_crc:08x}"
+            )
 
         # Decode sample (auto-detects Cowrie vs JSON format)
         return decode_sample(data)

@@ -15,6 +15,9 @@ import * as fs from 'fs';
 import {
   ShardHeader,
   IndexEntry,
+  ShardMetadata,
+  SampleShardProfile,
+  ManifestProfile,
   ShardRole,
   SHARD_V2_HEADER_SIZE,
   SHARD_V2_INDEX_ENTRY_SIZE,
@@ -24,6 +27,7 @@ import {
   getCompressionType,
   crc32,
   initXxhash,
+  deserializeMetadata,
 } from './types.js';
 import { decode as cowrieDecode, MAGIC as COWRIE_MAGIC } from './cowrie.js';
 
@@ -56,6 +60,7 @@ export class SampleShardReader {
   private entryByName: Map<string, IndexEntry> = new Map(); // name -> entry (O(1) lookup)
   private idMap: Map<bigint, number> = new Map(); // sample_id -> index in sampleIds
   private sampleIds: bigint[] = []; // ordered sample IDs
+  private metadata: ShardMetadata | null | undefined = undefined;
   private closed = false;
 
   constructor(path: string) {
@@ -171,6 +176,38 @@ export class SampleShardReader {
     return this.sampleIds[index];
   }
 
+  readMetadata(): ShardMetadata | null {
+    if (this.metadata !== undefined) {
+      return this.metadata;
+    }
+    if (!this.header || this.fd === null) {
+      throw new Error('Reader not open');
+    }
+
+    const schemaOffset = Number(this.header.schemaOffset);
+    if (schemaOffset === 0) {
+      this.metadata = null;
+      return null;
+    }
+    const totalFileSize = Number(this.header.totalFileSize);
+    if (schemaOffset > totalFileSize) {
+      throw new Error(`schema_offset ${schemaOffset} exceeds total_file_size ${totalFileSize}`);
+    }
+
+    const metaData = Buffer.alloc(totalFileSize - schemaOffset);
+    fs.readSync(this.fd, metaData, 0, metaData.length, schemaOffset);
+    this.metadata = deserializeMetadata(metaData);
+    return this.metadata;
+  }
+
+  sampleProfile(): SampleShardProfile | null {
+    return this.readMetadata()?.sampleShard ?? null;
+  }
+
+  manifestProfile(): ManifestProfile | null {
+    return this.readMetadata()?.manifest ?? null;
+  }
+
   /**
    * Check if a sample exists by ID.
    */
@@ -225,17 +262,7 @@ export class SampleShardReader {
     const data = Buffer.alloc(Number(entry.diskSize));
     fs.readSync(fd, data, 0, Number(entry.diskSize), Number(entry.dataOffset));
 
-    // Verify checksum
-    const actualCrc = crc32(data);
-    if (actualCrc !== entry.checksum) {
-      throw new Error(
-        `Checksum mismatch for entry '${entry.name}': ` +
-          `expected 0x${entry.checksum.toString(16).padStart(8, '0')}, ` +
-          `got 0x${actualCrc.toString(16).padStart(8, '0')}`
-      );
-    }
-
-    // Decompress if needed
+    // Decompress if needed (before CRC check — Go checks CRC on decompressed data)
     let decompressed = data;
     if (isCompressed(entry)) {
       const compType = getCompressionType(entry);
@@ -246,6 +273,16 @@ export class SampleShardReader {
         // lz4 - would need lz4 library
         throw new Error('lz4 decompression not implemented');
       }
+    }
+
+    // Verify checksum on decompressed data (matches Go reference)
+    const actualCrc = crc32(decompressed);
+    if (actualCrc !== entry.checksum) {
+      throw new Error(
+        `Checksum mismatch for entry '${entry.name}': ` +
+          `expected 0x${entry.checksum.toString(16).padStart(8, '0')}, ` +
+          `got 0x${actualCrc.toString(16).padStart(8, '0')}`
+      );
     }
 
     // Decode sample (auto-detect Cowrie vs JSON)

@@ -322,6 +322,41 @@ export interface EntryMeta {
   tags?: string[];
   description?: string;
   extra?: Record<string, unknown>;
+  codec?: string;
+  codecVersion?: string;
+  schemaFingerprint?: string;
+  semanticType?: string;
+  canonicalHash?: string;
+  baseHash?: string;
+  rowCount?: number;
+  shape?: number[];
+  stats?: Record<string, unknown>;
+}
+
+export interface SampleShardProfile {
+  datasetName?: string;
+  sampleIdType?: string;
+  keyEncoding?: string;
+  sampleCount?: number;
+  datasetSchema?: Record<string, unknown>;
+  splits?: Record<string, unknown>;
+  labelMap?: Record<string, unknown>;
+  featureStats?: Record<string, unknown>;
+}
+
+export interface ManifestFileRef {
+  uri?: string;
+  sha256?: string;
+  role?: string;
+  profile?: string;
+  startKey?: string;
+  endKey?: string;
+  entryCount?: number;
+}
+
+export interface ManifestProfile {
+  files?: ManifestFileRef[];
+  partitions?: Record<string, unknown>;
 }
 
 export interface ShardMetadata {
@@ -333,6 +368,9 @@ export interface ShardMetadata {
   description?: string;
   tags?: string[];
   extra?: Record<string, unknown>;
+  profile?: string;
+  sampleShard?: SampleShardProfile;
+  manifest?: ManifestProfile;
   entryMetadata?: Record<string, EntryMeta>;
 }
 
@@ -348,6 +386,47 @@ export function serializeMetadata(meta: ShardMetadata): Buffer {
   if (meta.description) obj['description'] = meta.description;
   if (meta.tags && meta.tags.length > 0) obj['tags'] = meta.tags;
   if (meta.extra && Object.keys(meta.extra).length > 0) obj['extra'] = meta.extra;
+  if (meta.profile) obj['profile'] = meta.profile;
+  if (meta.sampleShard && Object.keys(meta.sampleShard).length > 0) {
+    const sampleShard: Record<string, unknown> = {};
+    if (meta.sampleShard.datasetName) sampleShard['dataset_name'] = meta.sampleShard.datasetName;
+    if (meta.sampleShard.sampleIdType) sampleShard['sample_id_type'] = meta.sampleShard.sampleIdType;
+    if (meta.sampleShard.keyEncoding) sampleShard['key_encoding'] = meta.sampleShard.keyEncoding;
+    if (meta.sampleShard.sampleCount !== undefined) sampleShard['sample_count'] = meta.sampleShard.sampleCount;
+    if (meta.sampleShard.datasetSchema && Object.keys(meta.sampleShard.datasetSchema).length > 0) {
+      sampleShard['dataset_schema'] = meta.sampleShard.datasetSchema;
+    }
+    if (meta.sampleShard.splits && Object.keys(meta.sampleShard.splits).length > 0) {
+      sampleShard['splits'] = meta.sampleShard.splits;
+    }
+    if (meta.sampleShard.labelMap && Object.keys(meta.sampleShard.labelMap).length > 0) {
+      sampleShard['label_map'] = meta.sampleShard.labelMap;
+    }
+    if (meta.sampleShard.featureStats && Object.keys(meta.sampleShard.featureStats).length > 0) {
+      sampleShard['feature_stats'] = meta.sampleShard.featureStats;
+    }
+    obj['sample_shard'] = sampleShard;
+  }
+  if (meta.manifest && (meta.manifest.files?.length || (meta.manifest.partitions && Object.keys(meta.manifest.partitions).length > 0))) {
+    const manifest: Record<string, unknown> = {};
+    if (meta.manifest.files && meta.manifest.files.length > 0) {
+      manifest['files'] = meta.manifest.files.map((file) => {
+        const out: Record<string, unknown> = {};
+        if (file.uri) out['uri'] = file.uri;
+        if (file.sha256) out['sha256'] = file.sha256;
+        if (file.role) out['role'] = file.role;
+        if (file.profile) out['profile'] = file.profile;
+        if (file.startKey) out['start_key'] = file.startKey;
+        if (file.endKey) out['end_key'] = file.endKey;
+        if (file.entryCount !== undefined) out['entry_count'] = file.entryCount;
+        return out;
+      });
+    }
+    if (meta.manifest.partitions && Object.keys(meta.manifest.partitions).length > 0) {
+      manifest['partitions'] = meta.manifest.partitions;
+    }
+    obj['manifest'] = manifest;
+  }
   if (meta.entryMetadata && Object.keys(meta.entryMetadata).length > 0) {
     const em: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(meta.entryMetadata)) {
@@ -356,6 +435,15 @@ export function serializeMetadata(meta: ShardMetadata): Buffer {
       if (v.tags && v.tags.length > 0) ev['tags'] = v.tags;
       if (v.description) ev['description'] = v.description;
       if (v.extra && Object.keys(v.extra).length > 0) ev['extra'] = v.extra;
+      if (v.codec) ev['codec'] = v.codec;
+      if (v.codecVersion) ev['codec_version'] = v.codecVersion;
+      if (v.schemaFingerprint) ev['schema_fingerprint'] = v.schemaFingerprint;
+      if (v.semanticType) ev['semantic_type'] = v.semanticType;
+      if (v.canonicalHash) ev['canonical_hash'] = v.canonicalHash;
+      if (v.baseHash) ev['base_hash'] = v.baseHash;
+      if (v.rowCount !== undefined) ev['row_count'] = v.rowCount;
+      if (v.shape && v.shape.length > 0) ev['shape'] = v.shape;
+      if (v.stats && Object.keys(v.stats).length > 0) ev['stats'] = v.stats;
       em[k] = ev;
     }
     obj['entry_metadata'] = em;
@@ -375,9 +463,20 @@ export function deserializeMetadata(data: Buffer): ShardMetadata {
         tags: v['tags'] as string[] | undefined,
         description: v['description'] as string | undefined,
         extra: v['extra'] as Record<string, unknown> | undefined,
+        codec: v['codec'] as string | undefined,
+        codecVersion: v['codec_version'] as string | undefined,
+        schemaFingerprint: v['schema_fingerprint'] as string | undefined,
+        semanticType: v['semantic_type'] as string | undefined,
+        canonicalHash: v['canonical_hash'] as string | undefined,
+        baseHash: v['base_hash'] as string | undefined,
+        rowCount: v['row_count'] as number | undefined,
+        shape: v['shape'] as number[] | undefined,
+        stats: v['stats'] as Record<string, unknown> | undefined,
       };
     }
   }
+  const rawSampleShard = obj['sample_shard'] as Record<string, unknown> | undefined;
+  const rawManifest = obj['manifest'] as Record<string, unknown> | undefined;
   return {
     schemaVersion: (obj['schema_version'] as string) ?? 'shard-v2.1',
     schemaUri: obj['schema_uri'] as string | undefined,
@@ -387,6 +486,35 @@ export function deserializeMetadata(data: Buffer): ShardMetadata {
     description: obj['description'] as string | undefined,
     tags: obj['tags'] as string[] | undefined,
     extra: obj['extra'] as Record<string, unknown> | undefined,
+    profile: obj['profile'] as string | undefined,
+    sampleShard: rawSampleShard
+      ? {
+          datasetName: rawSampleShard['dataset_name'] as string | undefined,
+          sampleIdType: rawSampleShard['sample_id_type'] as string | undefined,
+          keyEncoding: rawSampleShard['key_encoding'] as string | undefined,
+          sampleCount: rawSampleShard['sample_count'] as number | undefined,
+          datasetSchema: rawSampleShard['dataset_schema'] as Record<string, unknown> | undefined,
+          splits: rawSampleShard['splits'] as Record<string, unknown> | undefined,
+          labelMap: rawSampleShard['label_map'] as Record<string, unknown> | undefined,
+          featureStats: rawSampleShard['feature_stats'] as Record<string, unknown> | undefined,
+        }
+      : undefined,
+    manifest: rawManifest
+      ? {
+          files: Array.isArray(rawManifest['files'])
+            ? (rawManifest['files'] as Record<string, unknown>[]).map((file) => ({
+                uri: file['uri'] as string | undefined,
+                sha256: file['sha256'] as string | undefined,
+                role: file['role'] as string | undefined,
+                profile: file['profile'] as string | undefined,
+                startKey: file['start_key'] as string | undefined,
+                endKey: file['end_key'] as string | undefined,
+                entryCount: file['entry_count'] as number | undefined,
+              }))
+            : undefined,
+          partitions: rawManifest['partitions'] as Record<string, unknown> | undefined,
+        }
+      : undefined,
     entryMetadata: Object.keys(em).length > 0 ? em : undefined,
   };
 }
@@ -598,10 +726,13 @@ function parseIndexEntry(buf: Buffer, offset: number, stringTable: Buffer, stOff
   const checksum = buf.readUInt32LE(offset + 40);
   const reserved = buf.readUInt32LE(offset + 44);
 
-  // Resolve name from string table
-  const nameStart = nameOffset;
-  const nameEnd = nameOffset + nameLen;
-  const name = stringTable.slice(nameStart, nameEnd).toString('utf8');
+  // Resolve name from string table (with bounds check matching Go)
+  let name: string;
+  if (nameOffset >= stringTable.length || nameLen > stringTable.length - nameOffset) {
+    name = '';
+  } else {
+    name = stringTable.slice(nameOffset, nameOffset + nameLen).toString('utf8');
+  }
 
   return {
     nameHash,
@@ -841,12 +972,13 @@ export class ShardV2Reader {
 
   /**
    * Returns immediate children (one path component deep) under prefix.
+   * Returns bare components matching the Go reference implementation.
    *
    * @example
    * // entries: ["layer.0/weight", "layer.0/bias", "layer.1/weight", "embed"]
-   * listChildren("layer.0/") // => ["layer.0/weight", "layer.0/bias"]
-   * listChildren("")          // => ["layer.0/", "layer.1/", "embed"]
-   * listChildren("layer.")    // => ["layer.0/", "layer.1/"]
+   * listChildren("layer.0/") // => ["weight", "bias"]
+   * listChildren("")          // => ["layer.0", "layer.1", "embed"]
+   * listChildren("layer.")    // => ["0", "1"]
    */
   listChildren(prefix: string): string[] {
     const result: string[] = [];
@@ -860,12 +992,14 @@ export class ShardV2Reader {
       const slashPos = remainder.indexOf('/');
       let child: string;
       if (slashPos >= 0) {
-        child = prefix + remainder.slice(0, slashPos + 1);
+        // Has sub-components — bare component (no trailing slash)
+        child = remainder.slice(0, slashPos);
       } else {
-        child = name;
+        // Leaf entry — bare remainder
+        child = remainder;
       }
 
-      if (!seen.has(child)) {
+      if (child && !seen.has(child)) {
         seen.add(child);
         result.push(child);
       }
@@ -899,6 +1033,12 @@ export class ShardV2Reader {
     const schemaOffset = Number(this._header.schemaOffset);
     if (schemaOffset === 0) return null;
     const totalFileSize = Number(this._header.totalFileSize);
+    const fileLen = this._buf.length;
+    if (schemaOffset > fileLen || schemaOffset > totalFileSize) {
+      throw new Error(
+        `schema_offset ${schemaOffset} out of bounds (file_len=${fileLen}, total_file_size=${totalFileSize})`
+      );
+    }
     const metaData = this._buf.subarray(schemaOffset, totalFileSize);
     return deserializeMetadata(Buffer.from(metaData));
   }

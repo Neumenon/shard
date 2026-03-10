@@ -34,6 +34,11 @@ export { SampleShardWriter } from './writer.js';
 export {
   ShardHeader,
   IndexEntry,
+  EntryMeta,
+  ShardMetadata,
+  SampleShardProfile,
+  ManifestFileRef,
+  ManifestProfile,
   ShardRole,
   SHARD_MAGIC,
   SHARD_VERSION_2,
@@ -46,5 +51,8 @@ export {
   COMPRESS_NONE,
   COMPRESS_ZSTD,
   COMPRESS_LZ4,
+  SHARD_FLAG_HAS_SCHEMA,
+  serializeMetadata,
+  deserializeMetadata,
 } from './types.js';
 export { encode as cowrieEncode, decode as cowrieDecode, MAGIC as COWRIE_MAGIC } from './cowrie.js';

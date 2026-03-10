@@ -43,6 +43,15 @@ class TestFromCSV:
             # Verify via reader
             with SampleShardReader(out_path) as r:
                 assert r.sample_count() == 10
+                profile = r.sample_profile()
+                assert profile is not None
+                assert profile.dataset_name == "data"
+                assert profile.sample_count == 10
+                assert profile.dataset_schema["fields"]["input"]["type"] == "object"
+                assert (
+                    profile.dataset_schema["fields"]["input"]["fields"]["a"]["type"]
+                    == "int"
+                )
                 s0 = r.get_sample(0)
                 # All columns become input dict when no target specified
                 assert s0["input"]["a"] == 0
@@ -200,6 +209,11 @@ class TestFromJSONL:
 
             with SampleShardReader(out_path) as r:
                 assert r.sample_count() == 3
+                profile = r.sample_profile()
+                assert profile is not None
+                assert profile.dataset_name == "data"
+                assert profile.dataset_schema["fields"]["text"]["type"] == "string"
+                assert profile.dataset_schema["fields"]["label"]["type"] == "int"
                 for i, rec in enumerate(records):
                     s = r.get_sample(i)
                     assert s == rec
@@ -304,6 +318,10 @@ class TestFromJSONL:
 
             with SampleShardReader(out_path) as r:
                 assert r.sample_count() == 0
+                profile = r.sample_profile()
+                assert profile is not None
+                assert profile.dataset_name == "empty"
+                assert profile.sample_count == 0
 
 
 # ---------------------------------------------------------------------------
@@ -488,6 +506,10 @@ class TestFromIterable:
             assert count == 2
 
             with SampleShardReader(out_path) as r:
+                profile = r.sample_profile()
+                assert profile is not None
+                assert profile.dataset_name == "data"
+                assert profile.dataset_schema["fields"]["embeddings"]["type"] == "array"
                 s0 = r.get_sample(0)
                 assert len(s0["embeddings"]) == 4
                 assert abs(s0["embeddings"][0] - 0.1) < 1e-6
@@ -621,6 +643,10 @@ class TestFromImageFolder:
             assert count == 3
 
             with SampleShardReader(out_path) as r:
+                profile = r.sample_profile()
+                assert profile is not None
+                assert profile.dataset_name == "images"
+                assert profile.label_map == {"0": "alpha", "1": "beta", "2": "gamma"}
                 class_targets = {}
                 for sid, sample in r:
                     cn = sample["meta"]["class_name"]

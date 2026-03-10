@@ -419,9 +419,9 @@ static void test_mmap_list_children(const char* testdata) {
     char** children = shard_v2_list_children(r, "", &count);
     check(children != NULL, "list_children('') != NULL");
     if (children) {
-        /* Should get "layer.0/" as the only top-level directory */
+        /* Should get "layer.0" as the only top-level bare component */
         check(count == 1, "list_children('') count == 1");
-        check(count > 0 && strcmp(children[0], "layer.0/") == 0, "list_children('')[0] == 'layer.0/'");
+        check(count > 0 && strcmp(children[0], "layer.0") == 0, "list_children('')[0] == 'layer.0'");
         shard_v2_list_children_free(children, count);
     }
 

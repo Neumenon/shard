@@ -20,6 +20,9 @@ type ShardMetadata struct {
 	Description string         `json:"description,omitempty"`
 	Tags        []string       `json:"tags,omitempty"`
 	Extra       map[string]any `json:"extra,omitempty"`
+	Profile     string         `json:"profile,omitempty"`
+	SampleShard *SampleProfile `json:"sample_shard,omitempty"`
+	Manifest    *ManifestMeta  `json:"manifest,omitempty"`
 
 	// Per-entry metadata (keyed by entry name)
 	EntryMetadata map[string]*EntryMeta `json:"entry_metadata,omitempty"`
@@ -27,10 +30,48 @@ type ShardMetadata struct {
 
 // EntryMeta holds per-entry metadata.
 type EntryMeta struct {
-	ContentType string         `json:"content_type,omitempty"` // MIME-like type
-	Tags        []string       `json:"tags,omitempty"`
-	Description string         `json:"description,omitempty"`
-	Extra       map[string]any `json:"extra,omitempty"`
+	ContentType       string         `json:"content_type,omitempty"` // MIME-like type
+	Tags              []string       `json:"tags,omitempty"`
+	Description       string         `json:"description,omitempty"`
+	Extra             map[string]any `json:"extra,omitempty"`
+	Codec             string         `json:"codec,omitempty"`
+	CodecVersion      string         `json:"codec_version,omitempty"`
+	SchemaFingerprint string         `json:"schema_fingerprint,omitempty"`
+	SemanticType      string         `json:"semantic_type,omitempty"`
+	CanonicalHash     string         `json:"canonical_hash,omitempty"`
+	BaseHash          string         `json:"base_hash,omitempty"`
+	RowCount          uint64         `json:"row_count,omitempty"`
+	Shape             []int64        `json:"shape,omitempty"`
+	Stats             map[string]any `json:"stats,omitempty"`
+}
+
+// SampleProfile describes shard-level dataset metadata for SampleShard files.
+type SampleProfile struct {
+	DatasetName   string         `json:"dataset_name,omitempty"`
+	SampleIDType  string         `json:"sample_id_type,omitempty"`
+	KeyEncoding   string         `json:"key_encoding,omitempty"`
+	SampleCount   uint64         `json:"sample_count,omitempty"`
+	DatasetSchema map[string]any `json:"dataset_schema,omitempty"`
+	Splits        map[string]any `json:"splits,omitempty"`
+	LabelMap      map[string]any `json:"label_map,omitempty"`
+	FeatureStats  map[string]any `json:"feature_stats,omitempty"`
+}
+
+// ManifestMeta describes shard-level metadata for manifest shards.
+type ManifestMeta struct {
+	Files      []*ManifestFileRef `json:"files,omitempty"`
+	Partitions map[string]any     `json:"partitions,omitempty"`
+}
+
+// ManifestFileRef describes a single file referenced by a manifest shard.
+type ManifestFileRef struct {
+	URI        string `json:"uri,omitempty"`
+	SHA256     string `json:"sha256,omitempty"`
+	Role       string `json:"role,omitempty"`
+	Profile    string `json:"profile,omitempty"`
+	StartKey   string `json:"start_key,omitempty"`
+	EndKey     string `json:"end_key,omitempty"`
+	EntryCount uint64 `json:"entry_count,omitempty"`
 }
 
 // NewShardMetadata creates a new metadata instance with defaults.
@@ -40,6 +81,18 @@ func NewShardMetadata() *ShardMetadata {
 		CreatedAt:     time.Now().UTC(),
 		EntryMetadata: make(map[string]*EntryMeta),
 	}
+}
+
+// SetSampleProfile configures the shard as a SampleShard-style dataset container.
+func (m *ShardMetadata) SetSampleProfile(profile *SampleProfile) {
+	m.Profile = "sampleshard.v1"
+	m.SampleShard = profile
+}
+
+// SetManifestProfile configures the shard as a manifest container.
+func (m *ShardMetadata) SetManifestProfile(profile *ManifestMeta) {
+	m.Profile = "manifest.v1"
+	m.Manifest = profile
 }
 
 // SetEntryMeta sets metadata for an entry.

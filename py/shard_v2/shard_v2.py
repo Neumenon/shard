@@ -120,6 +120,15 @@ class EntryMeta:
     tags: List[str] = field(default_factory=list)
     description: str = ""
     extra: Dict[str, Any] = field(default_factory=dict)
+    codec: str = ""
+    codec_version: str = ""
+    schema_fingerprint: str = ""
+    semantic_type: str = ""
+    canonical_hash: str = ""
+    base_hash: str = ""
+    row_count: int = 0
+    shape: List[int] = field(default_factory=list)
+    stats: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {}
@@ -131,6 +140,24 @@ class EntryMeta:
             d["description"] = self.description
         if self.extra:
             d["extra"] = self.extra
+        if self.codec:
+            d["codec"] = self.codec
+        if self.codec_version:
+            d["codec_version"] = self.codec_version
+        if self.schema_fingerprint:
+            d["schema_fingerprint"] = self.schema_fingerprint
+        if self.semantic_type:
+            d["semantic_type"] = self.semantic_type
+        if self.canonical_hash:
+            d["canonical_hash"] = self.canonical_hash
+        if self.base_hash:
+            d["base_hash"] = self.base_hash
+        if self.row_count:
+            d["row_count"] = self.row_count
+        if self.shape:
+            d["shape"] = self.shape
+        if self.stats:
+            d["stats"] = self.stats
         return d
 
     @classmethod
@@ -140,6 +167,125 @@ class EntryMeta:
             tags=d.get("tags", []),
             description=d.get("description", ""),
             extra=d.get("extra", {}),
+            codec=d.get("codec", ""),
+            codec_version=d.get("codec_version", ""),
+            schema_fingerprint=d.get("schema_fingerprint", ""),
+            semantic_type=d.get("semantic_type", ""),
+            canonical_hash=d.get("canonical_hash", ""),
+            base_hash=d.get("base_hash", ""),
+            row_count=d.get("row_count", 0),
+            shape=d.get("shape", []),
+            stats=d.get("stats", {}),
+        )
+
+
+@dataclass
+class SampleProfile:
+    """Shard-level dataset metadata for SampleShard files."""
+    dataset_name: str = ""
+    sample_id_type: str = ""
+    key_encoding: str = ""
+    sample_count: int = 0
+    dataset_schema: Dict[str, Any] = field(default_factory=dict)
+    splits: Dict[str, Any] = field(default_factory=dict)
+    label_map: Dict[str, Any] = field(default_factory=dict)
+    feature_stats: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = {}
+        if self.dataset_name:
+            d["dataset_name"] = self.dataset_name
+        if self.sample_id_type:
+            d["sample_id_type"] = self.sample_id_type
+        if self.key_encoding:
+            d["key_encoding"] = self.key_encoding
+        if self.sample_count:
+            d["sample_count"] = self.sample_count
+        if self.dataset_schema:
+            d["dataset_schema"] = self.dataset_schema
+        if self.splits:
+            d["splits"] = self.splits
+        if self.label_map:
+            d["label_map"] = self.label_map
+        if self.feature_stats:
+            d["feature_stats"] = self.feature_stats
+        return d
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "SampleProfile":
+        return cls(
+            dataset_name=d.get("dataset_name", ""),
+            sample_id_type=d.get("sample_id_type", ""),
+            key_encoding=d.get("key_encoding", ""),
+            sample_count=d.get("sample_count", 0),
+            dataset_schema=d.get("dataset_schema", {}),
+            splits=d.get("splits", {}),
+            label_map=d.get("label_map", {}),
+            feature_stats=d.get("feature_stats", {}),
+        )
+
+
+@dataclass
+class ManifestFileRef:
+    """Single manifest reference to another shard file."""
+    uri: str = ""
+    sha256: str = ""
+    role: str = ""
+    profile: str = ""
+    start_key: str = ""
+    end_key: str = ""
+    entry_count: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = {}
+        if self.uri:
+            d["uri"] = self.uri
+        if self.sha256:
+            d["sha256"] = self.sha256
+        if self.role:
+            d["role"] = self.role
+        if self.profile:
+            d["profile"] = self.profile
+        if self.start_key:
+            d["start_key"] = self.start_key
+        if self.end_key:
+            d["end_key"] = self.end_key
+        if self.entry_count:
+            d["entry_count"] = self.entry_count
+        return d
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ManifestFileRef":
+        return cls(
+            uri=d.get("uri", ""),
+            sha256=d.get("sha256", ""),
+            role=d.get("role", ""),
+            profile=d.get("profile", ""),
+            start_key=d.get("start_key", ""),
+            end_key=d.get("end_key", ""),
+            entry_count=d.get("entry_count", 0),
+        )
+
+
+@dataclass
+class ManifestProfile:
+    """Shard-level metadata for manifest shards."""
+    files: List[ManifestFileRef] = field(default_factory=list)
+    partitions: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = {}
+        if self.files:
+            d["files"] = [f.to_dict() for f in self.files]
+        if self.partitions:
+            d["partitions"] = self.partitions
+        return d
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ManifestProfile":
+        return cls(
+            files=[ManifestFileRef.from_dict(v) for v in d.get("files", [])],
+            partitions=d.get("partitions", {}),
         )
 
 
@@ -154,6 +300,9 @@ class ShardMetadata:
     description: str = ""
     tags: List[str] = field(default_factory=list)
     extra: Dict[str, Any] = field(default_factory=dict)
+    profile: str = ""
+    sample_shard: Optional[SampleProfile] = None
+    manifest: Optional[ManifestProfile] = None
     entry_metadata: Dict[str, EntryMeta] = field(default_factory=dict)
 
     def to_json(self) -> bytes:
@@ -174,6 +323,12 @@ class ShardMetadata:
             d["tags"] = self.tags
         if self.extra:
             d["extra"] = self.extra
+        if self.profile:
+            d["profile"] = self.profile
+        if self.sample_shard is not None:
+            d["sample_shard"] = self.sample_shard.to_dict()
+        if self.manifest is not None:
+            d["manifest"] = self.manifest.to_dict()
         if self.entry_metadata:
             d["entry_metadata"] = {
                 k: v.to_dict() for k, v in self.entry_metadata.items()
@@ -195,6 +350,17 @@ class ShardMetadata:
             description=d.get("description", ""),
             tags=d.get("tags", []),
             extra=d.get("extra", {}),
+            profile=d.get("profile", ""),
+            sample_shard=(
+                SampleProfile.from_dict(d["sample_shard"])
+                if "sample_shard" in d
+                else None
+            ),
+            manifest=(
+                ManifestProfile.from_dict(d["manifest"])
+                if "manifest" in d
+                else None
+            ),
             entry_metadata=em,
         )
 
@@ -414,11 +580,14 @@ class ShardV2Reader:
             entry = IndexEntryV2.from_bytes(
                 self._data[off : off + INDEX_ENTRY_SIZE]
             )
-            # Resolve name from string table
-            name_bytes = string_table[
-                entry.name_offset : entry.name_offset + entry.name_len
-            ]
-            entry.name = name_bytes.decode("utf-8")
+            # Resolve name from string table (with bounds check matching Go)
+            if entry.name_offset >= len(string_table) or entry.name_len > len(string_table) - entry.name_offset:
+                entry.name = ""
+            else:
+                name_bytes = string_table[
+                    entry.name_offset : entry.name_offset + entry.name_len
+                ]
+                entry.name = name_bytes.decode("utf-8")
             self._entries.append(entry)
             self._name_to_index[entry.name] = i
 
@@ -516,11 +685,11 @@ class ShardV2Reader:
     def list_children(self, prefix: str) -> List[str]:
         """Return immediate children (one path component deep) under prefix.
 
-        Example:
+        Returns bare components matching the Go reference implementation:
           entries = ["layer.0/weight", "layer.0/bias", "layer.1/weight", "embed"]
-          list_children("layer.0/") -> ["layer.0/weight", "layer.0/bias"]
-          list_children("")         -> ["layer.0/", "layer.1/", "embed"]
-          list_children("layer.")   -> ["layer.0/", "layer.1/"]
+          list_children("layer.0/") -> ["weight", "bias"]
+          list_children("")         -> ["layer.0", "layer.1", "embed"]
+          list_children("layer.")   -> ["0", "1"]
         """
         result: List[str] = []
         seen: set = set()
@@ -532,13 +701,13 @@ class ShardV2Reader:
             remainder = name[len(prefix):]
             slash_pos = remainder.find("/")
             if slash_pos >= 0:
-                # Has sub-components — return the directory prefix (deduplicated)
-                child = prefix + remainder[: slash_pos + 1]
+                # Has sub-components — return bare component (no trailing slash)
+                child = remainder[:slash_pos]
             else:
-                # Leaf entry
-                child = name
+                # Leaf entry — bare remainder
+                child = remainder
 
-            if child not in seen:
+            if child and child not in seen:
                 seen.add(child)
                 result.append(child)
 
@@ -560,7 +729,15 @@ class ShardV2Reader:
         """Read JSON metadata from schema section. Returns None if no schema."""
         if self._header.schema_offset == 0:
             return None
-        meta_data = self._data[self._header.schema_offset : self._header.total_file_size]
+        file_len = len(self._data)
+        schema_offset = self._header.schema_offset
+        total_file_size = self._header.total_file_size
+        if schema_offset > file_len or schema_offset > total_file_size:
+            raise ValueError(
+                f"schema_offset {schema_offset} out of bounds "
+                f"(file_len={file_len}, total_file_size={total_file_size})"
+            )
+        meta_data = self._data[schema_offset : total_file_size]
         return ShardMetadata.from_json(meta_data)
 
 

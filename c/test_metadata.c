@@ -293,8 +293,8 @@ TEST(list_children_exact_prefix_with_slash) {
     char** children = shard_v2_list_children(r, "layer.0/", &count);
     assert(children != NULL);
     assert(count == 2);
-    assert(arr_contains(children, count, "layer.0/weight"));
-    assert(arr_contains(children, count, "layer.0/bias"));
+    assert(arr_contains(children, count, "weight"));
+    assert(arr_contains(children, count, "bias"));
     shard_v2_list_children_free(children, count);
     shard_v2_close(r);
     free(buf);
@@ -307,8 +307,8 @@ TEST(list_children_empty_prefix_returns_top_level) {
     uint32_t count = 0;
     char** children = shard_v2_list_children(r, "", &count);
     assert(children != NULL);
-    assert(arr_contains(children, count, "layer.0/"));
-    assert(arr_contains(children, count, "layer.1/"));
+    assert(arr_contains(children, count, "layer.0"));
+    assert(arr_contains(children, count, "layer.1"));
     assert(arr_contains(children, count, "embed"));
     /* No duplicates: count should be 3 */
     assert(count == 3);
@@ -325,8 +325,8 @@ TEST(list_children_partial_prefix) {
     char** children = shard_v2_list_children(r, "layer.", &count);
     assert(children != NULL);
     assert(count == 2);
-    assert(arr_contains(children, count, "layer.0/"));
-    assert(arr_contains(children, count, "layer.1/"));
+    assert(arr_contains(children, count, "0"));
+    assert(arr_contains(children, count, "1"));
     shard_v2_list_children_free(children, count);
     shard_v2_close(r);
     free(buf);
@@ -359,10 +359,10 @@ TEST(list_children_deduplicated_directories) {
     uint32_t count = 0;
     char** children = shard_v2_list_children(r, "", &count);
     assert(children != NULL);
-    /* "a/" should appear exactly once */
+    /* "a" should appear exactly once */
     int a_count = 0;
     for (uint32_t i = 0; i < count; i++) {
-        if (strcmp(children[i], "a/") == 0) a_count++;
+        if (strcmp(children[i], "a") == 0) a_count++;
     }
     assert(a_count == 1);
     shard_v2_list_children_free(children, count);
@@ -386,23 +386,23 @@ TEST(list_children_hierarchical_three_levels) {
     uint32_t count = 0;
     char** top = shard_v2_list_children(r, "", &count);
     assert(top != NULL);
-    assert(arr_contains(top, count, "a/"));
+    assert(arr_contains(top, count, "a"));
     assert(arr_contains(top, count, "f"));
     shard_v2_list_children_free(top, count);
 
     /* Under a/ */
     char** under_a = shard_v2_list_children(r, "a/", &count);
     assert(under_a != NULL);
-    assert(arr_contains(under_a, count, "a/b/"));
-    assert(arr_contains(under_a, count, "a/e"));
+    assert(arr_contains(under_a, count, "b"));
+    assert(arr_contains(under_a, count, "e"));
     shard_v2_list_children_free(under_a, count);
 
     /* Under a/b/ */
     char** under_ab = shard_v2_list_children(r, "a/b/", &count);
     assert(under_ab != NULL);
     assert(count == 2);
-    assert(arr_contains(under_ab, count, "a/b/c"));
-    assert(arr_contains(under_ab, count, "a/b/d"));
+    assert(arr_contains(under_ab, count, "c"));
+    assert(arr_contains(under_ab, count, "d"));
     shard_v2_list_children_free(under_ab, count);
 
     shard_v2_close(r);

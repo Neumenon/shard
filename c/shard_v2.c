@@ -414,14 +414,15 @@ static shard_v2_reader_t* reader_parse(shard_v2_reader_t* r) {
     r->names = (char**)calloc(n + 1, sizeof(char*));
     if (!r->names) goto fail;
 
+    uint64_t st_size = ds_off - st_off;
     for (uint32_t i = 0; i < n; i++) {
         uint32_t name_off = r->entries[i].name_offset;
         uint16_t name_len = r->entries[i].name_len;
-        uint64_t abs_off = 0;
-        if (!checked_u64_add(st_off, name_off, &abs_off) ||
-            !range_within_size(r->data_len, abs_off, name_len, NULL)) {
+        /* Validate against string table size, not whole file (matches Go) */
+        if ((uint64_t)name_off + (uint64_t)name_len > st_size) {
             goto fail;
         }
+        uint64_t abs_off = st_off + (uint64_t)name_off;
         r->names[i] = (char*)malloc(name_len + 1);
         if (!r->names[i]) goto fail;
         memcpy(r->names[i], r->data + abs_off, name_len);
@@ -767,28 +768,27 @@ char** shard_v2_list_children(const shard_v2_reader_t* r, const char* prefix,
         const char* slash = strchr(rem, '/');
 
         char* child;
+        size_t rem_len = strlen(rem);
+        if (rem_len == 0) continue; /* skip exact prefix match with no remainder */
         if (slash) {
-            /* Directory entry: prefix + component + "/" */
+            /* Directory entry: bare component (no trailing slash, matching Go) */
             size_t comp_len = (size_t)(slash - rem);
-            size_t child_len = prefix_len + comp_len + 1; /* +1 for "/" */
-            child = (char*)malloc(child_len + 1);
+            child = (char*)malloc(comp_len + 1);
             if (!child) {
                 shard_v2_list_children_free(result, count);
                 return NULL;
             }
-            memcpy(child, prefix, prefix_len);
-            memcpy(child + prefix_len, rem, comp_len);
-            child[prefix_len + comp_len] = '/';
-            child[child_len] = '\0';
+            memcpy(child, rem, comp_len);
+            child[comp_len] = '\0';
         } else {
-            /* Leaf entry: full name */
-            child = (char*)malloc(name_len + 1);
+            /* Leaf entry: bare remainder */
+            child = (char*)malloc(rem_len + 1);
             if (!child) {
                 shard_v2_list_children_free(result, count);
                 return NULL;
             }
-            memcpy(child, name, name_len);
-            child[name_len] = '\0';
+            memcpy(child, rem, rem_len);
+            child[rem_len] = '\0';
         }
 
         /* Deduplicate: check if already in result */

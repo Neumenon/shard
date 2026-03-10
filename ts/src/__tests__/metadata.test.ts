@@ -117,7 +117,7 @@ describe('listChildren', () => {
     ]);
     const r = new ShardV2Reader(buf);
     const result = r.listChildren('layer.0/');
-    expect(result.sort()).toEqual(['layer.0/bias', 'layer.0/weight']);
+    expect(result.sort()).toEqual(['bias', 'weight']);
   });
 
   it('empty prefix returns top-level children', () => {
@@ -129,8 +129,8 @@ describe('listChildren', () => {
     ]);
     const r = new ShardV2Reader(buf);
     const result = r.listChildren('');
-    expect(result).toContain('layer.0/');
-    expect(result).toContain('layer.1/');
+    expect(result).toContain('layer.0');
+    expect(result).toContain('layer.1');
     expect(result).toContain('embed');
     // No duplicates
     expect(result.length).toBe(new Set(result).size);
@@ -145,7 +145,7 @@ describe('listChildren', () => {
     ]);
     const r = new ShardV2Reader(buf);
     const result = r.listChildren('layer.');
-    expect(result.sort()).toEqual(['layer.0/', 'layer.1/']);
+    expect(result.sort()).toEqual(['0', '1']);
   });
 
   it('nonexistent prefix returns empty', () => {
@@ -163,9 +163,9 @@ describe('listChildren', () => {
       ['a/d', Buffer.from('3')],
     ]);
     const r = new ShardV2Reader(buf);
-    // Under "" we should see "a/" only once
+    // Under "" we should see "a" only once
     const result = r.listChildren('');
-    expect(result.filter(x => x === 'a/').length).toBe(1);
+    expect(result.filter(x => x === 'a').length).toBe(1);
   });
 
   it('hierarchical three levels', () => {
@@ -178,15 +178,15 @@ describe('listChildren', () => {
     const r = new ShardV2Reader(buf);
 
     const top = r.listChildren('');
-    expect(top).toContain('a/');
+    expect(top).toContain('a');
     expect(top).toContain('f');
 
     const underA = r.listChildren('a/');
-    expect(underA).toContain('a/b/');
-    expect(underA).toContain('a/e');
+    expect(underA).toContain('b');
+    expect(underA).toContain('e');
 
     const underAB = r.listChildren('a/b/');
-    expect(underAB.sort()).toEqual(['a/b/c', 'a/b/d']);
+    expect(underAB.sort()).toEqual(['c', 'd']);
   });
 });
 
@@ -267,6 +267,15 @@ describe('ShardMetadata roundtrip', () => {
       tags: ['weight'],
       description: 'Model weights',
       extra: { shape: [256, 256] },
+      codec: 'cowrie-gen2',
+      codecVersion: '2',
+      schemaFingerprint: 'sha256:weights',
+      semanticType: 'tensor',
+      canonicalHash: 'sha256:canonical',
+      baseHash: 'sha256:base',
+      rowCount: 256,
+      shape: [256, 256],
+      stats: { min: -1, max: 1 },
     };
     const meta: ShardMetadata = {
       schemaVersion: 'shard-v2.1',
@@ -284,6 +293,15 @@ describe('ShardMetadata roundtrip', () => {
     expect(gotEm.tags).toEqual(['weight']);
     expect(gotEm.description).toBe('Model weights');
     expect(gotEm.extra).toEqual({ shape: [256, 256] });
+    expect(gotEm.codec).toBe('cowrie-gen2');
+    expect(gotEm.codecVersion).toBe('2');
+    expect(gotEm.schemaFingerprint).toBe('sha256:weights');
+    expect(gotEm.semanticType).toBe('tensor');
+    expect(gotEm.canonicalHash).toBe('sha256:canonical');
+    expect(gotEm.baseHash).toBe('sha256:base');
+    expect(gotEm.rowCount).toBe(256);
+    expect(gotEm.shape).toEqual([256, 256]);
+    expect(gotEm.stats).toEqual({ min: -1, max: 1 });
   });
 
   it('no metadata returns null', () => {
@@ -336,6 +354,46 @@ describe('ShardMetadata roundtrip', () => {
     expect(got.extra!['n']).toBe(42);
     expect(got.entryMetadata!['foo/bar'].contentType).toBe('text/plain');
     expect(got.entryMetadata!['foo/bar'].description).toBe('test');
+  });
+
+  it('profile metadata roundtrip', () => {
+    const meta: ShardMetadata = {
+      schemaVersion: 'shard-v2.1',
+      profile: 'sampleshard.v1',
+      sampleShard: {
+        datasetName: 'mnist-train',
+        sampleIdType: 'uint64',
+        keyEncoding: 'decimal-string',
+        sampleCount: 60000,
+        datasetSchema: { input: 'tensor[u8,28,28]', target: 'uint8' },
+        splits: { train: { start: 0, end: 59999 } },
+        labelMap: { '0': 'zero', '1': 'one' },
+        featureStats: { input: { mean: 0.1307, std: 0.3081 } },
+      },
+      manifest: {
+        files: [
+          {
+            uri: 's3://bucket/train-000.smpl',
+            sha256: 'abc123',
+            role: 'sample',
+            profile: 'sampleshard.v1',
+            startKey: '0',
+            endKey: '59999',
+            entryCount: 60000,
+          },
+        ],
+        partitions: { train: ['train-000.smpl'] },
+      },
+    };
+
+    const serialized = serializeMetadata(meta);
+    const got = deserializeMetadata(serialized);
+    expect(got.profile).toBe('sampleshard.v1');
+    expect(got.sampleShard?.datasetName).toBe('mnist-train');
+    expect(got.sampleShard?.keyEncoding).toBe('decimal-string');
+    expect(got.sampleShard?.sampleCount).toBe(60000);
+    expect(got.manifest?.files?.[0].uri).toBe('s3://bucket/train-000.smpl');
+    expect(got.manifest?.partitions?.train).toEqual(['train-000.smpl']);
   });
 });
 

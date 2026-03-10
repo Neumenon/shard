@@ -23,11 +23,86 @@ Example:
     >>> from_image_folder("data/train/", "imagenet_train.smpl")
 """
 
+import json
+from itertools import chain
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
-import json
 
 from .writer import SampleShardWriter
+
+
+def _path_source_uri(path: Union[str, Path]) -> str:
+    """Convert a local path to a stable file URI when possible."""
+    try:
+        return Path(path).resolve().as_uri()
+    except Exception:
+        return str(path)
+
+
+def _infer_schema(value: Any) -> Dict[str, Any]:
+    """Infer a compact structural schema from one representative sample."""
+    if value is None:
+        return {"type": "null"}
+    if isinstance(value, bool):
+        return {"type": "bool"}
+    if isinstance(value, int):
+        return {"type": "int"}
+    if isinstance(value, float):
+        return {"type": "float"}
+    if isinstance(value, str):
+        return {"type": "string"}
+    if isinstance(value, bytes):
+        return {"type": "bytes"}
+    if isinstance(value, dict):
+        return {
+            "type": "object",
+            "fields": {str(key): _infer_schema(val) for key, val in value.items()},
+        }
+    if isinstance(value, (list, tuple)):
+        schema: Dict[str, Any] = {"type": "array"}
+        shape: List[int] = []
+        cursor: Any = value
+        while isinstance(cursor, (list, tuple)):
+            shape.append(len(cursor))
+            if len(cursor) == 0:
+                cursor = None
+                break
+            cursor = cursor[0]
+        if shape:
+            schema["shape"] = shape
+        schema["items"] = (
+            _infer_schema(cursor) if cursor is not None else {"type": "unknown"}
+        )
+        return schema
+    if hasattr(value, "dtype") and hasattr(value, "shape"):
+        return {"type": "ndarray", "dtype": str(value.dtype), "shape": list(value.shape)}
+    return {"type": type(value).__name__}
+
+
+def _initialize_profile(
+    writer: SampleShardWriter,
+    *,
+    dataset_name: str,
+    source_uri: Optional[str] = None,
+    sample_example: Optional[Any] = None,
+    splits: Optional[Dict[str, Any]] = None,
+    label_map: Optional[Dict[str, Any]] = None,
+    feature_stats: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Attach standardized SampleShard metadata for a bridge-produced shard."""
+    if source_uri:
+        writer.set_metadata({"source_uri": source_uri})
+
+    profile_kwargs: Dict[str, Any] = {"dataset_name": dataset_name}
+    if sample_example is not None:
+        profile_kwargs["dataset_schema"] = _infer_schema(sample_example)
+    if splits:
+        profile_kwargs["splits"] = splits
+    if label_map:
+        profile_kwargs["label_map"] = label_map
+    if feature_stats:
+        profile_kwargs["feature_stats"] = feature_stats
+    writer.set_sample_profile(**profile_kwargs)
 
 
 def from_hf_dataset(
@@ -79,6 +154,14 @@ def from_hf_dataset(
 
     count = 0
     total = len(ds) if max_samples is None else min(len(ds), max_samples)
+    profile_name = dataset_name if config is None else f"{dataset_name}/{config}"
+    splits = {split: {"count": total}}
+    label_map: Optional[Dict[str, Any]] = None
+    features = getattr(ds, "features", None)
+    if features is not None and target_key in features:
+        names = getattr(features[target_key], "names", None)
+        if names:
+            label_map = {str(i): name for i, name in enumerate(names)}
 
     if progress:
         try:
@@ -90,9 +173,16 @@ def from_hf_dataset(
         except ImportError:
             iterator = enumerate(ds)
     else:
-        iterator = enumerate(ds)
+            iterator = enumerate(ds)
 
     with SampleShardWriter(output_path) as writer:
+        _initialize_profile(
+            writer,
+            dataset_name=profile_name,
+            source_uri=f"hf://{profile_name}",
+            splits=splits,
+            label_map=label_map,
+        )
         for i, item in iterator:
             if max_samples is not None and i >= max_samples:
                 break
@@ -124,6 +214,13 @@ def from_hf_dataset(
             if transform is not None:
                 sample = transform(sample)
 
+            if count == 0:
+                writer.set_sample_profile(
+                    dataset_name=profile_name,
+                    dataset_schema=_infer_schema(sample),
+                    splits=splits,
+                    label_map=label_map,
+                )
             writer.add_sample(i, sample)
             count += 1
 
@@ -188,9 +285,15 @@ def from_parquet(
         except ImportError:
             iterator = df.iterrows()
     else:
-        iterator = df.iterrows()
+            iterator = df.iterrows()
 
     with SampleShardWriter(output_path) as writer:
+        profile_name = Path(parquet_path).stem
+        _initialize_profile(
+            writer,
+            dataset_name=profile_name,
+            source_uri=_path_source_uri(parquet_path),
+        )
         for idx, row in iterator:
             # Determine sample ID
             if id_column is not None:
@@ -216,6 +319,11 @@ def from_parquet(
                 val = row[target_column]
                 sample["target"] = val.tolist() if hasattr(val, "tolist") else val
 
+            if count == 0:
+                writer.set_sample_profile(
+                    dataset_name=profile_name,
+                    dataset_schema=_infer_schema(sample),
+                )
             writer.add_sample(sample_id, sample)
             count += 1
 
@@ -295,9 +403,18 @@ def from_image_folder(
         except ImportError:
             iterator = enumerate(images)
     else:
-        iterator = enumerate(images)
+            iterator = enumerate(images)
 
     with SampleShardWriter(output_path) as writer:
+        profile_name = folder.name
+        label_map = {str(idx): name for name, idx in class_to_idx.items()}
+        _initialize_profile(
+            writer,
+            dataset_name=profile_name,
+            source_uri=_path_source_uri(folder),
+            label_map=label_map,
+            feature_stats={"num_classes": len(class_to_idx)},
+        )
         for i, (img_path, class_name) in iterator:
             try:
                 img = Image.open(img_path).convert("RGB")
@@ -319,15 +436,18 @@ def from_image_folder(
                 if include_path:
                     sample["meta"]["path"] = str(img_path.relative_to(folder))
 
+                if count == 0:
+                    writer.set_sample_profile(
+                        dataset_name=profile_name,
+                        dataset_schema=_infer_schema(sample),
+                        label_map=label_map,
+                        feature_stats={"num_classes": len(class_to_idx)},
+                    )
                 writer.add_sample(i, sample)
                 count += 1
 
             except Exception as e:
                 print(f"Warning: failed to process {img_path}: {e}")
-
-    # Write class mapping as metadata
-    # TODO: Add support for __schema__ entry with class names
-
     return count
 
 
@@ -380,9 +500,15 @@ def from_csv(
         except ImportError:
             iterator = df.iterrows()
     else:
-        iterator = df.iterrows()
+            iterator = df.iterrows()
 
     with SampleShardWriter(output_path) as writer:
+        profile_name = Path(csv_path).stem
+        _initialize_profile(
+            writer,
+            dataset_name=profile_name,
+            source_uri=_path_source_uri(csv_path),
+        )
         for idx, row in iterator:
             sample_id = int(row[id_column]) if id_column else int(idx)
 
@@ -395,6 +521,11 @@ def from_csv(
             if target_column and target_column in row:
                 sample["target"] = row[target_column]
 
+            if count == 0:
+                writer.set_sample_profile(
+                    dataset_name=profile_name,
+                    dataset_schema=_infer_schema(sample),
+                )
             writer.add_sample(sample_id, sample)
             count += 1
 
@@ -448,6 +579,12 @@ def from_jsonl(
             iterator = enumerate(f)
 
         with SampleShardWriter(output_path) as writer:
+            profile_name = jsonl_path.stem
+            _initialize_profile(
+                writer,
+                dataset_name=profile_name,
+                source_uri=_path_source_uri(jsonl_path),
+            )
             for i, line in iterator:
                 if max_samples is not None and i >= max_samples:
                     break
@@ -459,6 +596,11 @@ def from_jsonl(
                 else:
                     sample_id = i
 
+                if count == 0:
+                    writer.set_sample_profile(
+                        dataset_name=profile_name,
+                        dataset_schema=_infer_schema(obj),
+                    )
                 writer.add_sample(sample_id, obj)
                 count += 1
 
@@ -493,17 +635,30 @@ def from_iterable(
         1000
     """
     count = 0
+    source_iter = iter(iterable)
+    try:
+        first_item = next(source_iter)
+        source_iter = chain([first_item], source_iter)
+    except StopIteration:
+        first_item = None
 
     if progress and total is not None:
         try:
             from tqdm import tqdm
 
-            iterable = tqdm(iterable, total=total, desc="Converting")
+            source_iter = tqdm(source_iter, total=total, desc="Converting")
         except ImportError:
             pass
 
     with SampleShardWriter(output_path) as writer:
-        for sample_id, sample in iterable:
+        profile_name = Path(output_path).stem
+        _initialize_profile(writer, dataset_name=profile_name)
+        if first_item is not None:
+            writer.set_sample_profile(
+                dataset_name=profile_name,
+                dataset_schema=_infer_schema(first_item[1]),
+            )
+        for sample_id, sample in source_iter:
             writer.add_sample(sample_id, sample)
             count += 1
 
@@ -563,6 +718,12 @@ def from_tfrecord(
     count = 0
 
     with SampleShardWriter(output_path) as writer:
+        profile_name = Path(tfrecord_path).stem
+        _initialize_profile(
+            writer,
+            dataset_name=profile_name,
+            source_uri=_path_source_uri(tfrecord_path),
+        )
         for i, item in enumerate(dataset):
             sample = {}
 
@@ -581,6 +742,11 @@ def from_tfrecord(
                 target = item[target_key].numpy()
                 sample["target"] = int(target) if target.ndim == 0 else target.tolist()
 
+            if count == 0:
+                writer.set_sample_profile(
+                    dataset_name=profile_name,
+                    dataset_schema=_infer_schema(sample),
+                )
             writer.add_sample(i, sample)
             count += 1
 
@@ -631,6 +797,12 @@ def from_webdataset(
     count = 0
 
     with SampleShardWriter(output_path) as writer:
+        profile_name = Path(wds_path).stem
+        _initialize_profile(
+            writer,
+            dataset_name=profile_name,
+            source_uri=_path_source_uri(wds_path),
+        )
         for i, item in enumerate(dataset):
             if max_samples and i >= max_samples:
                 break
@@ -661,6 +833,11 @@ def from_webdataset(
                     sample["meta"] = {}
                 sample["meta"]["key"] = item["__key__"]
 
+            if count == 0:
+                writer.set_sample_profile(
+                    dataset_name=profile_name,
+                    dataset_schema=_infer_schema(sample),
+                )
             writer.add_sample(i, sample)
             count += 1
 
@@ -745,9 +922,15 @@ def from_arrow(
         except ImportError:
             iterator = range(total)
     else:
-        iterator = range(total)
+            iterator = range(total)
 
     with SampleShardWriter(output_path) as writer:
+        profile_name = arrow_path.stem
+        _initialize_profile(
+            writer,
+            dataset_name=profile_name,
+            source_uri=_path_source_uri(arrow_path),
+        )
         for i in iterator:
             # Determine sample ID
             if id_column is not None:
@@ -771,6 +954,11 @@ def from_arrow(
             if target_column is not None and target_column in all_columns:
                 sample["target"] = table.column(target_column)[i].as_py()
 
+            if count == 0:
+                writer.set_sample_profile(
+                    dataset_name=profile_name,
+                    dataset_schema=_infer_schema(sample),
+                )
             writer.add_sample(sample_id, sample)
             count += 1
 
@@ -870,6 +1058,12 @@ def from_hdf5(
             iterator = range(total)
 
         with SampleShardWriter(output_path) as writer:
+            profile_name = Path(hdf5_path).stem
+            _initialize_profile(
+                writer,
+                dataset_name=profile_name,
+                source_uri=_path_source_uri(hdf5_path),
+            )
             for i in iterator:
                 # Determine sample ID
                 if id_ds is not None:
@@ -904,6 +1098,11 @@ def from_hdf5(
                     else:
                         sample["target"] = target
 
+                if count == 0:
+                    writer.set_sample_profile(
+                        dataset_name=profile_name,
+                        dataset_schema=_infer_schema(sample),
+                    )
                 writer.add_sample(sample_id, sample)
                 count += 1
 
@@ -986,11 +1185,22 @@ def from_protobuf(
         except ImportError:
             iterator = enumerate(messages)
     else:
-        iterator = enumerate(messages)
+            iterator = enumerate(messages)
 
     with SampleShardWriter(output_path) as writer:
+        profile_name = proto_path.stem
+        _initialize_profile(
+            writer,
+            dataset_name=profile_name,
+            source_uri=_path_source_uri(proto_path),
+        )
         for i, msg in iterator:
             sample = MessageToDict(msg, preserving_proto_field_name=True)
+            if count == 0:
+                writer.set_sample_profile(
+                    dataset_name=profile_name,
+                    dataset_schema=_infer_schema(sample),
+                )
             writer.add_sample(i, sample)
             count += 1
 

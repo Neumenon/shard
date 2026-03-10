@@ -17,14 +17,19 @@ import * as path from 'path';
 import {
   ShardHeader,
   IndexEntry,
+  ShardMetadata,
+  SampleShardProfile,
+  ManifestProfile,
   ShardRole,
   SHARD_V2_HEADER_SIZE,
   SHARD_V2_INDEX_ENTRY_SIZE,
   ALIGN_64,
   COMPRESS_NONE,
+  SHARD_FLAG_HAS_SCHEMA,
   createShardHeader,
   serializeHeader,
   serializeIndexEntry,
+  serializeMetadata,
   simpleHash64,
   crc32,
   initXxhash,
@@ -38,6 +43,61 @@ interface PendingEntry {
   origSize: number;
   checksum: number;
   flags: number;
+}
+
+function inferSchema(value: unknown): Record<string, unknown> {
+  if (value === null) {
+    return { type: 'null' };
+  }
+  if (typeof value === 'boolean') {
+    return { type: 'bool' };
+  }
+  if (typeof value === 'number') {
+    return { type: Number.isInteger(value) ? 'int' : 'float' };
+  }
+  if (typeof value === 'bigint') {
+    return { type: 'int' };
+  }
+  if (typeof value === 'string') {
+    return { type: 'string' };
+  }
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
+    return { type: 'bytes' };
+  }
+  if (Array.isArray(value)) {
+    const schema: Record<string, unknown> = { type: 'array' };
+    const shape: number[] = [];
+    let cursor: unknown = value;
+    while (Array.isArray(cursor)) {
+      shape.push(cursor.length);
+      if (cursor.length === 0) {
+        cursor = null;
+        break;
+      }
+      cursor = cursor[0];
+    }
+    if (shape.length > 0) {
+      schema['shape'] = shape;
+    }
+    schema['items'] = cursor === null ? { type: 'unknown' } : inferSchema(cursor);
+    return schema;
+  }
+  if (typeof value === 'object') {
+    const ctor = (value as { constructor?: { name?: string } }).constructor?.name;
+    if (ctor && ctor !== 'Object') {
+      return { type: ctor };
+    }
+    return {
+      type: 'object',
+      fields: Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => [
+          String(key),
+          inferSchema(entryValue),
+        ])
+      ),
+    };
+  }
+  return { type: typeof value };
 }
 
 /**
@@ -65,7 +125,10 @@ export class SampleShardWriter {
   private tempPath: string | null = null;
   private tempOffset = 0;
   private entries: PendingEntry[] = [];
+  private seenNames = new Set<string>();
   private closed = false;
+  private metadata: ShardMetadata | null = null;
+  private inferredSampleSchema: Record<string, unknown> | null = null;
 
   constructor(
     filePath: string,
@@ -98,6 +161,39 @@ export class SampleShardWriter {
     this.tempOffset = 0;
   }
 
+  setMetadata(metadata: ShardMetadata): void {
+    this.metadata = {
+      ...metadata,
+      schemaVersion: metadata.schemaVersion ?? 'shard-v2.1',
+    };
+  }
+
+  setSampleProfile(profile: SampleShardProfile): void {
+    this.metadata = {
+      ...(this.metadata ?? { schemaVersion: 'shard-v2.1' }),
+      schemaVersion: this.metadata?.schemaVersion ?? 'shard-v2.1',
+      profile: 'sampleshard.v1',
+      sampleShard: {
+        sampleIdType: 'uint64',
+        keyEncoding: 'decimal-string',
+        ...(this.metadata?.sampleShard ?? {}),
+        ...profile,
+      },
+    };
+  }
+
+  setManifestProfile(profile: ManifestProfile): void {
+    this.metadata = {
+      ...(this.metadata ?? { schemaVersion: 'shard-v2.1' }),
+      schemaVersion: this.metadata?.schemaVersion ?? 'shard-v2.1',
+      profile: 'manifest.v1',
+      manifest: {
+        ...(this.metadata?.manifest ?? {}),
+        ...profile,
+      },
+    };
+  }
+
   /**
    * Add a sample to the shard.
    *
@@ -113,6 +209,9 @@ export class SampleShardWriter {
     }
 
     const name = sampleId.toString();
+    if (this.inferredSampleSchema === null) {
+      this.inferredSampleSchema = inferSchema(sample);
+    }
     // Encode sample as Cowrie binary format (byte-identical with Go)
     const data = cowrieEncode(sample);
 
@@ -138,6 +237,11 @@ export class SampleShardWriter {
   }
 
   private async writeEntry(name: string, data: Buffer): Promise<void> {
+    if (this.seenNames.has(name)) {
+      throw new Error(`Duplicate sample ID: ${name}`);
+    }
+    this.seenNames.add(name);
+
     // Record temp file offset before writing
     const tempOffset = this.tempOffset;
 
@@ -188,6 +292,43 @@ export class SampleShardWriter {
     }
   }
 
+  private buildMetadata(entryCount: number): ShardMetadata | null {
+    if (this.metadata === null) {
+      return {
+        schemaVersion: 'shard-v2.1',
+        profile: 'sampleshard.v1',
+        sampleShard: {
+          datasetName: path.parse(this.filePath).name,
+          sampleIdType: 'uint64',
+          keyEncoding: 'decimal-string',
+          sampleCount: entryCount,
+          ...(this.inferredSampleSchema ? { datasetSchema: this.inferredSampleSchema } : {}),
+        },
+      };
+    }
+
+    const metadata: ShardMetadata = {
+      ...this.metadata,
+      schemaVersion: this.metadata.schemaVersion ?? 'shard-v2.1',
+    };
+    if (metadata.profile && metadata.profile !== 'sampleshard.v1') {
+      return metadata;
+    }
+
+    metadata.profile = 'sampleshard.v1';
+    metadata.sampleShard = {
+      ...(metadata.sampleShard ?? {}),
+      datasetName: metadata.sampleShard?.datasetName ?? path.parse(this.filePath).name,
+      sampleIdType: metadata.sampleShard?.sampleIdType ?? 'uint64',
+      keyEncoding: metadata.sampleShard?.keyEncoding ?? 'decimal-string',
+      sampleCount: entryCount,
+    };
+    if (!metadata.sampleShard.datasetSchema && this.inferredSampleSchema) {
+      metadata.sampleShard.datasetSchema = this.inferredSampleSchema;
+    }
+    return metadata;
+  }
+
   private async finalize(): Promise<void> {
     const fd = this.fd!;
     const tempFd = this.tempFd!;
@@ -229,10 +370,22 @@ export class SampleShardWriter {
       currentDataOffset += entry.diskSize;
     }
 
-    const totalSize = currentDataOffset;
+    let metadataBuf: Buffer | null = null;
+    let schemaOffset = 0n;
+    let totalSize = currentDataOffset;
+    const metadata = this.buildMetadata(entryCount);
+    if (metadata) {
+      metadataBuf = serializeMetadata(metadata);
+      schemaOffset = BigInt(currentDataOffset);
+      totalSize += metadataBuf.length;
+    }
 
     // Write header
     const header = createShardHeader(ShardRole.SAMPLE);
+    if (metadataBuf) {
+      header.flags |= SHARD_FLAG_HAS_SCHEMA;
+      header.schemaOffset = schemaOffset;
+    }
     header.alignment = this.alignment;
     header.compressionDefault = this.compression;
     header.entryCount = entryCount;
@@ -288,6 +441,10 @@ export class SampleShardWriter {
       fs.readSync(tempFd, entryData, 0, entry.diskSize, entry.tempOffset);
       fs.writeSync(fd, entryData);
       writePos += entry.diskSize;
+    }
+
+    if (metadataBuf) {
+      fs.writeSync(fd, metadataBuf);
     }
 
     fs.closeSync(fd);

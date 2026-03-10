@@ -605,8 +605,27 @@ func (w *ShardV2Writer) Close() error {
 	var metadataBytes []byte
 	schemaOffset := uint64(0)
 	if w.metadata != nil {
+		metadata := *w.metadata
+		if metadata.SchemaVersion == "" {
+			metadata.SchemaVersion = "shard-v2.1"
+		}
+		if metadata.Profile == "sampleshard.v1" {
+			profile := &SampleProfile{}
+			if metadata.SampleShard != nil {
+				copyProfile := *metadata.SampleShard
+				profile = &copyProfile
+			}
+			if profile.SampleIDType == "" {
+				profile.SampleIDType = "uint64"
+			}
+			if profile.KeyEncoding == "" {
+				profile.KeyEncoding = "decimal-string"
+			}
+			profile.SampleCount = uint64(entryCount)
+			metadata.SampleShard = profile
+		}
 		var err error
-		metadataBytes, err = w.metadata.Marshal()
+		metadataBytes, err = metadata.Marshal()
 		if err != nil {
 			return fmt.Errorf("failed to marshal metadata: %w", err)
 		}
@@ -1639,7 +1658,14 @@ func decompressData(data []byte, compType uint8, origSize uint64) ([]byte, error
 		}
 		// Pre-allocate based on origSize for efficiency
 		dst := make([]byte, 0, origSize)
-		return dec.DecodeAll(data, dst)
+		result, err := dec.DecodeAll(data, dst)
+		if err != nil {
+			return nil, fmt.Errorf("zstd decompression failed: %w", err)
+		}
+		if uint64(len(result)) != origSize {
+			return nil, fmt.Errorf("zstd size mismatch: got %d, expected %d", len(result), origSize)
+		}
+		return result, nil
 	case CompressLZ4:
 		// LZ4 block decompression requires exact destination size
 		decompressed := make([]byte, origSize)

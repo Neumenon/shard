@@ -107,6 +107,126 @@ describe('SampleShard', () => {
       await reader.close();
     });
 
+    it('should roundtrip shard metadata', async () => {
+      const filePath = path.join(tmpDir, 'meta.smpl');
+
+      const writer = new SampleShardWriter(filePath);
+      await writer.open();
+      writer.setMetadata({
+        schemaVersion: 'shard-v2.1',
+        producer: 'sampleshard-tests',
+        profile: 'sampleshard.v1',
+        entryMetadata: {
+          '1': {
+            codec: 'cowrie-gen2',
+            codecVersion: '2',
+            semanticType: 'sample',
+            rowCount: 1,
+            stats: { tokens: 42 },
+          },
+        },
+      });
+      await writer.addSample(1, { x: 1 });
+      await writer.close();
+
+      const reader = new SampleShardReader(filePath);
+      await reader.open();
+      const meta = reader.readMetadata();
+      expect(meta?.producer).toBe('sampleshard-tests');
+      expect(meta?.entryMetadata?.['1'].codec).toBe('cowrie-gen2');
+      expect(meta?.entryMetadata?.['1'].stats).toEqual({ tokens: 42 });
+      await reader.close();
+    });
+
+    it('should roundtrip sample profile metadata', async () => {
+      const filePath = path.join(tmpDir, 'profile.smpl');
+
+      const writer = new SampleShardWriter(filePath);
+      await writer.open();
+      writer.setSampleProfile({
+        datasetName: 'mnist-train',
+        datasetSchema: { input: 'tensor[u8,28,28]', target: 'uint8' },
+        splits: { train: { start: 0, end: 1 } },
+        labelMap: { '0': 'zero', '1': 'one' },
+        featureStats: { input: { mean: 0.1307, std: 0.3081 } },
+      });
+      await writer.addSample(0, { input: [0], target: 0 });
+      await writer.addSample(1, { input: [1], target: 1 });
+      await writer.close();
+
+      const reader = new SampleShardReader(filePath);
+      await reader.open();
+      const meta = reader.readMetadata();
+      const profile = reader.sampleProfile();
+      expect(meta?.profile).toBe('sampleshard.v1');
+      expect(profile?.datasetName).toBe('mnist-train');
+      expect(profile?.sampleIdType).toBe('uint64');
+      expect(profile?.keyEncoding).toBe('decimal-string');
+      expect(profile?.sampleCount).toBe(2);
+      expect(profile?.labelMap).toEqual({ '0': 'zero', '1': 'one' });
+      expect(profile?.featureStats).toEqual({ input: { mean: 0.1307, std: 0.3081 } });
+      await reader.close();
+    });
+
+    it('should auto-populate a default sampleshard profile', async () => {
+      const filePath = path.join(tmpDir, 'auto-profile.smpl');
+
+      const writer = new SampleShardWriter(filePath);
+      await writer.open();
+      await writer.addSample(7, { input: [1, 2, 3], target: 1 });
+      await writer.close();
+
+      const reader = new SampleShardReader(filePath);
+      await reader.open();
+      const meta = reader.readMetadata();
+      const profile = reader.sampleProfile();
+      expect(meta?.profile).toBe('sampleshard.v1');
+      expect(profile?.datasetName).toBe('auto-profile');
+      expect(profile?.sampleIdType).toBe('uint64');
+      expect(profile?.keyEncoding).toBe('decimal-string');
+      expect(profile?.sampleCount).toBe(1);
+      expect(profile?.datasetSchema).toEqual({
+        type: 'object',
+        fields: {
+          input: {
+            type: 'array',
+            shape: [3],
+            items: { type: 'int' },
+          },
+          target: { type: 'int' },
+        },
+      });
+      await reader.close();
+    });
+
+    it('should roundtrip manifest profile metadata', async () => {
+      const filePath = path.join(tmpDir, 'manifest-meta.smpl');
+
+      const writer = new SampleShardWriter(filePath);
+      await writer.open();
+      writer.setManifestProfile({
+        files: [
+          {
+            uri: 's3://bucket/train-000.smpl',
+            sha256: 'abc123',
+            profile: 'sampleshard.v1',
+          },
+        ],
+        partitions: { train: ['train-000.smpl'] },
+      });
+      await writer.addSample(0, { x: 0 });
+      await writer.close();
+
+      const reader = new SampleShardReader(filePath);
+      await reader.open();
+      const meta = reader.readMetadata();
+      const manifest = reader.manifestProfile();
+      expect(meta?.profile).toBe('manifest.v1');
+      expect(manifest?.files?.[0].uri).toBe('s3://bucket/train-000.smpl');
+      expect(manifest?.partitions).toEqual({ train: ['train-000.smpl'] });
+      await reader.close();
+    });
+
     it('should read batch by IDs', async () => {
       const filePath = path.join(tmpDir, 'batch.smpl');
 

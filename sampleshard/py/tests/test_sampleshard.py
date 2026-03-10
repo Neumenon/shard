@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from sampleshard import SampleShardWriter, SampleShardReader
+from sampleshard import (
+    EntryMeta,
+    ManifestFileRef,
+    SampleShardReader,
+    SampleShardWriter,
+    ShardMetadata,
+)
 
 
 class TestSampleShardRoundTrip:
@@ -141,6 +147,92 @@ class TestSampleShardRoundTrip:
             with SampleShardReader(path) as r:
                 result = r.get_sample(1)
                 assert result == sample
+
+    def test_metadata_roundtrip(self):
+        """Test shard-level metadata survives SampleShard roundtrip."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "meta.smpl"
+
+            with SampleShardWriter(path) as w:
+                w.set_metadata(
+                    ShardMetadata(
+                        producer="sampleshard-tests",
+                        profile="sampleshard.v1",
+                        entry_metadata={
+                            "1": EntryMeta(
+                                codec="cowrie-gen2",
+                                codec_version="2",
+                                semantic_type="sample",
+                                row_count=1,
+                                stats={"tokens": 42},
+                            )
+                        },
+                    )
+                )
+                w.add_sample(1, {"x": 1})
+
+            with SampleShardReader(path) as r:
+                meta = r.read_metadata()
+                assert meta is not None
+                assert meta.producer == "sampleshard-tests"
+                assert meta.entry_metadata["1"].codec == "cowrie-gen2"
+                assert meta.entry_metadata["1"].stats == {"tokens": 42}
+
+    def test_sample_profile_roundtrip(self):
+        """Test standardized SampleShard profile helpers."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "profile.smpl"
+
+            with SampleShardWriter(path) as w:
+                w.set_sample_profile(
+                    dataset_name="mnist-train",
+                    dataset_schema={"input": "tensor[u8,28,28]", "target": "uint8"},
+                    splits={"train": {"start": 0, "end": 1}},
+                    label_map={"0": "zero", "1": "one"},
+                    feature_stats={"input": {"mean": 0.1307, "std": 0.3081}},
+                )
+                w.add_sample(0, {"input": [0], "target": 0})
+                w.add_sample(1, {"input": [1], "target": 1})
+
+            with SampleShardReader(path) as r:
+                meta = r.read_metadata()
+                profile = r.sample_profile()
+                assert meta is not None
+                assert meta.profile == "sampleshard.v1"
+                assert profile is not None
+                assert profile.dataset_name == "mnist-train"
+                assert profile.sample_id_type == "uint64"
+                assert profile.key_encoding == "decimal-string"
+                assert profile.sample_count == 2
+                assert profile.label_map["0"] == "zero"
+                assert profile.feature_stats["input"]["std"] == 0.3081
+
+    def test_manifest_profile_roundtrip(self):
+        """Test generic manifest profile metadata helper."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "manifest-meta.smpl"
+
+            with SampleShardWriter(path) as w:
+                w.set_manifest_profile(
+                    files=[
+                        ManifestFileRef(
+                            uri="s3://bucket/train-000.smpl",
+                            sha256="abc123",
+                            profile="sampleshard.v1",
+                        )
+                    ],
+                    partitions={"train": ["train-000.smpl"]},
+                )
+                w.add_sample(0, {"x": 0})
+
+            with SampleShardReader(path) as r:
+                meta = r.read_metadata()
+                manifest = r.manifest_profile()
+                assert meta is not None
+                assert meta.profile == "manifest.v1"
+                assert manifest is not None
+                assert manifest.files[0].uri == "s3://bucket/train-000.smpl"
+                assert manifest.partitions["train"] == ["train-000.smpl"]
 
 
 class TestSampleShardTypes:

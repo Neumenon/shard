@@ -45,7 +45,65 @@ export const CONTENT_TYPE_BLOB = 0x000A;    // Opaque binary blob
 export const CONTENT_TYPE_USER_BASE = 0x8000;
 
 // Header flag for content types
+export const SHARD_FLAG_HAS_SCHEMA = 0x0010;
 export const SHARD_FLAG_HAS_CONTENT_TYPES = 0x0080;
+
+export interface EntryMeta {
+  contentType?: string;
+  tags?: string[];
+  description?: string;
+  extra?: Record<string, unknown>;
+  codec?: string;
+  codecVersion?: string;
+  schemaFingerprint?: string;
+  semanticType?: string;
+  canonicalHash?: string;
+  baseHash?: string;
+  rowCount?: number;
+  shape?: number[];
+  stats?: Record<string, unknown>;
+}
+
+export interface SampleShardProfile {
+  datasetName?: string;
+  sampleIdType?: string;
+  keyEncoding?: string;
+  sampleCount?: number;
+  datasetSchema?: Record<string, unknown>;
+  splits?: Record<string, unknown>;
+  labelMap?: Record<string, unknown>;
+  featureStats?: Record<string, unknown>;
+}
+
+export interface ManifestFileRef {
+  uri?: string;
+  sha256?: string;
+  role?: string;
+  profile?: string;
+  startKey?: string;
+  endKey?: string;
+  entryCount?: number;
+}
+
+export interface ManifestProfile {
+  files?: ManifestFileRef[];
+  partitions?: Record<string, unknown>;
+}
+
+export interface ShardMetadata {
+  schemaVersion: string;
+  schemaUri?: string;
+  createdAt?: string;
+  sourceUri?: string;
+  producer?: string;
+  description?: string;
+  tags?: string[];
+  extra?: Record<string, unknown>;
+  profile?: string;
+  sampleShard?: SampleShardProfile;
+  manifest?: ManifestProfile;
+  entryMetadata?: Record<string, EntryMeta>;
+}
 
 /**
  * Shard role/profile type.
@@ -108,6 +166,150 @@ export function createShardHeader(role: ShardRole = ShardRole.SAMPLE): ShardHead
     dataSectionOffset: BigInt(SHARD_V2_HEADER_SIZE),
     schemaOffset: 0n,
     totalFileSize: 0n,
+  };
+}
+
+export function serializeMetadata(meta: ShardMetadata): Buffer {
+  const obj: Record<string, unknown> = {
+    schema_version: meta.schemaVersion,
+  };
+  if (meta.schemaUri) obj['schema_uri'] = meta.schemaUri;
+  if (meta.createdAt) obj['created_at'] = meta.createdAt;
+  if (meta.sourceUri) obj['source_uri'] = meta.sourceUri;
+  if (meta.producer) obj['producer'] = meta.producer;
+  if (meta.description) obj['description'] = meta.description;
+  if (meta.tags && meta.tags.length > 0) obj['tags'] = meta.tags;
+  if (meta.extra && Object.keys(meta.extra).length > 0) obj['extra'] = meta.extra;
+  if (meta.profile) obj['profile'] = meta.profile;
+  if (meta.sampleShard && Object.keys(meta.sampleShard).length > 0) {
+    const profile: Record<string, unknown> = {};
+    if (meta.sampleShard.datasetName) profile['dataset_name'] = meta.sampleShard.datasetName;
+    if (meta.sampleShard.sampleIdType) profile['sample_id_type'] = meta.sampleShard.sampleIdType;
+    if (meta.sampleShard.keyEncoding) profile['key_encoding'] = meta.sampleShard.keyEncoding;
+    if (meta.sampleShard.sampleCount !== undefined) profile['sample_count'] = meta.sampleShard.sampleCount;
+    if (meta.sampleShard.datasetSchema && Object.keys(meta.sampleShard.datasetSchema).length > 0) {
+      profile['dataset_schema'] = meta.sampleShard.datasetSchema;
+    }
+    if (meta.sampleShard.splits && Object.keys(meta.sampleShard.splits).length > 0) {
+      profile['splits'] = meta.sampleShard.splits;
+    }
+    if (meta.sampleShard.labelMap && Object.keys(meta.sampleShard.labelMap).length > 0) {
+      profile['label_map'] = meta.sampleShard.labelMap;
+    }
+    if (meta.sampleShard.featureStats && Object.keys(meta.sampleShard.featureStats).length > 0) {
+      profile['feature_stats'] = meta.sampleShard.featureStats;
+    }
+    obj['sample_shard'] = profile;
+  }
+  if (meta.manifest && (meta.manifest.files?.length || (meta.manifest.partitions && Object.keys(meta.manifest.partitions).length > 0))) {
+    const manifest: Record<string, unknown> = {};
+    if (meta.manifest.files && meta.manifest.files.length > 0) {
+      manifest['files'] = meta.manifest.files.map((file) => {
+        const out: Record<string, unknown> = {};
+        if (file.uri) out['uri'] = file.uri;
+        if (file.sha256) out['sha256'] = file.sha256;
+        if (file.role) out['role'] = file.role;
+        if (file.profile) out['profile'] = file.profile;
+        if (file.startKey) out['start_key'] = file.startKey;
+        if (file.endKey) out['end_key'] = file.endKey;
+        if (file.entryCount !== undefined) out['entry_count'] = file.entryCount;
+        return out;
+      });
+    }
+    if (meta.manifest.partitions && Object.keys(meta.manifest.partitions).length > 0) {
+      manifest['partitions'] = meta.manifest.partitions;
+    }
+    obj['manifest'] = manifest;
+  }
+  if (meta.entryMetadata && Object.keys(meta.entryMetadata).length > 0) {
+    const em: Record<string, unknown> = {};
+    for (const [name, entry] of Object.entries(meta.entryMetadata)) {
+      const out: Record<string, unknown> = {};
+      if (entry.contentType) out['content_type'] = entry.contentType;
+      if (entry.tags && entry.tags.length > 0) out['tags'] = entry.tags;
+      if (entry.description) out['description'] = entry.description;
+      if (entry.extra && Object.keys(entry.extra).length > 0) out['extra'] = entry.extra;
+      if (entry.codec) out['codec'] = entry.codec;
+      if (entry.codecVersion) out['codec_version'] = entry.codecVersion;
+      if (entry.schemaFingerprint) out['schema_fingerprint'] = entry.schemaFingerprint;
+      if (entry.semanticType) out['semantic_type'] = entry.semanticType;
+      if (entry.canonicalHash) out['canonical_hash'] = entry.canonicalHash;
+      if (entry.baseHash) out['base_hash'] = entry.baseHash;
+      if (entry.rowCount !== undefined) out['row_count'] = entry.rowCount;
+      if (entry.shape && entry.shape.length > 0) out['shape'] = entry.shape;
+      if (entry.stats && Object.keys(entry.stats).length > 0) out['stats'] = entry.stats;
+      em[name] = out;
+    }
+    obj['entry_metadata'] = em;
+  }
+  return Buffer.from(JSON.stringify(obj), 'utf8');
+}
+
+export function deserializeMetadata(data: Buffer): ShardMetadata {
+  const obj = JSON.parse(data.toString('utf8')) as Record<string, unknown>;
+  const rawSample = obj['sample_shard'] as Record<string, unknown> | undefined;
+  const rawManifest = obj['manifest'] as Record<string, unknown> | undefined;
+  const entryMetadata: Record<string, EntryMeta> = {};
+  const rawEntryMetadata = obj['entry_metadata'] as Record<string, Record<string, unknown>> | undefined;
+  if (rawEntryMetadata) {
+    for (const [name, entry] of Object.entries(rawEntryMetadata)) {
+      entryMetadata[name] = {
+        contentType: entry['content_type'] as string | undefined,
+        tags: entry['tags'] as string[] | undefined,
+        description: entry['description'] as string | undefined,
+        extra: entry['extra'] as Record<string, unknown> | undefined,
+        codec: entry['codec'] as string | undefined,
+        codecVersion: entry['codec_version'] as string | undefined,
+        schemaFingerprint: entry['schema_fingerprint'] as string | undefined,
+        semanticType: entry['semantic_type'] as string | undefined,
+        canonicalHash: entry['canonical_hash'] as string | undefined,
+        baseHash: entry['base_hash'] as string | undefined,
+        rowCount: entry['row_count'] as number | undefined,
+        shape: entry['shape'] as number[] | undefined,
+        stats: entry['stats'] as Record<string, unknown> | undefined,
+      };
+    }
+  }
+
+  return {
+    schemaVersion: (obj['schema_version'] as string) ?? 'shard-v2.1',
+    schemaUri: obj['schema_uri'] as string | undefined,
+    createdAt: obj['created_at'] as string | undefined,
+    sourceUri: obj['source_uri'] as string | undefined,
+    producer: obj['producer'] as string | undefined,
+    description: obj['description'] as string | undefined,
+    tags: obj['tags'] as string[] | undefined,
+    extra: obj['extra'] as Record<string, unknown> | undefined,
+    profile: obj['profile'] as string | undefined,
+    sampleShard: rawSample
+      ? {
+          datasetName: rawSample['dataset_name'] as string | undefined,
+          sampleIdType: rawSample['sample_id_type'] as string | undefined,
+          keyEncoding: rawSample['key_encoding'] as string | undefined,
+          sampleCount: rawSample['sample_count'] as number | undefined,
+          datasetSchema: rawSample['dataset_schema'] as Record<string, unknown> | undefined,
+          splits: rawSample['splits'] as Record<string, unknown> | undefined,
+          labelMap: rawSample['label_map'] as Record<string, unknown> | undefined,
+          featureStats: rawSample['feature_stats'] as Record<string, unknown> | undefined,
+        }
+      : undefined,
+    manifest: rawManifest
+      ? {
+          files: Array.isArray(rawManifest['files'])
+            ? (rawManifest['files'] as Record<string, unknown>[]).map((file) => ({
+                uri: file['uri'] as string | undefined,
+                sha256: file['sha256'] as string | undefined,
+                role: file['role'] as string | undefined,
+                profile: file['profile'] as string | undefined,
+                startKey: file['start_key'] as string | undefined,
+                endKey: file['end_key'] as string | undefined,
+                entryCount: file['entry_count'] as number | undefined,
+              }))
+            : undefined,
+          partitions: rawManifest['partitions'] as Record<string, unknown> | undefined,
+        }
+      : undefined,
+    entryMetadata: Object.keys(entryMetadata).length > 0 ? entryMetadata : undefined,
   };
 }
 
@@ -264,10 +466,12 @@ export function isCompressed(entry: IndexEntry): boolean {
 }
 
 /**
- * Get compression type.
+ * Get compression type (0=none, 1=zstd, 2=lz4). Matches Go bit flags.
  */
 export function getCompressionType(entry: IndexEntry): number {
-  return (entry.flags >> 4) & 0x0f;
+  if (entry.flags & 0x0004) return 2; // LZ4
+  if (entry.flags & 0x0002) return 1; // zstd
+  return 0;
 }
 
 /**

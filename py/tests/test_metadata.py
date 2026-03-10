@@ -14,6 +14,9 @@ from shard_v2 import (
     ShardV2Header,
     ShardMetadata,
     EntryMeta,
+    SampleProfile,
+    ManifestProfile,
+    ManifestFileRef,
     FLAG_HAS_SCHEMA,
     MAX_ENTRY_COUNT,
     MAX_INDEX_SIZE,
@@ -109,14 +112,14 @@ class TestListChildren:
     def test_list_children_exact_prefix(self):
         r = ShardV2Reader(self._path)
         result = r.list_children("layer.0/")
-        assert sorted(result) == ["layer.0/bias", "layer.0/weight"]
+        assert sorted(result) == ["bias", "weight"]
 
     def test_list_children_empty_prefix(self):
         r = ShardV2Reader(self._path)
         result = r.list_children("")
-        # Should return deduplicated first components
-        assert "layer.0/" in result
-        assert "layer.1/" in result
+        # Should return deduplicated bare first components
+        assert "layer.0" in result
+        assert "layer.1" in result
         assert "embed" in result
         # Should not have duplicates
         assert len(result) == len(set(result))
@@ -124,7 +127,7 @@ class TestListChildren:
     def test_list_children_partial_prefix(self):
         r = ShardV2Reader(self._path)
         result = r.list_children("layer.")
-        assert sorted(result) == ["layer.0/", "layer.1/"]
+        assert sorted(result) == ["0", "1"]
 
     def test_list_children_nonexistent_prefix(self):
         r = ShardV2Reader(self._path)
@@ -134,15 +137,15 @@ class TestListChildren:
     def test_list_children_leaf_entry(self):
         r = ShardV2Reader(self._path)
         result = r.list_children("embed")
-        # "embed" is a leaf, exact match returns full name
-        assert result == ["embed"]
+        # "embed" is an exact leaf match; remainder is "" which is filtered out
+        assert result == []
 
     def test_list_children_dedup(self):
         """Multiple entries under same child dir should not produce duplicates."""
         r = ShardV2Reader(self._path)
         result = r.list_children("layer.")
-        # layer.0/ appears only once even though there are 2 entries under it
-        assert result.count("layer.0/") == 1
+        # bare component "0" appears only once even though there are 2 entries under layer.0/
+        assert result.count("0") == 1
 
     def test_list_children_hierarchical(self):
         path = make_shard([
@@ -153,17 +156,17 @@ class TestListChildren:
         ])
         try:
             r = ShardV2Reader(path)
-            # Top-level children
+            # Top-level children: bare components, no trailing slash
             top = r.list_children("")
-            assert "a/" in top
+            assert "a" in top
             assert "f" in top
-            # Children under a/
+            # Children under a/: bare components after the "a/" prefix
             under_a = r.list_children("a/")
-            assert "a/b/" in under_a
-            assert "a/e" in under_a
-            # Children under a/b/
+            assert "b" in under_a
+            assert "e" in under_a
+            # Children under a/b/: bare remainders after "a/b/" prefix
             under_ab = r.list_children("a/b/")
-            assert sorted(under_ab) == ["a/b/c", "a/b/d"]
+            assert sorted(under_ab) == ["c", "d"]
         finally:
             os.unlink(path)
 
@@ -245,6 +248,15 @@ class TestShardMetadata:
             tags=["weight"],
             description="Model weights",
             extra={"shape": [256, 256]},
+            codec="cowrie-gen2",
+            codec_version="2",
+            schema_fingerprint="sha256:weights",
+            semantic_type="tensor",
+            canonical_hash="sha256:canonical",
+            base_hash="sha256:base",
+            row_count=256,
+            shape=[256, 256],
+            stats={"min": -1.0, "max": 1.0},
         )
         meta = ShardMetadata(
             producer="pytorch-exporter",
@@ -261,6 +273,62 @@ class TestShardMetadata:
             assert em2.tags == ["weight"]
             assert em2.description == "Model weights"
             assert em2.extra == {"shape": [256, 256]}
+            assert em2.codec == "cowrie-gen2"
+            assert em2.codec_version == "2"
+            assert em2.schema_fingerprint == "sha256:weights"
+            assert em2.semantic_type == "tensor"
+            assert em2.canonical_hash == "sha256:canonical"
+            assert em2.base_hash == "sha256:base"
+            assert em2.row_count == 256
+            assert em2.shape == [256, 256]
+            assert em2.stats == {"min": -1.0, "max": 1.0}
+        finally:
+            os.unlink(path)
+
+    def test_metadata_with_profiles(self):
+        meta = ShardMetadata(
+            profile="sampleshard.v1",
+            sample_shard=SampleProfile(
+                dataset_name="mnist-train",
+                sample_id_type="uint64",
+                key_encoding="decimal-string",
+                sample_count=60000,
+                dataset_schema={"input": "tensor[u8,28,28]", "target": "uint8"},
+                splits={"train": {"start": 0, "end": 59999}},
+                label_map={"0": "zero", "1": "one"},
+                feature_stats={"input": {"mean": 0.1307, "std": 0.3081}},
+            ),
+            manifest=ManifestProfile(
+                files=[
+                    ManifestFileRef(
+                        uri="s3://bucket/train-000.smpl",
+                        sha256="abc123",
+                        role="sample",
+                        profile="sampleshard.v1",
+                        start_key="0",
+                        end_key="59999",
+                        entry_count=60000,
+                    )
+                ],
+                partitions={"train": ["train-000.smpl"]},
+            ),
+        )
+        path = make_shard([("sample/0", b"payload")], metadata=meta)
+        try:
+            r = ShardV2Reader(path)
+            got = r.read_metadata()
+            assert got is not None
+            assert got.profile == "sampleshard.v1"
+            assert got.sample_shard is not None
+            assert got.sample_shard.dataset_name == "mnist-train"
+            assert got.sample_shard.sample_id_type == "uint64"
+            assert got.sample_shard.key_encoding == "decimal-string"
+            assert got.sample_shard.sample_count == 60000
+            assert got.sample_shard.label_map["0"] == "zero"
+            assert got.manifest is not None
+            assert len(got.manifest.files) == 1
+            assert got.manifest.files[0].uri == "s3://bucket/train-000.smpl"
+            assert got.manifest.partitions["train"] == ["train-000.smpl"]
         finally:
             os.unlink(path)
 
