@@ -366,6 +366,32 @@ func (e *IndexEntryV2) SetContentType(ct uint16) {
 	e.Reserved = (e.Reserved & 0xFFFF0000) | uint32(ct)
 }
 
+// TagBits returns the 16-bit tag bitmask stored in the upper 16 bits of Reserved.
+func (e *IndexEntryV2) TagBits() uint16 {
+	return uint16(e.Reserved >> 16)
+}
+
+// SetTagBits sets the 16-bit tag bitmask in the upper 16 bits of Reserved.
+func (e *IndexEntryV2) SetTagBits(bits uint16) {
+	e.Reserved = (e.Reserved & 0x0000FFFF) | (uint32(bits) << 16)
+}
+
+// HasTagBit checks if a specific tag bit (0-15) is set.
+func (e *IndexEntryV2) HasTagBit(bit int) bool {
+	if bit < 0 || bit > 15 {
+		return false
+	}
+	return (e.TagBits() & (1 << uint(bit))) != 0
+}
+
+// SetTagBit sets a specific tag bit (0-15).
+func (e *IndexEntryV2) SetTagBit(bit int) {
+	if bit < 0 || bit > 15 {
+		return
+	}
+	e.SetTagBits(e.TagBits() | (1 << uint(bit)))
+}
+
 // ContentTypeName returns the human-readable name for a content type.
 func ContentTypeName(ct uint16) string {
 	switch ct {
@@ -987,6 +1013,7 @@ func (sw *ShardV2StreamWriter) Finalize() error {
 	totalSize := sw.currentOffset
 
 	// Update header
+	sw.header.Flags |= ShardV2FlagStreaming
 	sw.header.EntryCount = entryCount
 	sw.header.StringTableOffset = uint64(stringTableOffset)
 	sw.header.DataSectionOffset = uint64(sw.dataStartOffset)
@@ -1556,6 +1583,64 @@ func (r *ShardV2Reader) ListChildren(prefix string) []string {
 		}
 	}
 	return children
+}
+
+// ListWithTag returns entry names that have the given tag in their per-entry metadata.
+// Requires metadata to be present in the schema section.
+func (r *ShardV2Reader) ListWithTag(tag string) ([]string, error) {
+	meta, err := r.ReadMetadata()
+	if err != nil {
+		return nil, err
+	}
+	if meta == nil {
+		return nil, nil
+	}
+	var matches []string
+	for name, em := range meta.EntryMetadata {
+		if em == nil {
+			continue
+		}
+		for _, t := range em.Tags {
+			if t == tag {
+				matches = append(matches, name)
+				break
+			}
+		}
+	}
+	return matches, nil
+}
+
+// ListWithTagBit returns entry names where the given tag bit (0-15) is set in the index.
+// This is O(n) over the index but does not require loading metadata — pure index scan.
+func (r *ShardV2Reader) ListWithTagBit(bit int) []string {
+	if bit < 0 || bit > 15 {
+		return nil
+	}
+	var matches []string
+	for i := 0; i < len(r.index); i++ {
+		if r.index[i].HasTagBit(bit) {
+			matches = append(matches, r.EntryName(i))
+		}
+	}
+	return matches
+}
+
+// ListWithTagFast combines tag_dictionary lookup with tag bitmask for fast O(n) filtering.
+// Returns nil, nil if no tag_dictionary is present or tag not found in dictionary.
+func (r *ShardV2Reader) ListWithTagFast(tag string) ([]string, error) {
+	meta, err := r.ReadMetadata()
+	if err != nil {
+		return nil, err
+	}
+	if meta == nil || len(meta.TagDictionary) == 0 {
+		return nil, nil
+	}
+	for i, t := range meta.TagDictionary {
+		if t == tag {
+			return r.ListWithTagBit(i), nil
+		}
+	}
+	return nil, nil // Tag not in dictionary
 }
 
 // ============================================================

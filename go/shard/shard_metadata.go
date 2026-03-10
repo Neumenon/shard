@@ -1,7 +1,10 @@
 package shard
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"sort"
 	"time"
 )
 
@@ -10,6 +13,7 @@ type ShardMetadata struct {
 	// Schema identification
 	SchemaVersion string `json:"schema_version,omitempty"` // e.g., "shard-v2.1"
 	SchemaURI     string `json:"schema_uri,omitempty"`     // URL to schema definition
+	SchemaID      string `json:"schema_id,omitempty"`      // e.g., SHA256 hash prefix of schema JSON
 
 	// Provenance
 	CreatedAt time.Time `json:"created_at,omitempty"`
@@ -19,6 +23,8 @@ type ShardMetadata struct {
 	// Shard-level metadata
 	Description string         `json:"description,omitempty"`
 	Tags        []string       `json:"tags,omitempty"`
+	// Tag dictionary: maps bit position (0-15) to tag name for O(1) tag filtering
+	TagDictionary []string `json:"tag_dictionary,omitempty"`
 	Extra       map[string]any `json:"extra,omitempty"`
 	Profile     string         `json:"profile,omitempty"`
 	SampleShard *SampleProfile `json:"sample_shard,omitempty"`
@@ -129,6 +135,35 @@ func (m *ShardMetadata) Marshal() ([]byte, error) {
 // Unmarshal deserializes from JSON.
 func (m *ShardMetadata) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, m)
+}
+
+// ComputeSchemaID computes a schema identifier from the metadata by hashing the
+// tag_dictionary and entry_metadata keys+content_types (the "shape" of the schema).
+func (m *ShardMetadata) ComputeSchemaID() string {
+	h := sha256.New()
+	// Include tag dictionary
+	for _, t := range m.TagDictionary {
+		h.Write([]byte(t))
+		h.Write([]byte{0})
+	}
+	// Include entry names and content types (sorted for determinism)
+	names := make([]string, 0, len(m.EntryMetadata))
+	for k := range m.EntryMetadata {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		em := m.EntryMetadata[name]
+		h.Write([]byte(name))
+		h.Write([]byte{0})
+		if em != nil {
+			h.Write([]byte(em.ContentType))
+			h.Write([]byte{0})
+			h.Write([]byte(em.SemanticType))
+			h.Write([]byte{0})
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16] // 16-char prefix
 }
 
 // ParseShardMetadata parses metadata from JSON bytes.

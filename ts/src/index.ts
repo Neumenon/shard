@@ -372,6 +372,8 @@ export interface ShardMetadata {
   sampleShard?: SampleShardProfile;
   manifest?: ManifestProfile;
   entryMetadata?: Record<string, EntryMeta>;
+  tagDictionary?: string[];
+  schemaId?: string;
 }
 
 /** Serialize ShardMetadata to a compact JSON Buffer. */
@@ -380,11 +382,13 @@ export function serializeMetadata(meta: ShardMetadata): Buffer {
     schema_version: meta.schemaVersion,
   };
   if (meta.schemaUri) obj['schema_uri'] = meta.schemaUri;
+  if (meta.schemaId) obj['schema_id'] = meta.schemaId;
   if (meta.createdAt) obj['created_at'] = meta.createdAt;
   if (meta.sourceUri) obj['source_uri'] = meta.sourceUri;
   if (meta.producer) obj['producer'] = meta.producer;
   if (meta.description) obj['description'] = meta.description;
   if (meta.tags && meta.tags.length > 0) obj['tags'] = meta.tags;
+  if (meta.tagDictionary && meta.tagDictionary.length > 0) obj['tag_dictionary'] = meta.tagDictionary;
   if (meta.extra && Object.keys(meta.extra).length > 0) obj['extra'] = meta.extra;
   if (meta.profile) obj['profile'] = meta.profile;
   if (meta.sampleShard && Object.keys(meta.sampleShard).length > 0) {
@@ -480,6 +484,7 @@ export function deserializeMetadata(data: Buffer): ShardMetadata {
   return {
     schemaVersion: (obj['schema_version'] as string) ?? 'shard-v2.1',
     schemaUri: obj['schema_uri'] as string | undefined,
+    schemaId: obj['schema_id'] as string | undefined,
     createdAt: obj['created_at'] as string | undefined,
     sourceUri: obj['source_uri'] as string | undefined,
     producer: obj['producer'] as string | undefined,
@@ -515,6 +520,7 @@ export function deserializeMetadata(data: Buffer): ShardMetadata {
           partitions: rawManifest['partitions'] as Record<string, unknown> | undefined,
         }
       : undefined,
+    tagDictionary: obj['tag_dictionary'] as string[] | undefined,
     entryMetadata: Object.keys(em).length > 0 ? em : undefined,
   };
 }
@@ -639,6 +645,23 @@ export interface IndexEntry {
   name: string;
   contentType: number;
   compressed: boolean;
+}
+
+/** Get 16-bit tag bitmask from upper 16 bits of entry reserved field. */
+export function getTagBits(entry: IndexEntry): number {
+  return (entry.reserved >>> 16) & 0xFFFF;
+}
+
+/** Check if a specific tag bit (0-15) is set. */
+export function hasTagBit(entry: IndexEntry, bit: number): boolean {
+  if (bit < 0 || bit > 15) return false;
+  return (getTagBits(entry) & (1 << bit)) !== 0;
+}
+
+/** Set a specific tag bit (0-15) on an entry's reserved field. */
+export function setTagBit(entry: IndexEntry, bit: number): void {
+  if (bit < 0 || bit > 15) return;
+  entry.reserved = (entry.reserved & 0x0000FFFF) | (((getTagBits(entry) | (1 << bit)) & 0xFFFF) << 16);
 }
 
 // ============================================================
@@ -1006,6 +1029,40 @@ export class ShardV2Reader {
     }
 
     return result;
+  }
+
+  /**
+   * Returns entry names that have the given tag in their per-entry metadata.
+   */
+  listWithTag(tag: string): string[] {
+    const meta = this.readMetadata();
+    if (!meta?.entryMetadata) return [];
+    const result: string[] = [];
+    for (const [name, em] of Object.entries(meta.entryMetadata)) {
+      if (em.tags?.includes(tag)) {
+        result.push(name);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Returns entry names where the given tag bit (0-15) is set. Pure index scan, no metadata needed.
+   */
+  listWithTagBit(bit: number): string[] {
+    if (bit < 0 || bit > 15) return [];
+    return this._entries.filter(e => hasTagBit(e, bit)).map(e => e.name);
+  }
+
+  /**
+   * Fast tag filtering using tag_dictionary + bitmask. Returns empty if no dictionary.
+   */
+  listWithTagFast(tag: string): string[] {
+    const meta = this.readMetadata();
+    if (!meta?.tagDictionary?.length) return [];
+    const bit = meta.tagDictionary.indexOf(tag);
+    if (bit < 0) return [];
+    return this.listWithTagBit(bit);
   }
 
   /**

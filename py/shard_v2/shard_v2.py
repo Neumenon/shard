@@ -294,11 +294,13 @@ class ShardMetadata:
     """JSON metadata stored at schema_offset in the file."""
     schema_version: str = "shard-v2.1"
     schema_uri: str = ""
+    schema_id: str = ""
     created_at: str = ""  # ISO 8601
     source_uri: str = ""
     producer: str = ""
     description: str = ""
     tags: List[str] = field(default_factory=list)
+    tag_dictionary: List[str] = field(default_factory=list)
     extra: Dict[str, Any] = field(default_factory=dict)
     profile: str = ""
     sample_shard: Optional[SampleProfile] = None
@@ -311,6 +313,8 @@ class ShardMetadata:
         }
         if self.schema_uri:
             d["schema_uri"] = self.schema_uri
+        if self.schema_id:
+            d["schema_id"] = self.schema_id
         if self.created_at:
             d["created_at"] = self.created_at
         if self.source_uri:
@@ -321,6 +325,8 @@ class ShardMetadata:
             d["description"] = self.description
         if self.tags:
             d["tags"] = self.tags
+        if self.tag_dictionary:
+            d["tag_dictionary"] = self.tag_dictionary
         if self.extra:
             d["extra"] = self.extra
         if self.profile:
@@ -344,11 +350,13 @@ class ShardMetadata:
         return cls(
             schema_version=d.get("schema_version", "shard-v2.1"),
             schema_uri=d.get("schema_uri", ""),
+            schema_id=d.get("schema_id", ""),
             created_at=d.get("created_at", ""),
             source_uri=d.get("source_uri", ""),
             producer=d.get("producer", ""),
             description=d.get("description", ""),
             tags=d.get("tags", []),
+            tag_dictionary=d.get("tag_dictionary", []),
             extra=d.get("extra", {}),
             profile=d.get("profile", ""),
             sample_shard=(
@@ -363,6 +371,24 @@ class ShardMetadata:
             ),
             entry_metadata=em,
         )
+
+    def compute_schema_id(self) -> str:
+        """Compute a schema identifier by hashing tag_dictionary and entry metadata shape."""
+        import hashlib
+        h = hashlib.sha256()
+        for t in self.tag_dictionary:
+            h.update(t.encode("utf-8"))
+            h.update(b"\x00")
+        names = sorted(self.entry_metadata.keys())
+        for name in names:
+            em = self.entry_metadata[name]
+            h.update(name.encode("utf-8"))
+            h.update(b"\x00")
+            h.update(em.content_type.encode("utf-8"))
+            h.update(b"\x00")
+            h.update(em.semantic_type.encode("utf-8"))
+            h.update(b"\x00")
+        return h.hexdigest()[:16]
 
 
 # ============================================================
@@ -476,6 +502,17 @@ class IndexEntryV2:
     @property
     def content_type(self) -> int:
         return self.reserved & 0xFFFF
+
+    @property
+    def tag_bits(self) -> int:
+        """16-bit tag bitmask from upper 16 bits of reserved."""
+        return (self.reserved >> 16) & 0xFFFF
+
+    def has_tag_bit(self, bit: int) -> bool:
+        """Check if a specific tag bit (0-15) is set."""
+        if bit < 0 or bit > 15:
+            return False
+        return bool(self.tag_bits & (1 << bit))
 
     @property
     def compressed(self) -> bool:
@@ -712,6 +749,34 @@ class ShardV2Reader:
                 result.append(child)
 
         return result
+
+    def list_with_tag(self, tag: str) -> List[str]:
+        """Return entry names that have the given tag in their per-entry metadata."""
+        meta = self.read_metadata()
+        if meta is None:
+            return []
+        result = []
+        for name, em in meta.entry_metadata.items():
+            if tag in em.tags:
+                result.append(name)
+        return result
+
+    def list_with_tag_bit(self, bit: int) -> List[str]:
+        """Return entry names where the given tag bit (0-15) is set. Pure index scan, no metadata needed."""
+        if bit < 0 or bit > 15:
+            return []
+        return [e.name for e in self._entries if e.has_tag_bit(bit)]
+
+    def list_with_tag_fast(self, tag: str) -> List[str]:
+        """Fast tag filtering using tag_dictionary + bitmask. Falls back to empty if no dictionary."""
+        meta = self.read_metadata()
+        if meta is None or not meta.tag_dictionary:
+            return []
+        try:
+            bit = meta.tag_dictionary.index(tag)
+        except ValueError:
+            return []
+        return self.list_with_tag_bit(bit)
 
     def read_entry_prefix(self, i: int, max_bytes: int) -> bytes:
         """Read only the first max_bytes of an entry (for header scanning)."""

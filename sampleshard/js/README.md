@@ -52,11 +52,39 @@ await reader.close();
 ## Features
 
 - **Fast random access** by sample ID (O(1) lookup)
-- **Deterministic iteration** order
+- **Deterministic iteration** order (ascending by sample ID)
+- **Duplicate rejection**: Writers reject duplicate sample IDs
 - **Metadata-safe**: Reserved entries (starting with `__`) excluded from sample counts
 - **Async/await API** with async iterators
-- **CRC32 checksums** for data integrity
+- **CRC32C checksums** on decompressed data for integrity
 - **BigInt support** for sample IDs
+- **Structured metadata** with dataset profiles and per-entry metadata
+
+## Dataset Metadata
+
+```typescript
+const writer = new SampleShardWriter('train.smpl');
+await writer.open();
+
+// Attach dataset profile
+writer.setSampleProfile({
+  datasetName: 'imagenet-train',
+  sampleIdType: 'uint64',
+});
+
+await writer.addSample(1, { input: [1, 2, 3], label: 0 });
+await writer.close();
+// sample_count auto-populated on finalize
+
+// Read metadata without decoding samples
+const reader = new SampleShardReader('train.smpl');
+await reader.open();
+const profile = reader.sampleProfile();
+console.log(profile?.datasetName);   // "imagenet-train"
+console.log(profile?.sampleCount);   // 1
+console.log(reader.readMetadata()?.schemaVersion); // "shard-v2.1"
+await reader.close();
+```
 
 ## File Format
 
@@ -64,15 +92,17 @@ SampleShard uses the `.smpl` extension and the Shard v2 binary format:
 
 - 64-byte header with magic bytes `SHRD`
 - Role byte = 0x02 (Sample)
-- 48-byte index entries with name hashes
-- JSON-encoded sample data
-- CRC32 checksums per entry
+- 48-byte index entries with xxHash64 name hashes
+- Cowrie-encoded sample data (auto-detected on read)
+- CRC32C checksums on decompressed data per entry
+- Optional JSON metadata at `schema_offset`
 
 ## Interoperability
 
-SampleShard files created with TypeScript can be read by:
-- Go: `agentscope/cowrie/ucodec.OpenSampleShard()`
-- Python: `sampleshard.SampleShardReader()`
+Byte-identical across all implementations:
+- **Go**: `cowrie/ucodec.OpenSampleShard()`
+- **Python**: `sampleshard.SampleShardReader()`
+- **TypeScript**: `@sampleshard/core`
 
 ## API Reference
 
@@ -82,6 +112,9 @@ SampleShard files created with TypeScript can be read by:
 class SampleShardWriter {
   constructor(path: string, options?: { alignment?: number; compression?: number });
   async open(): Promise<void>;
+  setMetadata(metadata: ShardMetadata): void;
+  setSampleProfile(profile: SampleShardProfile): void;
+  setManifestProfile(profile: ManifestProfile): void;
   async addSample(sampleId: number | bigint, sample: unknown): Promise<void>;
   async addSampleRaw(sampleId: number | bigint, data: Buffer): Promise<void>;
   async close(): Promise<void>;
@@ -98,6 +131,9 @@ class SampleShardReader {
   getSampleIds(): bigint[];
   sampleIdByIndex(index: number): bigint;
   hasSample(sampleId: number | bigint): boolean;
+  readMetadata(): ShardMetadata | null;
+  sampleProfile(): SampleShardProfile | null;
+  manifestProfile(): ManifestProfile | null;
   async getSample(sampleId: number | bigint): Promise<unknown>;
   async getSampleByIndex(index: number): Promise<unknown>;
   async getBatch(sampleIds: (number | bigint)[]): Promise<unknown[]>;
