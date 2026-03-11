@@ -57,6 +57,20 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libzstd-dev liblz4-dev
       - run: cd c && make clean && make test
 
+  # ─── Robustness Tests ─────────────────────────────────────────────
+  robustness:
+    name: Robustness
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Go robustness tests
+        run: cd go && go test -run "TruthTable|PerfCliff" -v -timeout 10m ./shard/...
+
   publish-gate:
     name: Publish Gate
     needs: [go, python, typescript, rust, c]
