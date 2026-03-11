@@ -61,8 +61,14 @@
 #define CONTENT_TYPE_AUDIO          7
 #define CONTENT_TYPE_VIDEO          8
 #define CONTENT_TYPE_PROTO          9
-#define CONTENT_TYPE_BLOB          10
-#define CONTENT_TYPE_USER_BASE  0x8000
+#define CONTENT_TYPE_BLOB              10
+#define CONTENT_TYPE_QMLN              11
+#define CONTENT_TYPE_TENSOR_V3         12
+#define CONTENT_TYPE_ANCHOR_SHARED     13
+#define CONTENT_TYPE_DELTA_EXPERT      14
+#define CONTENT_TYPE_CODEBOOK_SHARED   15
+#define CONTENT_TYPE_EXPERT_INDICES    16
+#define CONTENT_TYPE_USER_BASE      0x8000
 
 /* ============================================================
  * Compression parameters (match Go reference implementation)
@@ -282,6 +288,14 @@ int shard_v2_stream_writer_write_entry(shard_v2_stream_writer_t* sw,
                                         const char* name,
                                         const uint8_t* data,
                                         size_t len);
+
+/* Write one entry with an explicit content type.
+ * Returns 0 on success, -1 on error. */
+int shard_v2_stream_writer_write_entry_typed(shard_v2_stream_writer_t* sw,
+                                              const char* name,
+                                              const uint8_t* data,
+                                              size_t len,
+                                              uint16_t content_type);
 
 /* Seek to file position 0 and write the complete header, index, and string
  * table. Closes the file. Returns 0 on success, -1 on error. */

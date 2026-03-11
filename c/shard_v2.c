@@ -687,7 +687,7 @@ const uint8_t* shard_v2_read_entry(const shard_v2_reader_t* r, uint32_t i, size_
         if (result != orig_size) { free(decompressed); return NULL; }
 
         /* Verify CRC32C on the decompressed data */
-        if (r->header.flags & FLAG_HAS_CHECKSUMS) {
+        if ((r->header.flags & FLAG_HAS_CHECKSUMS) || e->checksum != 0) {
             uint32_t computed = shard_v2_crc32c(decompressed, result);
             if (computed != e->checksum) { free(decompressed); return NULL; }
         }
@@ -707,7 +707,7 @@ const uint8_t* shard_v2_read_entry(const shard_v2_reader_t* r, uint32_t i, size_
     size_t         sz  = (size_t)e->disk_size;
 
     /* Checksum verification */
-    if (r->header.flags & FLAG_HAS_CHECKSUMS) {
+    if ((r->header.flags & FLAG_HAS_CHECKSUMS) || e->checksum != 0) {
         uint32_t got = shard_v2_crc32c(ptr, sz);
         if (got != e->checksum) return NULL;
     }
@@ -981,9 +981,11 @@ static int writer_add_raw(shard_v2_writer_t* w, const char* name,
 
     /* Grow array if needed */
     if (w->entry_count == w->entry_cap) {
+        if (w->entry_cap > SIZE_MAX / 2) return -1;
         size_t new_cap = w->entry_cap * 2;
-        pending_entry_t* ne = (pending_entry_t*)realloc(
-            w->entries, sizeof(pending_entry_t) * new_cap);
+        size_t alloc_size;
+        if (!safe_size_mul(sizeof(pending_entry_t), new_cap, &alloc_size)) return -1;
+        pending_entry_t* ne = (pending_entry_t*)realloc(w->entries, alloc_size);
         if (!ne) return -1;
         w->entries   = ne;
         w->entry_cap = new_cap;
@@ -1291,6 +1293,7 @@ typedef struct {
     uint64_t orig_size;
     uint32_t checksum;
     uint16_t flags;
+    uint16_t content_type;
 } stream_entry_meta_t;
 
 struct shard_v2_stream_writer {
@@ -1389,10 +1392,11 @@ int shard_v2_stream_writer_begin_data(shard_v2_stream_writer_t* sw) {
     return 0;
 }
 
-int shard_v2_stream_writer_write_entry(shard_v2_stream_writer_t* sw,
-                                        const char* name,
-                                        const uint8_t* data,
-                                        size_t len) {
+static int sw_write_entry_impl(shard_v2_stream_writer_t* sw,
+                               const char* name,
+                               const uint8_t* data,
+                               size_t len,
+                               uint16_t content_type) {
     if (!sw || !name || !data) return -1;
     if (!sw->started || sw->finalized)  return -1;
     if (sw->count >= sw->max_entries)   return -1;
@@ -1421,15 +1425,31 @@ int shard_v2_stream_writer_write_entry(shard_v2_stream_writer_t* sw,
     if (!e->name) return -1;
     strcpy(e->name, name);
 
-    e->data_offset = sw->current_offset;
-    e->disk_size   = (uint64_t)len;
-    e->orig_size   = (uint64_t)len;
-    e->checksum    = checksum;
-    e->flags       = 0;
+    e->data_offset    = sw->current_offset;
+    e->disk_size      = (uint64_t)len;
+    e->orig_size      = (uint64_t)len;
+    e->checksum       = checksum;
+    e->flags          = 0;
+    e->content_type   = content_type;
 
     sw->current_offset += (uint64_t)len;
     sw->count++;
     return 0;
+}
+
+int shard_v2_stream_writer_write_entry(shard_v2_stream_writer_t* sw,
+                                        const char* name,
+                                        const uint8_t* data,
+                                        size_t len) {
+    return sw_write_entry_impl(sw, name, data, len, CONTENT_TYPE_UNKNOWN);
+}
+
+int shard_v2_stream_writer_write_entry_typed(shard_v2_stream_writer_t* sw,
+                                              const char* name,
+                                              const uint8_t* data,
+                                              size_t len,
+                                              uint16_t content_type) {
+    return sw_write_entry_impl(sw, name, data, len, content_type);
 }
 
 int shard_v2_stream_writer_finalize(shard_v2_stream_writer_t* sw) {
@@ -1525,7 +1545,7 @@ int shard_v2_stream_writer_finalize(shard_v2_stream_writer_t* sw) {
             ie.disk_size   = e->disk_size;
             ie.orig_size   = e->orig_size;
             ie.checksum    = e->checksum;
-            ie.reserved    = 0;
+            ie.reserved    = (uint32_t)e->content_type;
 
             uint8_t ebuf[SHARD_INDEX_ENTRY_SIZE];
             serialize_entry(&ie, ebuf);

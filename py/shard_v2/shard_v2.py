@@ -698,7 +698,7 @@ class ShardV2Reader:
                 raise ValueError(f"unknown compression type for entry {i}")
 
         # CRC32C checksum is computed on the original uncompressed data.
-        if verify and (self._header.flags & FLAG_HAS_CHECKSUMS):
+        if verify and (self._header.flags & FLAG_HAS_CHECKSUMS or entry.checksum != 0):
             computed = compute_crc32c(data)
             if computed != entry.checksum:
                 raise ValueError(

@@ -94,11 +94,11 @@ pub const CONTENT_TYPE_AUDIO: u16 = 7;
 pub const CONTENT_TYPE_VIDEO: u16 = 8;
 pub const CONTENT_TYPE_PROTO: u16 = 9;
 pub const CONTENT_TYPE_BLOB: u16 = 10;
-pub const CONTENT_TYPE_EMBEDDING: u16 = 11;
-pub const CONTENT_TYPE_TOKEN_IDS: u16 = 12;
-pub const CONTENT_TYPE_LOGITS: u16 = 13;
-pub const CONTENT_TYPE_ATTENTION_MASK: u16 = 14;
-pub const CONTENT_TYPE_POSITION_IDS: u16 = 15;
+pub const CONTENT_TYPE_QMLN: u16 = 11;
+pub const CONTENT_TYPE_TENSOR_V3: u16 = 12;
+pub const CONTENT_TYPE_ANCHOR_SHARED: u16 = 13;
+pub const CONTENT_TYPE_DELTA_EXPERT: u16 = 14;
+pub const CONTENT_TYPE_CODEBOOK_SHARED: u16 = 15;
 pub const CONTENT_TYPE_EXPERT_INDICES: u16 = 16;
 
 /// Default flags: little-endian + checksums + content types (0x00A2).
@@ -706,7 +706,7 @@ impl ShardV2Reader {
         };
 
         // CRC32C is computed on the DECOMPRESSED data.
-        if self.header.flags & FLAG_HAS_CHECKSUMS != 0 {
+        if self.header.flags & FLAG_HAS_CHECKSUMS != 0 || entry.checksum != 0 {
             let computed = compute_crc32c(&data);
             if computed != entry.checksum {
                 return Err(ShardError::ChecksumMismatch {
@@ -1101,7 +1101,7 @@ impl MmapShardV2Reader {
         };
 
         // CRC32C is computed on the DECOMPRESSED data.
-        if self.header.flags & FLAG_HAS_CHECKSUMS != 0 {
+        if self.header.flags & FLAG_HAS_CHECKSUMS != 0 || entry.checksum != 0 {
             let computed = compute_crc32c(&data);
             if computed != entry.checksum {
                 return Err(ShardError::ChecksumMismatch {

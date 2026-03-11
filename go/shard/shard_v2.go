@@ -133,7 +133,13 @@ const (
 	ContentTypeAudio   uint16 = 7  // Audio (WAV, MP3, etc.)
 	ContentTypeVideo   uint16 = 8  // Video (MP4, WebM, etc.)
 	ContentTypeProto   uint16 = 9  // Protocol Buffers
-	ContentTypeBlob    uint16 = 10 // Opaque binary blob
+	ContentTypeBlob           uint16 = 10 // Opaque binary blob
+	ContentTypeQMLN           uint16 = 11 // QMLN encoded
+	ContentTypeTensorV3       uint16 = 12 // TensorV3 encoded tensor
+	ContentTypeAnchorShared   uint16 = 13 // Shared anchor data
+	ContentTypeDeltaExpert    uint16 = 14 // Delta expert data
+	ContentTypeCodebookShared uint16 = 15 // Shared codebook
+	ContentTypeExpertIndices  uint16 = 16 // Expert indices
 	// User-defined: >= 0x8000
 	ContentTypeUserBase uint16 = 0x8000
 )
@@ -415,6 +421,18 @@ func ContentTypeName(ct uint16) string {
 		return "proto"
 	case ContentTypeBlob:
 		return "blob"
+	case ContentTypeQMLN:
+		return "qmln"
+	case ContentTypeTensorV3:
+		return "tensor_v3"
+	case ContentTypeAnchorShared:
+		return "anchor_shared"
+	case ContentTypeDeltaExpert:
+		return "delta_expert"
+	case ContentTypeCodebookShared:
+		return "codebook_shared"
+	case ContentTypeExpertIndices:
+		return "expert_indices"
 	default:
 		if ct >= ContentTypeUserBase {
 			return fmt.Sprintf("user:%d", ct-ContentTypeUserBase)

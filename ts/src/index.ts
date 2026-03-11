@@ -959,7 +959,7 @@ export class ShardV2Reader {
     }
 
     // CRC32C checksum is computed on the original uncompressed data.
-    if (verify && (this._header.flags & FLAG_HAS_CHECKSUMS) !== 0) {
+    if (verify && ((this._header.flags & FLAG_HAS_CHECKSUMS) !== 0 || entry.checksum !== 0)) {
       const computed = computeCrc32c(data);
       if (computed !== entry.checksum) {
         throw new Error(
@@ -1270,6 +1270,7 @@ export class ShardV2StreamWriter {
     origSize: number;
     checksum: number;
     flags: number;
+    contentType: number;
   }> = [];
   private started = false;
   private finalized = false;
@@ -1320,6 +1321,11 @@ export class ShardV2StreamWriter {
 
   /** Write data at current position, recording metadata for finalize(). */
   writeEntry(name: string, data: Buffer): void {
+    this.writeEntryTyped(name, data, CONTENT_TYPE_UNKNOWN);
+  }
+
+  /** Write data with an explicit content type. */
+  writeEntryTyped(name: string, data: Buffer, contentType: number): void {
     if (!this.started) throw new Error('call begin_data() first');
     if (this.finalized) throw new Error('already finalized');
 
@@ -1343,6 +1349,7 @@ export class ShardV2StreamWriter {
       origSize: data.length,
       checksum,
       flags: 0,
+      contentType,
     });
     this.currentOffset += data.length;
   }
@@ -1400,6 +1407,7 @@ export class ShardV2StreamWriter {
       origSize: data.length,
       checksum,
       flags: entryFlags,
+      contentType: CONTENT_TYPE_UNKNOWN,
     });
     this.currentOffset += diskData.length;
   }
@@ -1480,7 +1488,7 @@ export class ShardV2StreamWriter {
       writeUint64LE(entryBuf, 24, BigInt(e.diskSize));
       writeUint64LE(entryBuf, 32, BigInt(e.origSize));
       entryBuf.writeUInt32LE(e.checksum, 40);
-      entryBuf.writeUInt32LE(0, 44); // reserved / content_type
+      entryBuf.writeUInt32LE(e.contentType & 0xFFFF, 44); // reserved / content_type
       fs.writeSync(this.fd, entryBuf, 0, INDEX_ENTRY_SIZE, indexOffset);
       indexOffset += INDEX_ENTRY_SIZE;
     }
