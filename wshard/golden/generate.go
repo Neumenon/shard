@@ -449,18 +449,18 @@ func genCompressed(dir string) error {
 	})
 	w.addEntry("meta/channels", chanJSON, contentTypeJSON)
 
-	// signal/obs — sequential floats (very compressible)
+	// signal/obs - repeated floats so compression is guaranteed.
 	obs := make([]float32, T*8)
 	for i := range obs {
-		obs[i] = float32(i) * 0.01
+		obs[i] = 1.25
 	}
 	obsData := f32Bytes(obs)
 	w.addEntryCompressed("signal/obs", obsData, 0)
 
-	// reward — sequential (compressible)
+	// reward - repeated values so compression is guaranteed.
 	rewards := make([]float32, T)
 	for i := range rewards {
-		rewards[i] = float32(i) * 0.1
+		rewards[i] = 1.0
 	}
 	rewardData := f32Bytes(rewards)
 	w.addEntryCompressed("reward", rewardData, 0)
@@ -471,6 +471,239 @@ func genCompressed(dir string) error {
 	w.addEntry("done", boolBytes(done), 0)
 
 	return w.writeTo(filepath.Join(dir, "per_block_compressed.wshard"))
+}
+
+// ============================================================
+// Golden file 4: omen_uncert.wshard
+// Episode with omen + uncert + residual blocks.
+// ============================================================
+
+func genOmenUncert(dir string) error {
+	const T = 10
+	w := &shardWriter{align: align64, compDef: compressNone}
+
+	metaWShard, _ := json.Marshal(map[string]any{
+		"version":        1,
+		"residual_edges": "pad",
+		"timebase":       map[string]any{"type": "ticks", "tick_hz": 30.0},
+	})
+	w.addEntry("meta/wshard", metaWShard, contentTypeJSON)
+
+	metaEp, _ := json.Marshal(map[string]any{
+		"episode_id":     "golden_omen_uncert",
+		"env_id":         "OmenTestEnv-v1",
+		"length_T":       T,
+		"timestep_range": [2]int{0, T},
+		"timebase":       map[string]any{"type": "ticks", "dt_ns": 33333333},
+	})
+	w.addEntry("meta/episode", metaEp, contentTypeJSON)
+
+	chanJSON, _ := json.Marshal(map[string]any{
+		"channels": []map[string]any{
+			{"id": "joint_pos", "dtype": "f32", "shape": []int{3}, "signal_block": "signal/joint_pos"},
+			{"id": "torque", "dtype": "f32", "shape": []int{3}, "signal_block": "action/torque"},
+		},
+	})
+	w.addEntry("meta/channels", chanJSON, contentTypeJSON)
+
+	// signal/joint_pos — sequential floats
+	jointPos := make([]float32, T*3)
+	for i := range jointPos {
+		jointPos[i] = float32(i) * 0.1
+	}
+	w.addEntry("signal/joint_pos", f32Bytes(jointPos), 0)
+
+	// action/torque
+	torque := make([]float32, T*3)
+	for i := range torque {
+		torque[i] = float32(i) * 0.01
+	}
+	w.addEntry("action/torque", f32Bytes(torque), 0)
+
+	// reward
+	rewards := make([]float32, T)
+	for i := range rewards {
+		rewards[i] = float32(i) * 0.5
+	}
+	w.addEntry("reward", f32Bytes(rewards), 0)
+
+	// done
+	done := make([]bool, T)
+	done[T-1] = true
+	w.addEntry("done", boolBytes(done), 0)
+
+	// omen/joint_pos/dreamer — model prediction
+	omenData := make([]float32, T*3)
+	for i := range omenData {
+		omenData[i] = float32(i)*0.1 + 0.01 // slight offset from signal
+	}
+	w.addEntry("omen/joint_pos/dreamer", f32Bytes(omenData), 0)
+
+	// uncert/joint_pos/dreamer/variance — uncertainty estimate
+	uncertData := make([]float32, T*3)
+	for i := range uncertData {
+		uncertData[i] = 0.05
+	}
+	w.addEntry("uncert/joint_pos/dreamer/variance", f32Bytes(uncertData), 0)
+
+	// residual/joint_pos/sign2nddiff — packed residual bits
+	// Compute sign2nd_diff on the signal (first dim only for simplicity)
+	residuals := make([]int8, T)
+	for i := 1; i < T-1; i++ {
+		diff := 2.0*float64(jointPos[i*3]) - float64(jointPos[(i-1)*3]) - float64(jointPos[(i+1)*3])
+		if diff > 0 {
+			residuals[i] = 1
+		} else if diff < 0 {
+			residuals[i] = -1
+		}
+	}
+	// Pack to bits: +1 → 1, else → 0
+	numBytes := (T + 7) / 8
+	packed := make([]byte, numBytes)
+	for i := 0; i < T; i++ {
+		if residuals[i] > 0 {
+			packed[i/8] |= 1 << uint(i%8)
+		}
+	}
+	w.addEntry("residual/joint_pos/sign2nddiff", packed, 0)
+
+	return w.writeTo(filepath.Join(dir, "omen_uncert.wshard"))
+}
+
+// ============================================================
+// Golden file 5: multimodal.wshard
+// Episode with multi-modal signal blocks.
+// ============================================================
+
+func genMultiModal(dir string) error {
+	const T = 5
+	w := &shardWriter{align: align64, compDef: compressNone}
+
+	metaWShard, _ := json.Marshal(map[string]any{
+		"version":  1,
+		"timebase": map[string]any{"type": "ticks", "tick_hz": 10.0},
+	})
+	w.addEntry("meta/wshard", metaWShard, contentTypeJSON)
+
+	metaEp, _ := json.Marshal(map[string]any{
+		"episode_id":     "golden_multimodal",
+		"env_id":         "VLAEnv-v1",
+		"length_T":       T,
+		"timestep_range": [2]int{0, T},
+		"timebase":       map[string]any{"type": "ticks", "dt_ns": 100000000},
+	})
+	w.addEntry("meta/episode", metaEp, contentTypeJSON)
+
+	chanJSON, _ := json.Marshal(map[string]any{
+		"channels": []map[string]any{
+			{"id": "obs/rgb", "dtype": "u8", "shape": []int{8, 8, 3}, "signal_block": "signal/obs/rgb", "modality": "rgb"},
+			{"id": "obs/depth", "dtype": "f32", "shape": []int{8, 8}, "signal_block": "signal/obs/depth", "modality": "depth"},
+			{"id": "obs/proprioception", "dtype": "f32", "shape": []int{7}, "signal_block": "signal/obs/proprioception", "modality": "proprioception"},
+			{"id": "ctrl", "dtype": "f32", "shape": []int{3}, "signal_block": "action/ctrl"},
+		},
+	})
+	w.addEntry("meta/channels", chanJSON, contentTypeJSON)
+
+	// signal/obs/rgb — small 8x8 RGB
+	rgbData := make([]byte, T*8*8*3)
+	for i := range rgbData {
+		rgbData[i] = byte(i % 256)
+	}
+	w.addEntry("signal/obs/rgb", rgbData, 0)
+
+	// signal/obs/depth — 8x8 depth
+	depthData := make([]float32, T*8*8)
+	for i := range depthData {
+		depthData[i] = float32(i) * 0.001
+	}
+	w.addEntry("signal/obs/depth", f32Bytes(depthData), 0)
+
+	// signal/obs/proprioception — 7-dim proprioception
+	propData := make([]float32, T*7)
+	for i := range propData {
+		propData[i] = float32(i) * 0.1
+	}
+	w.addEntry("signal/obs/proprioception", f32Bytes(propData), 0)
+
+	// action/ctrl
+	ctrlData := make([]float32, T*3)
+	for i := range ctrlData {
+		ctrlData[i] = float32(i) * 0.01
+	}
+	w.addEntry("action/ctrl", f32Bytes(ctrlData), 0)
+
+	// reward
+	w.addEntry("reward", f32Bytes(make([]float32, T)), 0)
+
+	// done
+	done := make([]bool, T)
+	done[T-1] = true
+	w.addEntry("done", boolBytes(done), 0)
+
+	return w.writeTo(filepath.Join(dir, "multimodal.wshard"))
+}
+
+// ============================================================
+// Golden file 6: latent_action.wshard
+// Episode with latent action + codebook blocks.
+// ============================================================
+
+func genLatentAction(dir string) error {
+	const T = 8
+	w := &shardWriter{align: align64, compDef: compressNone}
+
+	metaWShard, _ := json.Marshal(map[string]any{
+		"version":  1,
+		"timebase": map[string]any{"type": "ticks", "tick_hz": 30.0},
+	})
+	w.addEntry("meta/wshard", metaWShard, contentTypeJSON)
+
+	metaEp, _ := json.Marshal(map[string]any{
+		"episode_id":     "golden_latent_action",
+		"env_id":         "LatentEnv-v1",
+		"length_T":       T,
+		"timestep_range": [2]int{0, T},
+		"timebase":       map[string]any{"type": "ticks", "dt_ns": 33333333},
+	})
+	w.addEntry("meta/episode", metaEp, contentTypeJSON)
+
+	chanJSON, _ := json.Marshal(map[string]any{
+		"channels": []map[string]any{
+			{"id": "state", "dtype": "f32", "shape": []int{4}, "signal_block": "signal/state"},
+		},
+	})
+	w.addEntry("meta/channels", chanJSON, contentTypeJSON)
+
+	// signal/state
+	stateData := make([]float32, T*4)
+	for i := range stateData {
+		stateData[i] = float32(i)
+	}
+	w.addEntry("signal/state", f32Bytes(stateData), 0)
+
+	// reward
+	w.addEntry("reward", f32Bytes(make([]float32, T)), 0)
+
+	// done
+	done := make([]bool, T)
+	done[T-1] = true
+	w.addEntry("done", boolBytes(done), 0)
+
+	// omen/latent_action/genie3 — continuous latent embeddings [T, 16]
+	latentData := make([]float32, T*16)
+	for i := range latentData {
+		latentData[i] = float32(i) * 0.01
+	}
+	w.addEntry("omen/latent_action/genie3", f32Bytes(latentData), 0)
+
+	// omen/latent_action_codebook/genie3 — VQ-VAE indices [T]
+	codebookData := make([]int32, T)
+	for i := range codebookData {
+		codebookData[i] = int32(i % 256)
+	}
+	w.addEntry("omen/latent_action_codebook/genie3", i32Bytes(codebookData), 0)
+
+	return w.writeTo(filepath.Join(dir, "latent_action.wshard"))
 }
 
 // ============================================================
@@ -486,8 +719,8 @@ func genHashes(dir string) error {
 	xxhMetaManifest := xxh64("meta/manifest")
 
 	hashes := map[string]any{
-		"crc32c_hello":         fmt.Sprintf("0x%08x", crc32cHello),
-		"xxhash64_signal_obs":  fmt.Sprintf("0x%016x", xxhSignalObs),
+		"crc32c_hello":           fmt.Sprintf("0x%08x", crc32cHello),
+		"xxhash64_signal_obs":    fmt.Sprintf("0x%016x", xxhSignalObs),
 		"xxhash64_meta_manifest": fmt.Sprintf("0x%016x", xxhMetaManifest),
 		"dtype_sizes": map[string]int{
 			"f32":  4,
@@ -536,6 +769,9 @@ func main() {
 		{"simple_episode.wshard", genSimpleEpisode},
 		{"dtype_zoo.wshard", genDtypeZoo},
 		{"per_block_compressed.wshard", genCompressed},
+		{"omen_uncert.wshard", genOmenUncert},
+		{"multimodal.wshard", genMultiModal},
+		{"latent_action.wshard", genLatentAction},
 		{"golden_hashes.json", genHashes},
 	}
 
