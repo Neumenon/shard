@@ -140,6 +140,7 @@ const (
 	ContentTypeDeltaExpert    uint16 = 14 // Delta expert data
 	ContentTypeCodebookShared uint16 = 15 // Shared codebook
 	ContentTypeExpertIndices  uint16 = 16 // Expert indices
+	ContentTypeColumn        uint16 = 17 // Column chunk data
 	// User-defined: >= 0x8000
 	ContentTypeUserBase uint16 = 0x8000
 )
@@ -433,6 +434,8 @@ func ContentTypeName(ct uint16) string {
 		return "codebook_shared"
 	case ContentTypeExpertIndices:
 		return "expert_indices"
+	case ContentTypeColumn:
+		return "column"
 	default:
 		if ct >= ContentTypeUserBase {
 			return fmt.Sprintf("user:%d", ct-ContentTypeUserBase)

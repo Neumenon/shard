@@ -114,6 +114,7 @@ const (
 	ShardRoleManifest  ShardRole = 0x04 // Multi-file manifest (references other shards)
 	ShardRoleWShard    ShardRole = 0x05 // W-SHARD: World-model episode data
 	ShardRoleUMSH      ShardRole = 0x06 // UMSH: Universal Model Shard - variant of MoSH
+	ShardRoleColumn    ShardRole = 0x08 // ColumnShard: columnar tabular data
 )
 
 // String returns a human-readable role name.
@@ -131,6 +132,8 @@ func (r ShardRole) String() string {
 		return "WShard"
 	case ShardRoleUMSH:
 		return "UMSH"
+	case ShardRoleColumn:
+		return "ColumnShard"
 	default:
 		return fmt.Sprintf("Unknown(0x%02x)", uint8(r))
 	}
