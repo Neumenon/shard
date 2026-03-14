@@ -1,5 +1,5 @@
 /*
- * test_truth_table.c — Truth table tests for shard v2.
+ * test_truth_table.c — Truth table tests for shard.
  *
  * 9 cases from testdata/robustness/truth_cases.json:
  *   1. duplicate_entry_names_rejected
@@ -16,7 +16,7 @@
  *   default testdata_dir = ../ucodec/testdata/safety
  */
 
-#include "shard_v2.h"
+#include "shard.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,24 +63,24 @@ static char* make_tmpfile(void) {
  * ============================================================ */
 
 static void test_duplicate_entry_names_rejected(void) {
-    shard_v2_writer_t* w = shard_v2_writer_new(ROLE_MOSH);
+    shard_writer_t* w = shard_writer_new(ROLE_MOSH);
     check(w != NULL, "dup: writer created");
 
     const uint8_t data1[] = "first";
     const uint8_t data2[] = "second";
-    int rc1 = shard_v2_writer_add_entry(w, "a", data1, 5);
-    int rc2 = shard_v2_writer_add_entry(w, "a", data2, 6);
+    int rc1 = shard_writer_add_entry(w, "a", data1, 5);
+    int rc2 = shard_writer_add_entry(w, "a", data2, 6);
 
     if (rc1 != 0 || rc2 != 0) {
         check(true, "dup: duplicate rejected at add_entry");
-        shard_v2_writer_free(w);
+        shard_writer_free(w);
         return;
     }
 
     /* Writer accepted duplicates — write and check reader */
     char* path = make_tmpfile();
-    int rcw = shard_v2_writer_write(w, path);
-    shard_v2_writer_free(w);
+    int rcw = shard_writer_write(w, path);
+    shard_writer_free(w);
 
     if (rcw != 0) {
         check(true, "dup: duplicate rejected at write");
@@ -88,13 +88,13 @@ static void test_duplicate_entry_names_rejected(void) {
         return;
     }
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     if (r == NULL) {
         check(true, "dup: duplicate rejected at open");
     } else {
         /* Reader accepted — at least one entry should exist */
-        check(shard_v2_entry_count(r) >= 1, "dup: at least one entry exists");
-        shard_v2_close(r);
+        check(shard_entry_count(r) >= 1, "dup: at least one entry exists");
+        shard_close(r);
     }
 
     unlink(path);
@@ -106,27 +106,27 @@ static void test_duplicate_entry_names_rejected(void) {
  * ============================================================ */
 
 static void test_zero_length_entry_valid(void) {
-    shard_v2_writer_t* w = shard_v2_writer_new(ROLE_MOSH);
+    shard_writer_t* w = shard_writer_new(ROLE_MOSH);
     /* C API rejects NULL data pointer — use a valid pointer with size 0 */
     static const uint8_t empty_buf[1] = {0};
-    int rc = shard_v2_writer_add_entry(w, "empty", empty_buf, 0);
+    int rc = shard_writer_add_entry(w, "empty", empty_buf, 0);
     check(rc == 0, "zero_len: add_entry succeeded");
 
     char* path = make_tmpfile();
-    rc = shard_v2_writer_write(w, path);
-    shard_v2_writer_free(w);
+    rc = shard_writer_write(w, path);
+    shard_writer_free(w);
     check(rc == 0, "zero_len: write succeeded");
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "zero_len: open succeeded");
     if (r) {
-        check(shard_v2_entry_count(r) == 1, "zero_len: entry_count == 1");
+        check(shard_entry_count(r) == 1, "zero_len: entry_count == 1");
 
         size_t out_size = 999;
-        const uint8_t* data = shard_v2_read_entry(r, 0, &out_size);
+        const uint8_t* data = shard_read_entry(r, 0, &out_size);
         /* For zero-length entries, data may be NULL with size 0, or non-NULL with size 0 */
         check(out_size == 0, "zero_len: data size == 0");
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     unlink(path);
@@ -138,31 +138,31 @@ static void test_zero_length_entry_valid(void) {
  * ============================================================ */
 
 static void test_unicode_entry_name(void) {
-    shard_v2_writer_t* w = shard_v2_writer_new(ROLE_MOSH);
+    shard_writer_t* w = shard_writer_new(ROLE_MOSH);
     const uint8_t hello[] = "hello";
     /* UTF-8 for 日本語 */
     const char* uname = "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e";
-    int rc = shard_v2_writer_add_entry(w, uname, hello, 5);
+    int rc = shard_writer_add_entry(w, uname, hello, 5);
     check(rc == 0, "unicode: add_entry succeeded");
 
     char* path = make_tmpfile();
-    rc = shard_v2_writer_write(w, path);
-    shard_v2_writer_free(w);
+    rc = shard_writer_write(w, path);
+    shard_writer_free(w);
     check(rc == 0, "unicode: write succeeded");
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "unicode: open succeeded");
     if (r) {
-        check(shard_v2_entry_count(r) == 1, "unicode: entry_count == 1");
+        check(shard_entry_count(r) == 1, "unicode: entry_count == 1");
 
-        const char* name = shard_v2_entry_name(r, 0);
+        const char* name = shard_entry_name(r, 0);
         check(name != NULL && strcmp(name, uname) == 0, "unicode: entry name matches");
 
         size_t out_size = 0;
-        const uint8_t* data = shard_v2_read_entry(r, 0, &out_size);
+        const uint8_t* data = shard_read_entry(r, 0, &out_size);
         check(data != NULL && out_size == 5 && memcmp(data, "hello", 5) == 0,
               "unicode: data matches");
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     unlink(path);
@@ -179,7 +179,7 @@ static void test_corrupt_fixture(const char* dir, const char* filename, const ch
 
     char desc[256];
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     if (r == NULL) {
         snprintf(desc, sizeof(desc), "%s: rejected at open", label);
         check(true, desc);
@@ -188,15 +188,15 @@ static void test_corrupt_fixture(const char* dir, const char* filename, const ch
 
     /* If open succeeded, try reading entries — at least one should fail */
     bool errored = false;
-    uint32_t count = shard_v2_entry_count(r);
+    uint32_t count = shard_entry_count(r);
     for (uint32_t i = 0; i < count && !errored; i++) {
         size_t out_size = 0;
-        const uint8_t* data = shard_v2_read_entry(r, i, &out_size);
+        const uint8_t* data = shard_read_entry(r, i, &out_size);
         if (data == NULL) {
             errored = true;
         }
     }
-    shard_v2_close(r);
+    shard_close(r);
 
     snprintf(desc, sizeof(desc), "%s: error detected", label);
     check(errored, desc);
@@ -207,18 +207,18 @@ static void test_corrupt_fixture(const char* dir, const char* filename, const ch
  * ============================================================ */
 
 static void test_empty_input_rejected(void) {
-    shard_v2_reader_t* r = shard_v2_from_buffer(NULL, 0);
+    shard_reader_t* r = shard_from_buffer(NULL, 0);
     check(r == NULL, "empty_input: rejected");
     if (r) {
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     /* Also test with a valid pointer but zero length */
     uint8_t dummy = 0;
-    r = shard_v2_from_buffer(&dummy, 0);
+    r = shard_from_buffer(&dummy, 0);
     check(r == NULL, "empty_input (zero-len buf): rejected");
     if (r) {
-        shard_v2_close(r);
+        shard_close(r);
     }
 }
 

@@ -1,14 +1,14 @@
 /*
- * test_mmap.c — mmap reader tests for shard_v2.c
+ * test_mmap.c — mmap reader tests for shard.c
  *
  * Usage: ./test_mmap [testdata_dir]
  *
- * Opens each golden file via shard_v2_open_mmap() and verifies that all
+ * Opens each golden file via shard_open_mmap() and verifies that all
  * entries read correctly.  Also exercises the roundtrip: write with the
  * writer, read back via mmap.
  */
 
-#include "shard_v2.h"
+#include "shard.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,13 +74,13 @@ static void test_mmap_file(const char* dir, const char* filename,
     char desc[512];
 
     /* Open via mmap */
-    snprintf(desc, sizeof(desc), "shard_v2_open_mmap(%s) != NULL", filename);
-    shard_v2_reader_t* r = shard_v2_open_mmap(path);
+    snprintf(desc, sizeof(desc), "shard_open_mmap(%s) != NULL", filename);
+    shard_reader_t* r = shard_open_mmap(path);
     check(r != NULL, desc);
     if (!r) return;
 
     /* Header checks */
-    const shard_v2_header_t* h = shard_v2_header(r);
+    const shard_header_t* h = shard_header(r);
 
     snprintf(desc, sizeof(desc), "mmap %s: magic == SHRD", filename);
     check(memcmp(h->magic, "SHRD", 4) == 0, desc);
@@ -120,17 +120,17 @@ static void test_mmap_file(const char* dir, const char* filename,
     check(h->total_file_size == exp_total_file_size, desc);
 
     snprintf(desc, sizeof(desc), "mmap %s: entry_count() == %u", filename, exp_entry_count);
-    check(shard_v2_entry_count(r) == exp_entry_count, desc);
+    check(shard_entry_count(r) == exp_entry_count, desc);
 
     /* Per-entry checks */
     for (uint32_t i = 0; i < exp_entry_count; i++) {
         const expected_entry_t* ex = &exp_entries[i];
 
-        const char* name = shard_v2_entry_name(r, i);
+        const char* name = shard_entry_name(r, i);
         snprintf(desc, sizeof(desc), "mmap %s[%u]: name == \"%s\"", filename, i, ex->name);
         check(name && strcmp(name, ex->name) == 0, desc);
 
-        const shard_v2_index_entry_t* e = shard_v2_get_entry(r, i);
+        const shard_index_entry_t* e = shard_get_entry(r, i);
         if (!e) {
             snprintf(desc, sizeof(desc), "mmap %s[%u]: get_entry != NULL", filename, i);
             check(false, desc);
@@ -142,7 +142,7 @@ static void test_mmap_file(const char* dir, const char* filename,
         check(e->name_hash == ex->name_hash, desc);
 
         snprintf(desc, sizeof(desc), "mmap %s[%u]: content_type == %u", filename, i, ex->content_type);
-        check(shard_v2_content_type(e) == ex->content_type, desc);
+        check(shard_content_type(e) == ex->content_type, desc);
 
         snprintf(desc, sizeof(desc), "mmap %s[%u]: orig_size == %llu", filename, i,
                  (unsigned long long)ex->orig_size);
@@ -157,13 +157,13 @@ static void test_mmap_file(const char* dir, const char* filename,
 
         snprintf(desc, sizeof(desc), "mmap %s[%u]: compressed == %s", filename, i,
                  ex->compressed ? "true" : "false");
-        check(shard_v2_is_compressed(e) == ex->compressed, desc);
+        check(shard_is_compressed(e) == ex->compressed, desc);
 
         /* Read entry — for uncompressed entries read_entry returns a pointer
          * directly into the mmap'd region (zero-copy). Verify CRC32C. */
         if (!ex->compressed) {
             size_t out_size = 0;
-            const uint8_t* data = shard_v2_read_entry(r, i, &out_size);
+            const uint8_t* data = shard_read_entry(r, i, &out_size);
             snprintf(desc, sizeof(desc), "mmap %s[%u]: read_entry != NULL", filename, i);
             check(data != NULL, desc);
 
@@ -172,7 +172,7 @@ static void test_mmap_file(const char* dir, const char* filename,
                          (unsigned long long)ex->disk_size);
                 check(out_size == (size_t)ex->disk_size, desc);
 
-                uint32_t crc = shard_v2_crc32c(data, out_size);
+                uint32_t crc = shard_crc32c(data, out_size);
                 snprintf(desc, sizeof(desc), "mmap %s[%u]: CRC32C matches stored checksum", filename, i);
                 check(crc == ex->checksum, desc);
             }
@@ -180,7 +180,7 @@ static void test_mmap_file(const char* dir, const char* filename,
 
         /* Lookup by name */
         if (name) {
-            int32_t idx = shard_v2_lookup(r, name);
+            int32_t idx = shard_lookup(r, name);
             snprintf(desc, sizeof(desc), "mmap %s[%u]: lookup(\"%s\") == %u", filename, i, name, i);
             check(idx == (int32_t)i, desc);
         }
@@ -189,14 +189,14 @@ static void test_mmap_file(const char* dir, const char* filename,
     /* has_entry for first entry name */
     if (exp_entry_count > 0) {
         snprintf(desc, sizeof(desc), "mmap %s: has_entry(\"%s\") == true", filename, exp_entries[0].name);
-        check(shard_v2_has_entry(r, exp_entries[0].name), desc);
+        check(shard_has_entry(r, exp_entries[0].name), desc);
     }
 
     /* Lookup missing name */
     snprintf(desc, sizeof(desc), "mmap %s: lookup(\"__nonexistent__\") == -1", filename);
-    check(shard_v2_lookup(r, "__nonexistent__") == -1, desc);
+    check(shard_lookup(r, "__nonexistent__") == -1, desc);
 
-    shard_v2_close(r);
+    shard_close(r);
 }
 
 /* ============================================================
@@ -209,33 +209,33 @@ static void test_mmap_vs_regular(const char* dir, const char* filename) {
 
     char desc[512];
 
-    shard_v2_reader_t* mmap_r = shard_v2_open_mmap(path);
-    shard_v2_reader_t* reg_r  = shard_v2_open(path);
+    shard_reader_t* mmap_r = shard_open_mmap(path);
+    shard_reader_t* reg_r  = shard_open(path);
 
     snprintf(desc, sizeof(desc), "mmap_vs_regular %s: both opened", filename);
     check(mmap_r != NULL && reg_r != NULL, desc);
 
     if (!mmap_r || !reg_r) {
-        if (mmap_r) shard_v2_close(mmap_r);
-        if (reg_r)  shard_v2_close(reg_r);
+        if (mmap_r) shard_close(mmap_r);
+        if (reg_r)  shard_close(reg_r);
         return;
     }
 
-    uint32_t n = shard_v2_entry_count(mmap_r);
+    uint32_t n = shard_entry_count(mmap_r);
     snprintf(desc, sizeof(desc), "mmap_vs_regular %s: entry_count matches", filename);
-    check(n == shard_v2_entry_count(reg_r), desc);
+    check(n == shard_entry_count(reg_r), desc);
 
     for (uint32_t i = 0; i < n; i++) {
         /* Names match */
-        const char* mname = shard_v2_entry_name(mmap_r, i);
-        const char* rname = shard_v2_entry_name(reg_r,  i);
+        const char* mname = shard_entry_name(mmap_r, i);
+        const char* rname = shard_entry_name(reg_r,  i);
         snprintf(desc, sizeof(desc), "mmap_vs_regular %s[%u]: name matches", filename, i);
         check(mname && rname && strcmp(mname, rname) == 0, desc);
 
         /* Data bytes match */
         size_t msz = 0, rsz = 0;
-        const uint8_t* mdata = shard_v2_read_entry(mmap_r, i, &msz);
-        const uint8_t* rdata = shard_v2_read_entry(reg_r,  i, &rsz);
+        const uint8_t* mdata = shard_read_entry(mmap_r, i, &msz);
+        const uint8_t* rdata = shard_read_entry(reg_r,  i, &rsz);
 
         snprintf(desc, sizeof(desc), "mmap_vs_regular %s[%u]: read_entry not NULL", filename, i);
         check(mdata != NULL && rdata != NULL, desc);
@@ -249,8 +249,8 @@ static void test_mmap_vs_regular(const char* dir, const char* filename) {
         }
     }
 
-    shard_v2_close(mmap_r);
-    shard_v2_close(reg_r);
+    shard_close(mmap_r);
+    shard_close(reg_r);
 }
 
 /* ============================================================
@@ -260,54 +260,54 @@ static void test_mmap_vs_regular(const char* dir, const char* filename) {
 static void test_mmap_roundtrip(void) {
     printf("[ mmap roundtrip (write + read back) ]\n");
 
-    const char* path = "/tmp/test_shard_v2_mmap_roundtrip.shard";
+    const char* path = "/tmp/test_shard_mmap_roundtrip.shard";
 
     /* Write a small shard */
-    shard_v2_writer_t* w = shard_v2_writer_new(ROLE_MOSH);
+    shard_writer_t* w = shard_writer_new(ROLE_MOSH);
     if (!w) { check(false, "writer_new != NULL"); return; }
 
     static const uint8_t hello[] = "world";
     static const uint8_t foo[]   = "bar";
     static const uint8_t data1[] = {0x01, 0x02, 0x03, 0x04, 0x05};
 
-    shard_v2_writer_add_entry(w, "hello",  hello,  5);
-    shard_v2_writer_add_entry(w, "foo",    foo,    3);
-    shard_v2_writer_add_entry(w, "binary", data1, 5);
-    int rc = shard_v2_writer_write(w, path);
-    shard_v2_writer_free(w);
+    shard_writer_add_entry(w, "hello",  hello,  5);
+    shard_writer_add_entry(w, "foo",    foo,    3);
+    shard_writer_add_entry(w, "binary", data1, 5);
+    int rc = shard_writer_write(w, path);
+    shard_writer_free(w);
 
     check(rc == 0, "writer_write returned 0");
     if (rc != 0) return;
 
     /* Read back via mmap */
-    shard_v2_reader_t* r = shard_v2_open_mmap(path);
+    shard_reader_t* r = shard_open_mmap(path);
     check(r != NULL, "open_mmap roundtrip != NULL");
     if (!r) return;
 
-    check(shard_v2_entry_count(r) == 3, "roundtrip entry_count == 3");
+    check(shard_entry_count(r) == 3, "roundtrip entry_count == 3");
 
     size_t sz = 0;
     const uint8_t* d;
 
-    d = shard_v2_read_entry(r, 0, &sz);
+    d = shard_read_entry(r, 0, &sz);
     check(d != NULL && sz == 5 && memcmp(d, "world", 5) == 0, "roundtrip entry[0] == 'world'");
 
-    d = shard_v2_read_entry(r, 1, &sz);
+    d = shard_read_entry(r, 1, &sz);
     check(d != NULL && sz == 3 && memcmp(d, "bar", 3) == 0, "roundtrip entry[1] == 'bar'");
 
-    d = shard_v2_read_entry(r, 2, &sz);
+    d = shard_read_entry(r, 2, &sz);
     check(d != NULL && sz == 5 && memcmp(d, data1, 5) == 0, "roundtrip entry[2] == binary data");
 
     /* Lookup by name */
-    int32_t idx = shard_v2_lookup(r, "hello");
+    int32_t idx = shard_lookup(r, "hello");
     check(idx == 0, "roundtrip lookup('hello') == 0");
 
-    idx = shard_v2_lookup(r, "foo");
+    idx = shard_lookup(r, "foo");
     check(idx == 1, "roundtrip lookup('foo') == 1");
 
-    check(!shard_v2_has_entry(r, "missing"), "roundtrip has_entry('missing') == false");
+    check(!shard_has_entry(r, "missing"), "roundtrip has_entry('missing') == false");
 
-    shard_v2_close(r);
+    shard_close(r);
     printf("\n");
 }
 
@@ -318,7 +318,7 @@ static void test_mmap_roundtrip(void) {
 static void test_mmap_large_entry(void) {
     printf("[ mmap large entry ]\n");
 
-    const char* path = "/tmp/test_shard_v2_mmap_large.shard";
+    const char* path = "/tmp/test_shard_mmap_large.shard";
     const size_t large_sz = 1024 * 1024; /* 1 MB */
 
     uint8_t* large = (uint8_t*)malloc(large_sz);
@@ -329,26 +329,26 @@ static void test_mmap_large_entry(void) {
         large[i] = (uint8_t)(i & 0xFF);
     }
 
-    shard_v2_writer_t* w = shard_v2_writer_new(ROLE_MOSH);
-    shard_v2_writer_add_entry(w, "large", large, large_sz);
-    int rc = shard_v2_writer_write(w, path);
-    shard_v2_writer_free(w);
+    shard_writer_t* w = shard_writer_new(ROLE_MOSH);
+    shard_writer_add_entry(w, "large", large, large_sz);
+    int rc = shard_writer_write(w, path);
+    shard_writer_free(w);
 
     check(rc == 0, "large: writer_write == 0");
     if (rc != 0) { free(large); return; }
 
-    shard_v2_reader_t* r = shard_v2_open_mmap(path);
+    shard_reader_t* r = shard_open_mmap(path);
     check(r != NULL, "large: open_mmap != NULL");
 
     if (r) {
         size_t out_sz = 0;
-        const uint8_t* data = shard_v2_read_entry(r, 0, &out_sz);
+        const uint8_t* data = shard_read_entry(r, 0, &out_sz);
         check(data != NULL, "large: read_entry != NULL");
         check(out_sz == large_sz, "large: size matches");
         if (data && out_sz == large_sz) {
             check(memcmp(data, large, large_sz) == 0, "large: bytes match");
         }
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     free(large);
@@ -362,29 +362,29 @@ static void test_mmap_large_entry(void) {
 static void test_mmap_empty_entry(void) {
     printf("[ mmap empty entry ]\n");
 
-    const char* path = "/tmp/test_shard_v2_mmap_empty.shard";
+    const char* path = "/tmp/test_shard_mmap_empty.shard";
 
-    shard_v2_writer_t* w = shard_v2_writer_new(ROLE_MOSH);
+    shard_writer_t* w = shard_writer_new(ROLE_MOSH);
     static const uint8_t empty_data[1] = {0};
-    shard_v2_writer_add_entry(w, "empty", empty_data, 0);
-    int rc = shard_v2_writer_write(w, path);
-    shard_v2_writer_free(w);
+    shard_writer_add_entry(w, "empty", empty_data, 0);
+    int rc = shard_writer_write(w, path);
+    shard_writer_free(w);
 
     check(rc == 0, "empty: writer_write == 0");
     if (rc != 0) return;
 
-    shard_v2_reader_t* r = shard_v2_open_mmap(path);
+    shard_reader_t* r = shard_open_mmap(path);
     check(r != NULL, "empty: open_mmap != NULL");
 
     if (r) {
-        check(shard_v2_entry_count(r) == 1, "empty: entry_count == 1");
+        check(shard_entry_count(r) == 1, "empty: entry_count == 1");
 
         size_t sz = 99;
-        const uint8_t* d = shard_v2_read_entry(r, 0, &sz);
+        const uint8_t* d = shard_read_entry(r, 0, &sz);
         check(d != NULL, "empty: read_entry != NULL");
         check(sz == 0, "empty: size == 0");
 
-        shard_v2_close(r);
+        shard_close(r);
     }
     printf("\n");
 }
@@ -395,7 +395,7 @@ static void test_mmap_empty_entry(void) {
 
 static void test_mmap_invalid(void) {
     printf("[ mmap invalid path ]\n");
-    shard_v2_reader_t* r = shard_v2_open_mmap("/nonexistent/path/shard.shard");
+    shard_reader_t* r = shard_open_mmap("/nonexistent/path/shard.shard");
     check(r == NULL, "open_mmap of nonexistent path returns NULL");
     printf("\n");
 }
@@ -410,30 +410,30 @@ static void test_mmap_list_children(const char* testdata) {
     char path[1024];
     make_path(path, sizeof(path), testdata, "golden_hierarchical.shard");
 
-    shard_v2_reader_t* r = shard_v2_open_mmap(path);
+    shard_reader_t* r = shard_open_mmap(path);
     check(r != NULL, "open_mmap golden_hierarchical != NULL");
     if (!r) { printf("\n"); return; }
 
     /* List children at top level */
     uint32_t count = 0;
-    char** children = shard_v2_list_children(r, "", &count);
+    char** children = shard_list_children(r, "", &count);
     check(children != NULL, "list_children('') != NULL");
     if (children) {
         /* Should get "layer.0" as the only top-level bare component */
         check(count == 1, "list_children('') count == 1");
         check(count > 0 && strcmp(children[0], "layer.0") == 0, "list_children('')[0] == 'layer.0'");
-        shard_v2_list_children_free(children, count);
+        shard_list_children_free(children, count);
     }
 
     /* Children of layer.0/: attention/, ffn/, norm (leaf) = 3 entries */
-    children = shard_v2_list_children(r, "layer.0/", &count);
+    children = shard_list_children(r, "layer.0/", &count);
     check(children != NULL, "list_children('layer.0/') != NULL");
     if (children) {
         check(count == 3, "list_children('layer.0/') count == 3");
-        shard_v2_list_children_free(children, count);
+        shard_list_children_free(children, count);
     }
 
-    shard_v2_close(r);
+    shard_close(r);
     printf("\n");
 }
 
@@ -444,18 +444,18 @@ static void test_mmap_list_children(const char* testdata) {
 static void test_mmap_read_prefix(void) {
     printf("[ mmap read_entry_prefix ]\n");
 
-    const char* path = "/tmp/test_shard_v2_mmap_prefix.shard";
+    const char* path = "/tmp/test_shard_mmap_prefix.shard";
 
-    shard_v2_writer_t* w = shard_v2_writer_new(ROLE_MOSH);
+    shard_writer_t* w = shard_writer_new(ROLE_MOSH);
     static const uint8_t payload[] = {0,1,2,3,4,5,6,7,8,9};
-    shard_v2_writer_add_entry(w, "data", payload, 10);
-    int rc = shard_v2_writer_write(w, path);
-    shard_v2_writer_free(w);
+    shard_writer_add_entry(w, "data", payload, 10);
+    int rc = shard_writer_write(w, path);
+    shard_writer_free(w);
 
     check(rc == 0, "prefix: writer_write == 0");
     if (rc != 0) return;
 
-    shard_v2_reader_t* r = shard_v2_open_mmap(path);
+    shard_reader_t* r = shard_open_mmap(path);
     check(r != NULL, "prefix: open_mmap != NULL");
 
     if (r) {
@@ -463,15 +463,15 @@ static void test_mmap_read_prefix(void) {
         const uint8_t* d;
 
         /* Read first 4 bytes */
-        d = shard_v2_read_entry_prefix(r, 0, 4, &sz);
+        d = shard_read_entry_prefix(r, 0, 4, &sz);
         check(d != NULL && sz == 4, "prefix: first 4 bytes");
         check(d && sz == 4 && memcmp(d, payload, 4) == 0, "prefix: bytes 0-3 correct");
 
         /* Read more than entry size — should clamp */
-        d = shard_v2_read_entry_prefix(r, 0, 1000, &sz);
+        d = shard_read_entry_prefix(r, 0, 1000, &sz);
         check(d != NULL && sz == 10, "prefix: clamped to entry size");
 
-        shard_v2_close(r);
+        shard_close(r);
     }
     printf("\n");
 }
@@ -483,7 +483,7 @@ static void test_mmap_read_prefix(void) {
 int main(int argc, char* argv[]) {
     const char* testdata = (argc > 1) ? argv[1] : "../ucodec/testdata";
 
-    printf("=== shard_v2 mmap tests ===\n\n");
+    printf("=== shard mmap tests ===\n\n");
 
     /* --- Standalone roundtrip tests --- */
     test_mmap_invalid();

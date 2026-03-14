@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeAll } from 'vitest';
 
 import {
-  ShardV2Reader,
+  ShardReader,
   computeCrc32c,
   computeXxhash64,
   initXxhash,
@@ -132,7 +132,7 @@ describe('header fields', () => {
     it(`${label}: all header fields match`, () => {
       const gf = manifest.files[i];
       const buf = loadGolden(gf.filename);
-      const reader = new ShardV2Reader(buf);
+      const reader = new ShardReader(buf);
       const h = reader.header();
       const gh = gf.header;
 
@@ -160,7 +160,7 @@ describe('entry count', () => {
     const label = FILE_LABELS[i];
     it(`${label}: entry count matches`, () => {
       const gf = manifest.files[i];
-      const reader = new ShardV2Reader(loadGolden(gf.filename));
+      const reader = new ShardReader(loadGolden(gf.filename));
       expect(reader.entryCount()).toBe(gf.entries.length);
     });
   }
@@ -175,7 +175,7 @@ describe('entry names', () => {
     const label = FILE_LABELS[i];
     it(`${label}: entry names match`, () => {
       const gf = manifest.files[i];
-      const reader = new ShardV2Reader(loadGolden(gf.filename));
+      const reader = new ShardReader(loadGolden(gf.filename));
       const expected = gf.entries.map(e => e.name);
       expect(reader.entryNames()).toEqual(expected);
     });
@@ -191,7 +191,7 @@ describe('entry details', () => {
     const label = FILE_LABELS[i];
     it(`${label}: entry details match`, () => {
       const gf = manifest.files[i];
-      const reader = new ShardV2Reader(loadGolden(gf.filename));
+      const reader = new ShardReader(loadGolden(gf.filename));
 
       for (let j = 0; j < gf.entries.length; j++) {
         const ge = gf.entries[j];
@@ -221,7 +221,7 @@ describe('entry data SHA256', () => {
     const label = FILE_LABELS[i];
     it(`${label}: entry data SHA256 matches`, () => {
       const gf = manifest.files[i];
-      const reader = new ShardV2Reader(loadGolden(gf.filename));
+      const reader = new ShardReader(loadGolden(gf.filename));
 
       for (let j = 0; j < gf.entries.length; j++) {
         const ge = gf.entries[j];
@@ -242,7 +242,7 @@ describe('lookup by name', () => {
     const label = FILE_LABELS[i];
     it(`${label}: lookup returns correct index`, () => {
       const gf = manifest.files[i];
-      const reader = new ShardV2Reader(loadGolden(gf.filename));
+      const reader = new ShardReader(loadGolden(gf.filename));
 
       for (let j = 0; j < gf.entries.length; j++) {
         const ge = gf.entries[j];
@@ -265,7 +265,7 @@ describe('read by name', () => {
     const label = FILE_LABELS[i];
     it(`${label}: readEntryByName returns correct data`, () => {
       const gf = manifest.files[i];
-      const reader = new ShardV2Reader(loadGolden(gf.filename));
+      const reader = new ShardReader(loadGolden(gf.filename));
 
       for (const ge of gf.entries) {
         const data = reader.readEntryByName(ge.name);
@@ -324,7 +324,7 @@ describe('xxHash64', () => {
 describe('listPrefix', () => {
   it('hierarchical: attention prefix returns 4 entries', () => {
     const gf = manifest.files[5]; // golden_hierarchical.shard
-    const reader = new ShardV2Reader(loadGolden(gf.filename));
+    const reader = new ShardReader(loadGolden(gf.filename));
 
     const attn = reader.listPrefix('layer.0/attention/');
     expect(attn.length).toBe(4);
@@ -333,7 +333,7 @@ describe('listPrefix', () => {
 
   it('hierarchical: ffn prefix returns 3 entries', () => {
     const gf = manifest.files[5];
-    const reader = new ShardV2Reader(loadGolden(gf.filename));
+    const reader = new ShardReader(loadGolden(gf.filename));
 
     const ffn = reader.listPrefix('layer.0/ffn/');
     expect(ffn.length).toBe(3);
@@ -342,7 +342,7 @@ describe('listPrefix', () => {
 
   it('wshard: signal/ prefix returns 1 entry', () => {
     const gf = manifest.files[4]; // golden_wshard.shard
-    const reader = new ShardV2Reader(loadGolden(gf.filename));
+    const reader = new ShardReader(loadGolden(gf.filename));
 
     const signals = reader.listPrefix('signal/');
     expect(signals.length).toBe(1);
@@ -350,7 +350,7 @@ describe('listPrefix', () => {
 
   it('wshard: omen/ prefix returns 1 entry', () => {
     const gf = manifest.files[4];
-    const reader = new ShardV2Reader(loadGolden(gf.filename));
+    const reader = new ShardReader(loadGolden(gf.filename));
 
     const omens = reader.listPrefix('omen/');
     expect(omens.length).toBe(1);
@@ -358,7 +358,7 @@ describe('listPrefix', () => {
 
   it('wshard: residual/ prefix returns 1 entry', () => {
     const gf = manifest.files[4];
-    const reader = new ShardV2Reader(loadGolden(gf.filename));
+    const reader = new ShardReader(loadGolden(gf.filename));
 
     const residuals = reader.listPrefix('residual/');
     expect(residuals.length).toBe(1);

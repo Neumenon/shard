@@ -281,9 +281,9 @@ func TestCreateWShardWritesCanonicalMetadata(t *testing.T) {
 		t.Fatalf("CreateWShard: %v", err)
 	}
 
-	r, err := OpenShardV2(path)
+	r, err := OpenShard(path)
 	if err != nil {
-		t.Fatalf("OpenShardV2: %v", err)
+		t.Fatalf("OpenShard: %v", err)
 	}
 	defer r.Close()
 

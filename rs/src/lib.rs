@@ -1,4 +1,4 @@
-//! Shard v2 binary container format — Rust implementation.
+//! Shard binary container format — Rust implementation.
 //!
 //! # Format Overview
 //!
@@ -45,7 +45,7 @@ use serde::{Deserialize, Serialize};
 // ============================================================
 
 pub const SHARD_MAGIC: &[u8; 4] = b"SHRD";
-pub const SHARD_VERSION2: u8 = 0x02;
+pub const SHARD_VERSION: u8 = 0x02;
 pub const HEADER_SIZE: usize = 64;
 pub const INDEX_ENTRY_SIZE: usize = 48;
 
@@ -122,7 +122,7 @@ pub const MAX_ENTRY_COUNT: usize = 10_000_000;
 // Error type
 // ============================================================
 
-/// Errors returned by the Shard v2 reader and writer.
+/// Errors returned by the Shard reader and writer.
 #[derive(Debug)]
 pub enum ShardError {
     /// The magic bytes do not match 'SHRD'.
@@ -278,7 +278,7 @@ fn decompress_zstd_bounded(raw: &[u8], expected_size: u64) -> Result<Vec<u8>, Sh
     Ok(out)
 }
 
-fn decompress_entry_data(raw: &[u8], entry: &IndexEntryV2) -> Result<Vec<u8>, ShardError> {
+fn decompress_entry_data(raw: &[u8], entry: &IndexEntry) -> Result<Vec<u8>, ShardError> {
     if entry.orig_size > MAX_DECOMPRESS_SIZE {
         return Err(ShardError::DecompressTooLarge(entry.orig_size));
     }
@@ -302,7 +302,7 @@ fn align_up(offset: usize, alignment: u8) -> usize {
     (offset + a - 1) & !(a - 1)
 }
 
-fn max_entry_data_end(entries: &[IndexEntryV2], data_section_offset: usize) -> Result<usize, ShardError> {
+fn max_entry_data_end(entries: &[IndexEntry], data_section_offset: usize) -> Result<usize, ShardError> {
     let mut max_end = data_section_offset;
     for (index, entry) in entries.iter().enumerate() {
         let offset = usize::try_from(entry.data_offset)
@@ -318,7 +318,7 @@ fn max_entry_data_end(entries: &[IndexEntryV2], data_section_offset: usize) -> R
 }
 
 fn validate_schema_offset(
-    header: &ShardV2Header,
+    header: &ShardHeader,
     file_size: usize,
     min_schema_offset: usize,
 ) -> Result<Option<usize>, ShardError> {
@@ -350,8 +350,8 @@ fn validate_schema_offset(
 
 fn metadata_slice<'a>(
     buf: &'a [u8],
-    header: &ShardV2Header,
-    entries: &[IndexEntryV2],
+    header: &ShardHeader,
+    entries: &[IndexEntry],
 ) -> Result<Option<&'a [u8]>, ShardError> {
     let min_schema_offset = max_entry_data_end(entries, header.data_section_offset as usize)?;
     let Some(schema_offset) = validate_schema_offset(header, buf.len(), min_schema_offset)? else {
@@ -459,9 +459,9 @@ pub fn path_base(name: &str) -> &str {
 // Structs
 // ============================================================
 
-/// The 64-byte Shard v2 file header.
+/// The 64-byte Shard file header.
 #[derive(Debug, Clone)]
-pub struct ShardV2Header {
+pub struct ShardHeader {
     pub magic: [u8; 4],
     pub version: u8,
     pub role: u8,
@@ -476,7 +476,7 @@ pub struct ShardV2Header {
     pub total_file_size: u64,
 }
 
-impl ShardV2Header {
+impl ShardHeader {
     /// Parse a header from a 64-byte buffer.
     pub fn from_bytes(buf: &[u8]) -> Result<Self, ShardError> {
         if buf.len() < HEADER_SIZE {
@@ -492,7 +492,7 @@ impl ShardV2Header {
         }
 
         let version = buf[4];
-        if version != SHARD_VERSION2 {
+        if version != SHARD_VERSION {
             return Err(ShardError::UnsupportedVersion(version));
         }
 
@@ -501,7 +501,7 @@ impl ShardV2Header {
             return Err(ShardError::InvalidIndexEntrySize(index_entry_size));
         }
 
-        Ok(ShardV2Header {
+        Ok(ShardHeader {
             magic,
             version,
             role: buf[5],
@@ -539,7 +539,7 @@ impl ShardV2Header {
 
 /// A single 48-byte entry in the index section.
 #[derive(Debug, Clone)]
-pub struct IndexEntryV2 {
+pub struct IndexEntry {
     pub name_hash: u64,
     pub name_offset: u32,
     pub name_len: u16,
@@ -554,7 +554,7 @@ pub struct IndexEntryV2 {
     pub name: String,
 }
 
-impl IndexEntryV2 {
+impl IndexEntry {
     /// Returns the content type stored in the lower 16 bits of `reserved`.
     pub fn content_type(&self) -> u16 {
         (self.reserved & 0xFFFF) as u16
@@ -567,7 +567,7 @@ impl IndexEntryV2 {
 
     /// Parse an index entry from a 48-byte buffer (name will be empty; fill separately).
     fn from_bytes(buf: &[u8]) -> Self {
-        IndexEntryV2 {
+        IndexEntry {
             name_hash: u64::from_le_bytes(buf[0..8].try_into().unwrap()),
             name_offset: u32::from_le_bytes(buf[8..12].try_into().unwrap()),
             name_len: u16::from_le_bytes([buf[12], buf[13]]),
@@ -601,24 +601,24 @@ impl IndexEntryV2 {
 // Reader
 // ============================================================
 
-/// Reads an existing Shard v2 file.
+/// Reads an existing Shard file.
 #[derive(Debug)]
-pub struct ShardV2Reader {
+pub struct ShardReader {
     /// Raw file bytes (entire file loaded into memory).
     data: Vec<u8>,
-    header: ShardV2Header,
-    entries: Vec<IndexEntryV2>,
+    header: ShardHeader,
+    entries: Vec<IndexEntry>,
     name_to_index: HashMap<String, usize>,
 }
 
-impl ShardV2Reader {
-    /// Open a Shard v2 file by path.
+impl ShardReader {
+    /// Open a Shard file by path.
     pub fn from_file(path: &Path) -> Result<Self, ShardError> {
         let data = fs::read(path)?;
         Self::from_bytes(data)
     }
 
-    /// Parse a Shard v2 from an in-memory byte vector.
+    /// Parse a Shard from an in-memory byte vector.
     pub fn from_bytes(data: Vec<u8>) -> Result<Self, ShardError> {
         if data.len() < HEADER_SIZE {
             return Err(ShardError::Io(std::io::Error::new(
@@ -627,7 +627,7 @@ impl ShardV2Reader {
             )));
         }
 
-        let header = ShardV2Header::from_bytes(&data[..HEADER_SIZE])?;
+        let header = ShardHeader::from_bytes(&data[..HEADER_SIZE])?;
 
         // Security: validate total_file_size
         if header.total_file_size != data.len() as u64 {
@@ -638,7 +638,7 @@ impl ShardV2Reader {
         }
         let (entries, name_to_index) = parse_index_from_bytes(&data, &header)?;
 
-        Ok(ShardV2Reader {
+        Ok(ShardReader {
             data,
             header,
             entries,
@@ -647,7 +647,7 @@ impl ShardV2Reader {
     }
 
     /// Return a reference to the parsed header.
-    pub fn header(&self) -> &ShardV2Header {
+    pub fn header(&self) -> &ShardHeader {
         &self.header
     }
 
@@ -670,7 +670,7 @@ impl ShardV2Reader {
     }
 
     /// Return the index entry metadata for entry `i`.
-    pub fn get_entry_info(&self, i: usize) -> Result<&IndexEntryV2, ShardError> {
+    pub fn get_entry_info(&self, i: usize) -> Result<&IndexEntry, ShardError> {
         self.entries
             .get(i)
             .ok_or(ShardError::IndexOutOfBounds { index: i, count: self.entries.len() })
@@ -818,11 +818,11 @@ impl ShardV2Reader {
 ///
 /// `buf` must be the complete file contents (either a `Vec<u8>` or an `Mmap`
 /// deref'd to `[u8]`).  The returned `(entries, name_to_index)` are identical
-/// to what `ShardV2Reader::from_bytes` builds internally.
+/// to what `ShardReader::from_bytes` builds internally.
 fn parse_index_from_bytes(
     buf: &[u8],
-    header: &ShardV2Header,
-) -> Result<(Vec<IndexEntryV2>, HashMap<String, usize>), ShardError> {
+    header: &ShardHeader,
+) -> Result<(Vec<IndexEntry>, HashMap<String, usize>), ShardError> {
     let entry_count = header.entry_count as usize;
     let string_table_offset = header.string_table_offset as usize;
     let data_section_offset = header.data_section_offset as usize;
@@ -885,7 +885,7 @@ fn parse_index_from_bytes(
     let mut entries = Vec::with_capacity(entry_count);
     for i in 0..entry_count {
         let off = index_start + i * INDEX_ENTRY_SIZE;
-        let mut entry = IndexEntryV2::from_bytes(&buf[off..off + INDEX_ENTRY_SIZE]);
+        let mut entry = IndexEntry::from_bytes(&buf[off..off + INDEX_ENTRY_SIZE]);
 
         let name_off = entry.name_offset as usize;
         let name_len = entry.name_len as usize;
@@ -932,25 +932,25 @@ fn parse_index_from_bytes(
 }
 
 // ============================================================
-// MmapShardV2Reader
+// MmapShardReader
 // ============================================================
 
-/// A Shard v2 reader backed by a memory-mapped file.
+/// A Shard reader backed by a memory-mapped file.
 ///
 /// `read_entry` returns a zero-copy `&[u8]` slice directly into the mapped
 /// region for uncompressed entries.  For compressed entries, use
 /// `read_entry_decompressed` which returns an owned `Vec<u8>`.
-pub struct MmapShardV2Reader {
+pub struct MmapShardReader {
     /// Keep the file open for the lifetime of the mapping.
     _file: File,
     mmap: Mmap,
-    header: ShardV2Header,
-    entries: Vec<IndexEntryV2>,
+    header: ShardHeader,
+    entries: Vec<IndexEntry>,
     name_to_index: HashMap<String, usize>,
 }
 
-impl MmapShardV2Reader {
-    /// Open a Shard v2 file using `mmap`.
+impl MmapShardReader {
+    /// Open a Shard file using `mmap`.
     ///
     /// The entire file is mapped read-only.  `read_entry` on uncompressed
     /// entries returns zero-copy slices into the mapping.
@@ -967,7 +967,7 @@ impl MmapShardV2Reader {
             )));
         }
 
-        let header = ShardV2Header::from_bytes(&mmap[..HEADER_SIZE])?;
+        let header = ShardHeader::from_bytes(&mmap[..HEADER_SIZE])?;
 
         // Validate total_file_size matches the mapping length.
         if header.total_file_size != mmap.len() as u64 {
@@ -979,7 +979,7 @@ impl MmapShardV2Reader {
 
         let (entries, name_to_index) = parse_index_from_bytes(&mmap, &header)?;
 
-        Ok(MmapShardV2Reader {
+        Ok(MmapShardReader {
             _file: file,
             mmap,
             header,
@@ -989,7 +989,7 @@ impl MmapShardV2Reader {
     }
 
     /// Return a reference to the parsed header.
-    pub fn header(&self) -> &ShardV2Header {
+    pub fn header(&self) -> &ShardHeader {
         &self.header
     }
 
@@ -1012,7 +1012,7 @@ impl MmapShardV2Reader {
     }
 
     /// Return the index entry metadata for entry `i`.
-    pub fn get_entry_info(&self, i: usize) -> Result<&IndexEntryV2, ShardError> {
+    pub fn get_entry_info(&self, i: usize) -> Result<&IndexEntry, ShardError> {
         self.entries
             .get(i)
             .ok_or(ShardError::IndexOutOfBounds { index: i, count: self.entries.len() })
@@ -1031,7 +1031,7 @@ impl MmapShardV2Reader {
     /// Zero-copy read of an uncompressed entry.
     ///
     /// Returns a `&[u8]` slice directly into the memory-mapped region.
-    /// The slice is valid as long as this `MmapShardV2Reader` is alive.
+    /// The slice is valid as long as this `MmapShardReader` is alive.
     ///
     /// Returns `Err(ShardError::CompressionNotSupported)` for compressed
     /// entries — use `read_entry_decompressed` instead.
@@ -1316,7 +1316,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 /// 1. Every non-optional spec matches at least one entry name.
 /// 2. Matched entries have the expected `content_type` when the spec specifies
 ///    one (non-zero).
-pub fn validate_schema(reader: &ShardV2Reader, schema: &ShardSchema) -> Vec<ValidationError> {
+pub fn validate_schema(reader: &ShardReader, schema: &ShardSchema) -> Vec<ValidationError> {
     let mut errors = Vec::new();
     let names = reader.entry_names();
 
@@ -1373,8 +1373,8 @@ struct PendingEntry {
     comp_type: u8,
 }
 
-/// Builds and serializes a Shard v2 binary.
-pub struct ShardV2Writer {
+/// Builds and serializes a Shard binary.
+pub struct ShardWriter {
     role: u8,
     alignment: u8,
     compression: u8,
@@ -1382,10 +1382,10 @@ pub struct ShardV2Writer {
     metadata: Option<ShardMetadata>,
 }
 
-impl ShardV2Writer {
+impl ShardWriter {
     /// Create a new writer with the given role.
     pub fn new(role: u8) -> Self {
-        ShardV2Writer {
+        ShardWriter {
             role,
             alignment: ALIGN_64,
             compression: COMPRESS_NONE,
@@ -1576,9 +1576,9 @@ impl ShardV2Writer {
 
         // Header
         {
-            let hdr = ShardV2Header {
+            let hdr = ShardHeader {
                 magic: *SHARD_MAGIC,
-                version: SHARD_VERSION2,
+                version: SHARD_VERSION,
                 role: self.role,
                 flags: hdr_flags,
                 alignment: self.alignment,
@@ -1597,7 +1597,7 @@ impl ShardV2Writer {
         // Index entries
         for (i, e) in self.entries.iter().enumerate() {
             let de = &disk_entries[i];
-            let entry = IndexEntryV2 {
+            let entry = IndexEntry {
                 name_hash: compute_xxhash64(&e.name),
                 name_offset: name_offsets[i],
                 name_len: e.name.len() as u16,
@@ -1647,7 +1647,7 @@ impl ShardV2Writer {
 // Streaming Writer
 // ============================================================
 
-/// Metadata recorded for each entry written by `ShardV2StreamWriter`.
+/// Metadata recorded for each entry written by `ShardStreamWriter`.
 struct StreamEntry {
     name: String,
     data_offset: u64,
@@ -1667,16 +1667,16 @@ struct StreamEntry {
 ///
 /// ```no_run
 /// use std::path::Path;
-/// use shard_format::{ShardV2StreamWriter, ROLE_MOSH, ALIGN_64};
+/// use shard_format::{ShardStreamWriter, ROLE_MOSH, ALIGN_64};
 ///
-/// let mut sw = ShardV2StreamWriter::new(Path::new("out.shard"), ROLE_MOSH, 1000).unwrap();
+/// let mut sw = ShardStreamWriter::new(Path::new("out.shard"), ROLE_MOSH, 1000).unwrap();
 /// sw.set_alignment(ALIGN_64).unwrap();
 /// sw.begin_data().unwrap();
 /// sw.write_entry("weights", &[0u8; 512]).unwrap();
 /// sw.write_entry("config",  b"{}").unwrap();
 /// sw.finalize().unwrap();
 /// ```
-pub struct ShardV2StreamWriter {
+pub struct ShardStreamWriter {
     file: std::fs::File,
     role: u8,
     alignment: u8,
@@ -1689,7 +1689,7 @@ pub struct ShardV2StreamWriter {
     finalized: bool,
 }
 
-impl ShardV2StreamWriter {
+impl ShardStreamWriter {
     /// Open `path` for writing and create a stream writer with `max_entries`
     /// reserved index slots.
     pub fn new(path: &Path, role: u8, max_entries: usize) -> Result<Self, ShardError> {
@@ -1698,7 +1698,7 @@ impl ShardV2StreamWriter {
             .create(true)
             .truncate(true)
             .open(path)?;
-        Ok(ShardV2StreamWriter {
+        Ok(ShardStreamWriter {
             file,
             role,
             alignment: ALIGN_64,
@@ -1916,9 +1916,9 @@ impl ShardV2StreamWriter {
         let total_file_size = self.current_offset;
 
         // Build header
-        let header = ShardV2Header {
+        let header = ShardHeader {
             magic: *SHARD_MAGIC,
-            version: SHARD_VERSION2,
+            version: SHARD_VERSION,
             role: self.role,
             flags: DEFAULT_FLAGS | FLAG_STREAMING,
             alignment: self.alignment,
@@ -1937,7 +1937,7 @@ impl ShardV2StreamWriter {
 
         // Write index entries
         for (i, e) in self.entries.iter().enumerate() {
-            let entry = IndexEntryV2 {
+            let entry = IndexEntry {
                 name_hash: compute_xxhash64(&e.name),
                 name_offset: name_offsets[i],
                 name_len: e.name.len() as u16,

@@ -82,7 +82,7 @@ def compression_from_byte(b: int) -> CompressionType:
     return CompressionType.NONE
 
 
-# Block flag bits (matching Go's EntryFlag* constants in shard_v2.go)
+# Block flag bits (matching Go's EntryFlag* constants in shard_format.go)
 BLOCK_FLAG_COMPRESSED = 0x0001
 BLOCK_FLAG_ZSTD = 0x0002
 BLOCK_FLAG_LZ4 = 0x0004

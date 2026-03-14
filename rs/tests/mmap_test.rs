@@ -1,9 +1,9 @@
-//! Memory-mapped reader tests for Shard v2.
+//! Memory-mapped reader tests for Shard.
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use shard_format::{
-    MmapShardV2Reader, ShardError, ShardV2Writer,
+    MmapShardReader, ShardError, ShardWriter,
     ROLE_MOSH, FLAG_HAS_CHECKSUMS, HEADER_SIZE,
 };
 use std::path::{Path, PathBuf};
@@ -66,12 +66,12 @@ fn test_mmap_basic_read() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.shard");
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("hello", b"world");
     w.write_entry("foo", b"bar");
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
     assert_eq!(r.entry_count(), 2);
     assert_eq!(r.entry_name(0).unwrap(), "hello");
     assert_eq!(r.entry_name(1).unwrap(), "foo");
@@ -84,13 +84,13 @@ fn test_mmap_entry_count() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.shard");
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     for i in 0..10u32 {
         w.write_entry(&format!("entry/{}", i), &i.to_le_bytes());
     }
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
     assert_eq!(r.entry_count(), 10);
 }
 
@@ -99,13 +99,13 @@ fn test_mmap_lookup() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.shard");
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("alpha", b"aaa");
     w.write_entry("beta", b"bbb");
     w.write_entry("gamma", b"ccc");
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
 
     assert_eq!(r.lookup("alpha"), Some(0));
     assert_eq!(r.lookup("beta"), Some(1));
@@ -121,11 +121,11 @@ fn test_mmap_read_entry_by_name() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.shard");
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("key", b"value");
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
     let data = r.read_entry_by_name("key").unwrap();
     assert_eq!(data, b"value");
 
@@ -140,11 +140,11 @@ fn test_mmap_entry_info() {
 
     let payload: Vec<u8> = (0u8..=255).collect();
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("data", &payload);
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
     let info = r.get_entry_info(0).unwrap();
 
     assert_eq!(info.disk_size, 256);
@@ -166,11 +166,11 @@ fn test_mmap_large_entry() {
         .flat_map(|i| i.to_le_bytes())
         .collect();
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("big", &large);
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
     let data = r.read_entry(0).unwrap();
     assert_eq!(data.len(), large.len());
     assert_eq!(data, large.as_slice());
@@ -181,11 +181,11 @@ fn test_mmap_empty_entry() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.shard");
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("empty", b"");
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
     assert_eq!(r.entry_count(), 1);
     let data = r.read_entry(0).unwrap();
     assert_eq!(data, b"");
@@ -196,13 +196,13 @@ fn test_mmap_header_matches_regular_reader() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.shard");
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("a", b"hello");
     w.write_entry("b", b"world");
     w.write_to_file(&path).unwrap();
 
-    let regular = shard_format::ShardV2Reader::from_file(&path).unwrap();
-    let mmap = MmapShardV2Reader::open(&path).unwrap();
+    let regular = shard_format::ShardReader::from_file(&path).unwrap();
+    let mmap = MmapShardReader::open(&path).unwrap();
 
     let rh = regular.header();
     let mh = mmap.header();
@@ -221,13 +221,13 @@ fn test_mmap_entry_names() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.shard");
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("layer.0/weight", b"w");
     w.write_entry("layer.0/bias", b"b");
     w.write_entry("config", b"{}");
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
     let names = r.entry_names();
     assert_eq!(names, vec!["layer.0/weight", "layer.0/bias", "config"]);
 }
@@ -237,14 +237,14 @@ fn test_mmap_list_prefix() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.shard");
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("layer.0/weight", b"w0");
     w.write_entry("layer.0/bias", b"b0");
     w.write_entry("layer.1/weight", b"w1");
     w.write_entry("config", b"{}");
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
 
     let mut l0: Vec<&str> = r.list_prefix("layer.0");
     l0.sort();
@@ -264,14 +264,14 @@ fn test_mmap_list_children() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.shard");
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("layer.0/weight", b"w0");
     w.write_entry("layer.0/bias", b"b0");
     w.write_entry("layer.1/weight", b"w1");
     w.write_entry("config", b"{}");
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
 
     let mut top = r.list_children("");
     top.sort();
@@ -288,11 +288,11 @@ fn test_mmap_decompressed_uncompressed_entry() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.shard");
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("plain", b"plaintext");
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
     let data = r.read_entry_decompressed(0).unwrap();
     assert_eq!(data, b"plaintext");
 }
@@ -304,14 +304,14 @@ fn test_mmap_compressed_entry_zstd() {
     let path = dir.path().join("test_zstd.shard");
 
     // Build a shard with zstd compression
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_compression(shard_format::COMPRESS_ZSTD);
     // Use a large repetitive payload so compression actually triggers
     let payload: Vec<u8> = vec![0xABu8; 1024];
     w.write_entry_compressed("compressed_entry", &payload);
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
     let info = r.get_entry_info(0).unwrap();
 
     if info.compressed() {
@@ -338,13 +338,13 @@ fn test_mmap_compressed_entry_lz4() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_lz4.shard");
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_compression(shard_format::COMPRESS_LZ4);
     let payload: Vec<u8> = vec![0xCDu8; 1024];
     w.write_entry_compressed("lz4_entry", &payload);
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
     let info = r.get_entry_info(0).unwrap();
 
     if info.compressed() {
@@ -369,12 +369,12 @@ fn test_mmap_zstd_declared_orig_size_is_enforced() {
     let path = dir.path().join("bounded_zstd.shard");
 
     let payload = vec![0xAAu8; 4096];
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_compression(shard_format::COMPRESS_ZSTD);
     w.write_entry_compressed("bomb", &payload);
     w.write_to_file(&path).unwrap();
 
-    let info = MmapShardV2Reader::open(&path).unwrap().get_entry_info(0).unwrap().clone();
+    let info = MmapShardReader::open(&path).unwrap().get_entry_info(0).unwrap().clone();
     assert!(info.compressed(), "payload should be stored compressed for this test");
 
     let mut bytes = std::fs::read(&path).unwrap();
@@ -383,7 +383,7 @@ fn test_mmap_zstd_declared_orig_size_is_enforced() {
     bytes[orig_size_off..orig_size_off + 8].copy_from_slice(&declared_size.to_le_bytes());
     std::fs::write(&path, bytes).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
     let err = r.read_entry_decompressed(0).unwrap_err();
     assert!(
         matches!(err, ShardError::DecompressTooLarge(size) if size > declared_size),
@@ -403,7 +403,7 @@ fn test_mmap_golden_files() {
 
     for gf in &manifest.files {
         let path = dir.join(&gf.filename);
-        let r = MmapShardV2Reader::open(&path)
+        let r = MmapShardReader::open(&path)
             .unwrap_or_else(|e| panic!("mmap open {}: {}", gf.filename, e));
 
         assert_eq!(
@@ -485,9 +485,9 @@ fn test_mmap_golden_data_matches_regular_reader() {
     for gf in &manifest.files {
         let path = dir.join(&gf.filename);
 
-        let regular = shard_format::ShardV2Reader::from_file(&path)
+        let regular = shard_format::ShardReader::from_file(&path)
             .unwrap_or_else(|e| panic!("regular open {}: {}", gf.filename, e));
-        let mmap = MmapShardV2Reader::open(&path)
+        let mmap = MmapShardReader::open(&path)
             .unwrap_or_else(|e| panic!("mmap open {}: {}", gf.filename, e));
 
         assert_eq!(
@@ -534,11 +534,11 @@ fn test_mmap_checksum_flag() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.shard");
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("check", b"data");
     w.write_to_file(&path).unwrap();
 
-    let r = MmapShardV2Reader::open(&path).unwrap();
+    let r = MmapShardReader::open(&path).unwrap();
     assert!(r.header().flags & FLAG_HAS_CHECKSUMS != 0, "FLAG_HAS_CHECKSUMS should be set");
 
     // Normal read should succeed (checksum matches)

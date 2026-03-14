@@ -1,10 +1,10 @@
-"""Truth table tests for shard v2 — 9 cases from testdata/robustness/truth_cases.json."""
+"""Truth table tests for shard — 9 cases from testdata/robustness/truth_cases.json."""
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from shard_v2 import ShardV2Reader, ShardV2Writer
+from shard_format import ShardReader, ShardWriter
 
 SAFETY_DIR = Path(__file__).resolve().parent.parent.parent / "ucodec" / "testdata" / "safety"
 
@@ -12,11 +12,11 @@ SAFETY_DIR = Path(__file__).resolve().parent.parent.parent / "ucodec" / "testdat
 def write_shard_roundtrip(tmp_path: Path, entries):
     """Write entries and return reader."""
     path = tmp_path / "test.shard"
-    w = ShardV2Writer(path)
+    w = ShardWriter(path)
     for name, data in entries:
         w.write_entry(name, data)
     w.close()
-    return ShardV2Reader(path)
+    return ShardReader(path)
 
 
 class TestTruthTable:
@@ -26,7 +26,7 @@ class TestTruthTable:
     def test_duplicate_entry_names_rejected(self, tmp_path):
         """Writing 2 entries with the same name should error."""
         path = tmp_path / "dup.shard"
-        w = ShardV2Writer(path)
+        w = ShardWriter(path)
         w.write_entry("a", b"first")
 
         errored = False
@@ -39,7 +39,7 @@ class TestTruthTable:
         if not errored:
             # If writer accepted duplicates, reader should still work but
             # lookup should find one of them.
-            r = ShardV2Reader(path)
+            r = ShardReader(path)
             # At minimum the shard should be readable
             assert r.entry_count() >= 1
 
@@ -63,21 +63,21 @@ class TestTruthTable:
         """Invalid magic bytes rejected."""
         path = SAFETY_DIR / "corrupt_bad_magic.shard"
         with pytest.raises(Exception):
-            ShardV2Reader(path)
+            ShardReader(path)
 
     # Case 5: truncated_header_rejected
     def test_truncated_header_rejected(self):
         """Truncated header rejected."""
         path = SAFETY_DIR / "corrupt_truncated_header.shard"
         with pytest.raises(Exception):
-            ShardV2Reader(path)
+            ShardReader(path)
 
     # Case 6: crc_mismatch_rejected
     def test_crc_mismatch_rejected(self):
         """CRC checksum mismatch rejected."""
         path = SAFETY_DIR / "corrupt_crc_mismatch.shard"
         try:
-            r = ShardV2Reader(path)
+            r = ShardReader(path)
         except Exception:
             return  # Rejected at open — acceptable.
 
@@ -96,7 +96,7 @@ class TestTruthTable:
         """Truncated data section rejected."""
         path = SAFETY_DIR / "corrupt_truncated_data.shard"
         try:
-            r = ShardV2Reader(path)
+            r = ShardReader(path)
         except Exception:
             return  # Rejected at open — acceptable.
 
@@ -114,7 +114,7 @@ class TestTruthTable:
         """Absurd entry count rejected without OOM."""
         path = SAFETY_DIR / "corrupt_entry_count_overflow.shard"
         with pytest.raises(Exception):
-            ShardV2Reader(path)
+            ShardReader(path)
 
     # Case 9: empty_input_rejected
     def test_empty_input_rejected(self, tmp_path):
@@ -122,4 +122,4 @@ class TestTruthTable:
         path = tmp_path / "empty.shard"
         path.write_bytes(b"")
         with pytest.raises(Exception):
-            ShardV2Reader(path)
+            ShardReader(path)

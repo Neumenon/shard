@@ -2,7 +2,7 @@
 name = "shard-format"
 version = "0.1.0"
 edition = "2021"
-description = "Shard v2 binary container format — O(1) lookup, per-entry compression, CRC32C checksums"
+description = "Shard binary container format — O(1) lookup, per-entry compression, CRC32C checksums"
 license = "MIT"
 repository = "https://github.com/Neumenon/cowrie"
 homepage = "https://github.com/Neumenon/cowrie"

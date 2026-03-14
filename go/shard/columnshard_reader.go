@@ -21,13 +21,13 @@ import "fmt"
 //	    // process chunk...
 //	}
 type ColumnShardReader struct {
-	shard  *ShardV2Reader
+	shard  *ShardReader
 	schema *ColumnShardSchema
 }
 
 // OpenColumnShard opens a .cshard file for reading.
 func OpenColumnShard(path string) (*ColumnShardReader, error) {
-	shard, err := OpenShardV2(path)
+	shard, err := OpenShard(path)
 	if err != nil {
 		return nil, err
 	}

@@ -1,16 +1,16 @@
-//! Fuzz target: malformed IndexEntryV2 parsing.
+//! Fuzz target: malformed IndexEntry parsing.
 //!
-//! Matches Go's FuzzParseIndexEntryV2 coverage:
+//! Matches Go's FuzzParseIndexEntry coverage:
 //! - valid 48-byte buffers with arbitrary field values
 //! - compressed/chunked flag combinations
 //! - max values for offsets, sizes, checksums, content types
 //!
-//! We exercise this through the public ShardV2Reader path rather than the
-//! private IndexEntryV2::from_bytes, by constructing a minimal valid shard
+//! We exercise this through the public ShardReader path rather than the
+//! private IndexEntry::from_bytes, by constructing a minimal valid shard
 //! whose single index entry contains the fuzzed 48 bytes.
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use shard_format::{HEADER_SIZE, INDEX_ENTRY_SIZE, SHARD_MAGIC, SHARD_VERSION2};
+use shard_format::{HEADER_SIZE, INDEX_ENTRY_SIZE, SHARD_MAGIC, SHARD_VERSION};
 
 /// Build the smallest possible shard wrapper around a raw 48-byte index entry
 /// blob and attempt to open it.  The reader will:
@@ -39,7 +39,7 @@ fuzz_target!(|entry_bytes: &[u8]| {
 
     // Write a syntactically valid header.
     buf[0..4].copy_from_slice(SHARD_MAGIC);
-    buf[4] = SHARD_VERSION2;
+    buf[4] = SHARD_VERSION;
     buf[5] = 1; // ROLE_MOSH
     buf[6..8].copy_from_slice(&0x00A2u16.to_le_bytes()); // DEFAULT_FLAGS
     buf[8] = 0; // ALIGN_NONE
@@ -55,7 +55,7 @@ fuzz_target!(|entry_bytes: &[u8]| {
     buf[HEADER_SIZE..HEADER_SIZE + INDEX_ENTRY_SIZE].copy_from_slice(entry_slice);
 
     // Attempt to open — must never panic.
-    let result = shard_format::ShardV2Reader::from_bytes(buf);
+    let result = shard_format::ShardReader::from_bytes(buf);
     if let Ok(reader) = result {
         // If the reader opened (entry's data_offset and disk_size happened to
         // be zero or point inside the file), exercise the entry accessors.

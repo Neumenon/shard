@@ -1,10 +1,10 @@
-"""Shard v2 container format — Python implementation with golden file parity."""
-from .shard_v2 import (
-    ShardV2Reader,
-    ShardV2Writer,
-    ShardV2StreamWriter,
-    ShardV2Header,
-    IndexEntryV2,
+"""Shard container format — Python implementation with golden file parity."""
+from .shard_format import (
+    ShardReader,
+    ShardWriter,
+    ShardStreamWriter,
+    ShardHeader,
+    IndexEntry,
     ShardMetadata,
     EntryMeta,
     SampleProfile,
@@ -15,7 +15,7 @@ from .shard_v2 import (
     ValidationError,
     validate_schema,
     SHARD_MAGIC,
-    SHARD_VERSION2,
+    SHARD_VERSION,
     HEADER_SIZE,
     INDEX_ENTRY_SIZE,
     ROLE_MOSH,

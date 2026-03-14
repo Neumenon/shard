@@ -1,8 +1,8 @@
-// Shard v2 implementation.
+// Shard implementation.
 //
 // See shard.go for full documentation on what a Shard is.
 //
-// # v2 Header Format (64 bytes)
+// # Header Format (64 bytes)
 //
 //	Bytes 0-3:   magic = 'S','H','R','D'
 //	Byte 4:      version (0x02)
@@ -18,7 +18,7 @@
 //	Bytes 40-47: total_file_size (uint64 LE)
 //	Bytes 48-63: reserved (zeroed)
 //
-// # v2 Index Entry (48 bytes)
+// # Index Entry (48 bytes)
 //
 //	Bytes 0-7:   name_hash (xxHash64 of name)
 //	Bytes 8-11:  name_offset (into string table)
@@ -102,8 +102,8 @@ const (
 
 // Header sizes
 const (
-	ShardV2HeaderSize     = 64
-	ShardV2IndexEntrySize = 48 // Fixed size per index entry
+	ShardHeaderSize     = 64
+	ShardIndexEntrySize = 48 // Fixed size per index entry
 )
 
 // Alignment values
@@ -147,24 +147,24 @@ const (
 
 // V2 flag bits
 const (
-	ShardV2FlagHasSchema       ShardFlags = 0x0010 // Schema section present
-	ShardV2FlagHasChecksums    ShardFlags = 0x0020 // Per-entry checksums
-	ShardV2FlagStreaming       ShardFlags = 0x0040 // Written in streaming mode
-	ShardV2FlagHasContentTypes ShardFlags = 0x0080 // Content type hints present
+	ShardFlagHasSchema       ShardFlags = 0x0010 // Schema section present
+	ShardFlagHasChecksums    ShardFlags = 0x0020 // Per-entry checksums
+	ShardFlagStreaming       ShardFlags = 0x0040 // Written in streaming mode
+	ShardFlagHasContentTypes ShardFlags = 0x0080 // Content type hints present
 )
 
-// Security limits for shard v2 reader
+// Security limits for shard reader
 const (
-	// MaxV2IndexSize is the maximum index section size (1GB)
-	MaxV2IndexSize = 1 << 30
-	// MaxV2StringTableSize is the maximum string table size (100MB)
-	MaxV2StringTableSize = 100 * 1024 * 1024
-	// MaxV2EntryCount is the maximum number of entries
-	MaxV2EntryCount = 10_000_000
+	// MaxIndexSize is the maximum index section size (1GB)
+	MaxIndexSize = 1 << 30
+	// MaxStringTableSize is the maximum string table size (100MB)
+	MaxStringTableSize = 100 * 1024 * 1024
+	// MaxEntryCount is the maximum number of entries
+	MaxEntryCount = 10_000_000
 )
 
-// ShardV2Header represents the 64-byte v2 header.
-type ShardV2Header struct {
+// ShardHeader represents the 64-byte v2 header.
+type ShardHeader struct {
 	Magic              [4]byte    // 'S','H','R','D'
 	Version            uint8      // 0x02
 	Role               ShardRole  // Profile selector
@@ -180,8 +180,8 @@ type ShardV2Header struct {
 	Reserved           [16]byte   // Future use
 }
 
-// IndexEntryV2 represents a single entry in the v2 index (48 bytes).
-type IndexEntryV2 struct {
+// IndexEntry represents a single entry in the v2 index (48 bytes).
+type IndexEntry struct {
 	NameHash   uint64 // xxHash64 of name (for fast lookup)
 	NameOffset uint32 // Offset into string table
 	NameLen    uint16 // Length of name
@@ -211,16 +211,16 @@ func ComputeChecksum(data []byte) uint32 {
 
 // Errors
 var (
-	ErrV2HeaderTooShort    = errors.New("ucodec: v2 header too short")
-	ErrV2IndexCorrupt      = errors.New("ucodec: v2 index corrupt")
-	ErrV2ChecksumMismatch  = errors.New("ucodec: v2 checksum mismatch")
-	ErrV2CompressionFailed = errors.New("ucodec: v2 compression failed")
-	ErrV2InvalidAlignment  = errors.New("ucodec: invalid alignment (must be 0, 16, 32, or 64)")
+	ErrHeaderTooShort    = errors.New("ucodec: v2 header too short")
+	ErrIndexCorrupt      = errors.New("ucodec: v2 index corrupt")
+	ErrChecksumMismatch  = errors.New("ucodec: v2 checksum mismatch")
+	ErrCompressionFailed = errors.New("ucodec: v2 compression failed")
+	ErrInvalidAlignment  = errors.New("ucodec: invalid alignment (must be 0, 16, 32, or 64)")
 )
 
-// WriteShardV2Header writes a v2 header to the given writer.
-func WriteShardV2Header(w io.Writer, h *ShardV2Header) error {
-	buf := make([]byte, ShardV2HeaderSize)
+// WriteShardHeader writes a v2 header to the given writer.
+func WriteShardHeader(w io.Writer, h *ShardHeader) error {
+	buf := make([]byte, ShardHeaderSize)
 
 	copy(buf[0:4], h.Magic[:])
 	buf[4] = h.Version
@@ -240,14 +240,14 @@ func WriteShardV2Header(w io.Writer, h *ShardV2Header) error {
 	return err
 }
 
-// ReadShardV2Header reads a v2 header from the given reader.
-func ReadShardV2Header(r io.Reader) (*ShardV2Header, error) {
-	buf := make([]byte, ShardV2HeaderSize)
+// ReadShardHeader reads a v2 header from the given reader.
+func ReadShardHeader(r io.Reader) (*ShardHeader, error) {
+	buf := make([]byte, ShardHeaderSize)
 	if _, err := io.ReadFull(r, buf); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrV2HeaderTooShort, err)
+		return nil, fmt.Errorf("%w: %v", ErrHeaderTooShort, err)
 	}
 
-	h := &ShardV2Header{}
+	h := &ShardHeader{}
 	copy(h.Magic[:], buf[0:4])
 
 	if h.Magic != ShardMagic {
@@ -266,9 +266,9 @@ func ReadShardV2Header(r io.Reader) (*ShardV2Header, error) {
 	h.IndexEntrySize = binary.LittleEndian.Uint16(buf[10:12])
 
 	// Validate index entry size matches expected v2 size
-	if h.IndexEntrySize != ShardV2IndexEntrySize {
+	if h.IndexEntrySize != ShardIndexEntrySize {
 		return nil, fmt.Errorf("%w: index entry size %d != expected %d",
-			ErrV2IndexCorrupt, h.IndexEntrySize, ShardV2IndexEntrySize)
+			ErrIndexCorrupt, h.IndexEntrySize, ShardIndexEntrySize)
 	}
 
 	h.EntryCount = binary.LittleEndian.Uint32(buf[12:16])
@@ -281,16 +281,16 @@ func ReadShardV2Header(r io.Reader) (*ShardV2Header, error) {
 	return h, nil
 }
 
-// NewShardV2Header creates a new v2 header with default values.
-func NewShardV2Header(role ShardRole) *ShardV2Header {
-	return &ShardV2Header{
+// NewShardHeader creates a new v2 header with default values.
+func NewShardHeader(role ShardRole) *ShardHeader {
+	return &ShardHeader{
 		Magic:              ShardMagic,
 		Version:            ShardVersion2,
 		Role:               role,
-		Flags:              ShardFlagLittleEndian | ShardV2FlagHasChecksums,
+		Flags:              ShardFlagLittleEndian | ShardFlagHasChecksums,
 		Alignment:          Align64,
 		CompressionDefault: CompressNone,
-		IndexEntrySize:     ShardV2IndexEntrySize,
+		IndexEntrySize:     ShardIndexEntrySize,
 		EntryCount:         0,
 		StringTableOffset:  0,
 		DataSectionOffset:  0,
@@ -299,9 +299,9 @@ func NewShardV2Header(role ShardRole) *ShardV2Header {
 	}
 }
 
-// WriteIndexEntryV2 writes a single v2 index entry.
-func WriteIndexEntryV2(w io.Writer, e *IndexEntryV2) error {
-	buf := make([]byte, ShardV2IndexEntrySize)
+// WriteIndexEntry writes a single v2 index entry.
+func WriteIndexEntry(w io.Writer, e *IndexEntry) error {
+	buf := make([]byte, ShardIndexEntrySize)
 
 	binary.LittleEndian.PutUint64(buf[0:8], e.NameHash)
 	binary.LittleEndian.PutUint32(buf[8:12], e.NameOffset)
@@ -317,19 +317,19 @@ func WriteIndexEntryV2(w io.Writer, e *IndexEntryV2) error {
 	return err
 }
 
-// ReadIndexEntryV2 reads a single v2 index entry.
-func ReadIndexEntryV2(r io.Reader) (*IndexEntryV2, error) {
-	buf := make([]byte, ShardV2IndexEntrySize)
+// ReadIndexEntry reads a single v2 index entry.
+func ReadIndexEntry(r io.Reader) (*IndexEntry, error) {
+	buf := make([]byte, ShardIndexEntrySize)
 	if _, err := io.ReadFull(r, buf); err != nil {
 		return nil, err
 	}
 
-	return ParseIndexEntryV2(buf), nil
+	return ParseIndexEntry(buf), nil
 }
 
-// ParseIndexEntryV2 parses a v2 index entry from bytes.
-func ParseIndexEntryV2(buf []byte) *IndexEntryV2 {
-	return &IndexEntryV2{
+// ParseIndexEntry parses a v2 index entry from bytes.
+func ParseIndexEntry(buf []byte) *IndexEntry {
+	return &IndexEntry{
 		NameHash:   binary.LittleEndian.Uint64(buf[0:8]),
 		NameOffset: binary.LittleEndian.Uint32(buf[8:12]),
 		NameLen:    binary.LittleEndian.Uint16(buf[12:14]),
@@ -343,12 +343,12 @@ func ParseIndexEntryV2(buf []byte) *IndexEntryV2 {
 }
 
 // IsCompressed returns true if the entry is compressed.
-func (e *IndexEntryV2) IsCompressed() bool {
+func (e *IndexEntry) IsCompressed() bool {
 	return e.Flags&EntryFlagCompressed != 0
 }
 
 // CompressionType returns the compression type for the entry.
-func (e *IndexEntryV2) CompressionType() uint8 {
+func (e *IndexEntry) CompressionType() uint8 {
 	if e.Flags&EntryFlagLZ4 != 0 {
 		return CompressLZ4
 	}
@@ -359,32 +359,32 @@ func (e *IndexEntryV2) CompressionType() uint8 {
 }
 
 // IsChunked returns true if the entry is chunked.
-func (e *IndexEntryV2) IsChunked() bool {
+func (e *IndexEntry) IsChunked() bool {
 	return e.Flags&EntryFlagChunked != 0
 }
 
 // ContentType returns the content type stored in the lower 16 bits of Reserved.
-func (e *IndexEntryV2) ContentType() uint16 {
+func (e *IndexEntry) ContentType() uint16 {
 	return uint16(e.Reserved & 0xFFFF)
 }
 
 // SetContentType sets the content type in the lower 16 bits of Reserved.
-func (e *IndexEntryV2) SetContentType(ct uint16) {
+func (e *IndexEntry) SetContentType(ct uint16) {
 	e.Reserved = (e.Reserved & 0xFFFF0000) | uint32(ct)
 }
 
 // TagBits returns the 16-bit tag bitmask stored in the upper 16 bits of Reserved.
-func (e *IndexEntryV2) TagBits() uint16 {
+func (e *IndexEntry) TagBits() uint16 {
 	return uint16(e.Reserved >> 16)
 }
 
 // SetTagBits sets the 16-bit tag bitmask in the upper 16 bits of Reserved.
-func (e *IndexEntryV2) SetTagBits(bits uint16) {
+func (e *IndexEntry) SetTagBits(bits uint16) {
 	e.Reserved = (e.Reserved & 0x0000FFFF) | (uint32(bits) << 16)
 }
 
 // HasTagBit checks if a specific tag bit (0-15) is set.
-func (e *IndexEntryV2) HasTagBit(bit int) bool {
+func (e *IndexEntry) HasTagBit(bit int) bool {
 	if bit < 0 || bit > 15 {
 		return false
 	}
@@ -392,7 +392,7 @@ func (e *IndexEntryV2) HasTagBit(bit int) bool {
 }
 
 // SetTagBit sets a specific tag bit (0-15).
-func (e *IndexEntryV2) SetTagBit(bit int) {
+func (e *IndexEntry) SetTagBit(bit int) {
 	if bit < 0 || bit > 15 {
 		return
 	}
@@ -450,12 +450,12 @@ func xxHash64String(s string) uint64 {
 }
 
 // ============================================================
-// ShardV2Writer - Streaming writer with index at start
+// ShardWriter - Streaming writer with index at start
 // ============================================================
 
-// pendingEntryV2 holds info about an entry being written.
+// pendingEntry holds info about an entry being written.
 // Data is stored in temp file, not RAM, to support large tensors.
-type pendingEntryV2 struct {
+type pendingEntry struct {
 	name        string
 	tempOffset  int64  // Offset in temp file where data starts
 	diskSize    int64  // Size on disk (compressed size)
@@ -465,24 +465,24 @@ type pendingEntryV2 struct {
 	contentType uint16 // Content type hint
 }
 
-// ShardV2Writer provides streaming writing of v2 shard files.
-type ShardV2Writer struct {
+// ShardWriter provides streaming writing of v2 shard files.
+type ShardWriter struct {
 	file           *os.File
 	tempFile       *os.File // Temp file for data buffering
 	tempFileOffset int64    // Current write position in temp file
-	header         *ShardV2Header
-	entries        []pendingEntryV2
+	header         *ShardHeader
+	entries        []pendingEntry
 	metadata       *ShardMetadata // Optional schema metadata
 	closed         bool
 }
 
 // SetMetadata sets the shard metadata to be written to the schema section.
-func (w *ShardV2Writer) SetMetadata(meta *ShardMetadata) {
+func (w *ShardWriter) SetMetadata(meta *ShardMetadata) {
 	w.metadata = meta
 }
 
-// NewShardV2Writer creates a new v2 shard writer.
-func NewShardV2Writer(path string, role ShardRole) (*ShardV2Writer, error) {
+// NewShardWriter creates a new v2 shard writer.
+func NewShardWriter(path string, role ShardRole) (*ShardWriter, error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return nil, err
@@ -495,56 +495,56 @@ func NewShardV2Writer(path string, role ShardRole) (*ShardV2Writer, error) {
 		return nil, err
 	}
 
-	header := NewShardV2Header(role)
+	header := NewShardHeader(role)
 
-	return &ShardV2Writer{
+	return &ShardWriter{
 		file:           f,
 		tempFile:       tempFile,
 		tempFileOffset: 0,
 		header:         header,
-		entries:        make([]pendingEntryV2, 0),
+		entries:        make([]pendingEntry, 0),
 	}, nil
 }
 
 // SetAlignment sets the data alignment (0, 16, 32, or 64 bytes).
-// Returns ErrV2InvalidAlignment if the value is not one of the valid options.
-func (w *ShardV2Writer) SetAlignment(align uint8) error {
+// Returns ErrInvalidAlignment if the value is not one of the valid options.
+func (w *ShardWriter) SetAlignment(align uint8) error {
 	switch align {
 	case AlignNone, Align16, Align32, Align64:
 		w.header.Alignment = align
 		return nil
 	default:
-		return fmt.Errorf("%w: got %d", ErrV2InvalidAlignment, align)
+		return fmt.Errorf("%w: got %d", ErrInvalidAlignment, align)
 	}
 }
 
 // SetCompression sets the default compression type.
-func (w *ShardV2Writer) SetCompression(comp uint8) {
+func (w *ShardWriter) SetCompression(comp uint8) {
 	w.header.CompressionDefault = comp
 }
 
 // WriteEntry writes an entry to the shard.
-func (w *ShardV2Writer) WriteEntry(name string, data []byte) error {
+func (w *ShardWriter) WriteEntry(name string, data []byte) error {
 	return w.WriteEntryWithOptions(name, data, false, CompressNone)
 }
 
 // WriteEntryCompressed writes a compressed entry.
-func (w *ShardV2Writer) WriteEntryCompressed(name string, data []byte) error {
+func (w *ShardWriter) WriteEntryCompressed(name string, data []byte) error {
 	return w.WriteEntryWithOptions(name, data, true, w.header.CompressionDefault)
 }
 
 // WriteEntryTyped writes an entry with a content type hint.
-func (w *ShardV2Writer) WriteEntryTyped(name string, data []byte, contentType uint16) error {
+func (w *ShardWriter) WriteEntryTyped(name string, data []byte, contentType uint16) error {
 	return w.writeEntryFull(name, data, false, CompressNone, contentType)
 }
 
 // WriteEntryWithOptions writes an entry with explicit options.
-func (w *ShardV2Writer) WriteEntryWithOptions(name string, data []byte, compress bool, compType uint8) error {
+func (w *ShardWriter) WriteEntryWithOptions(name string, data []byte, compress bool, compType uint8) error {
 	return w.writeEntryFull(name, data, compress, compType, ContentTypeUnknown)
 }
 
 // writeEntryFull writes an entry with all options including content type.
-func (w *ShardV2Writer) writeEntryFull(name string, data []byte, compress bool, compType uint8, contentType uint16) error {
+func (w *ShardWriter) writeEntryFull(name string, data []byte, compress bool, compType uint8, contentType uint16) error {
 	if w.closed {
 		return ErrShardClosed
 	}
@@ -580,7 +580,7 @@ func (w *ShardV2Writer) writeEntryFull(name string, data []byte, compress bool, 
 	w.tempFileOffset += int64(n)
 
 	// Store only metadata, not data - data stays in temp file
-	w.entries = append(w.entries, pendingEntryV2{
+	w.entries = append(w.entries, pendingEntry{
 		name:        name,
 		tempOffset:  tempOffset,
 		diskSize:    int64(len(writeData)),
@@ -592,14 +592,14 @@ func (w *ShardV2Writer) writeEntryFull(name string, data []byte, compress bool, 
 
 	// Set content types flag if any non-zero content type is used
 	if contentType != ContentTypeUnknown {
-		w.header.Flags |= ShardV2FlagHasContentTypes
+		w.header.Flags |= ShardFlagHasContentTypes
 	}
 
 	return nil
 }
 
 // Close finalizes the shard file.
-func (w *ShardV2Writer) Close() error {
+func (w *ShardWriter) Close() error {
 	if w.closed {
 		return ErrShardClosed
 	}
@@ -612,7 +612,7 @@ func (w *ShardV2Writer) Close() error {
 
 	// Calculate layout
 	entryCount := uint32(len(w.entries))
-	indexSize := int64(entryCount) * int64(ShardV2IndexEntrySize)
+	indexSize := int64(entryCount) * int64(ShardIndexEntrySize)
 
 	// Build string table
 	stringTable := make([]byte, 0)
@@ -624,7 +624,7 @@ func (w *ShardV2Writer) Close() error {
 	}
 
 	// Calculate offsets
-	stringTableOffset := int64(ShardV2HeaderSize) + indexSize
+	stringTableOffset := int64(ShardHeaderSize) + indexSize
 	dataSectionOffset := stringTableOffset + int64(len(stringTable))
 
 	// Align data section
@@ -686,18 +686,18 @@ func (w *ShardV2Writer) Close() error {
 	w.header.DataSectionOffset = uint64(dataSectionOffset)
 	w.header.SchemaOffset = schemaOffset
 	if w.metadata != nil {
-		w.header.Flags |= ShardV2FlagHasSchema
+		w.header.Flags |= ShardFlagHasSchema
 	}
 	w.header.TotalFileSize = uint64(totalSize)
 
 	// Write header
-	if err := WriteShardV2Header(w.file, w.header); err != nil {
+	if err := WriteShardHeader(w.file, w.header); err != nil {
 		return err
 	}
 
 	// Write index entries
 	for i, e := range w.entries {
-		entry := &IndexEntryV2{
+		entry := &IndexEntry{
 			NameHash:   xxHash64String(e.name),
 			NameOffset: nameOffsets[i],
 			NameLen:    uint16(len(e.name)),
@@ -708,7 +708,7 @@ func (w *ShardV2Writer) Close() error {
 			Checksum:   e.checksum,
 			Reserved:   uint32(e.contentType),
 		}
-		if err := WriteIndexEntryV2(w.file, entry); err != nil {
+		if err := WriteIndexEntry(w.file, entry); err != nil {
 			return err
 		}
 	}
@@ -733,7 +733,7 @@ func (w *ShardV2Writer) Close() error {
 		// Alignment padding
 		expectedOffset, ok := uint64ToInt64(dataOffsets[i])
 		if !ok {
-			return fmt.Errorf("shard v2: data offset %d exceeds int64 range", dataOffsets[i])
+			return fmt.Errorf("shard: data offset %d exceeds int64 range", dataOffsets[i])
 		}
 		if currentPos < expectedOffset {
 			padding := make([]byte, expectedOffset-currentPos)
@@ -745,7 +745,7 @@ func (w *ShardV2Writer) Close() error {
 
 		// VALIDATION: Assert currentPos matches expected offset
 		if currentPos != expectedOffset {
-			return fmt.Errorf("shard v2: offset invariant violated at entry %d: expected %d, got %d",
+			return fmt.Errorf("shard: offset invariant violated at entry %d: expected %d, got %d",
 				i, expectedOffset, currentPos)
 		}
 
@@ -776,10 +776,10 @@ func (w *ShardV2Writer) Close() error {
 	// VALIDATION: Assert final file size matches header
 	totalFileSize, ok := uint64ToInt64(w.header.TotalFileSize)
 	if !ok {
-		return fmt.Errorf("shard v2: total file size %d exceeds int64 range", w.header.TotalFileSize)
+		return fmt.Errorf("shard: total file size %d exceeds int64 range", w.header.TotalFileSize)
 	}
 	if currentPos != totalFileSize {
-		return fmt.Errorf("shard v2: file size mismatch: header says %d, actual %d",
+		return fmt.Errorf("shard: file size mismatch: header says %d, actual %d",
 			w.header.TotalFileSize, currentPos)
 	}
 
@@ -787,7 +787,7 @@ func (w *ShardV2Writer) Close() error {
 }
 
 // ============================================================
-// ShardV2StreamWriter - Zero-copy streaming writer
+// ShardStreamWriter - Zero-copy streaming writer
 // ============================================================
 //
 // StreamWriter writes directly to the output file without buffering
@@ -799,17 +799,17 @@ func (w *ShardV2Writer) Close() error {
 //
 // Usage:
 //
-//	sw, _ := NewShardV2StreamWriter(path, role)
+//	sw, _ := NewShardStreamWriter(path, role)
 //	sw.SetAlignment(64)
 //	sw.BeginData() // Reserves space for header + max index entries
 //	sw.WriteEntry("layer.0.weight", tensorData)
 //	sw.WriteEntry("layer.1.weight", tensorData)
 //	sw.Finalize() // Seeks back and writes header + index
 
-// ShardV2StreamWriter provides zero-copy streaming writes.
-type ShardV2StreamWriter struct {
+// ShardStreamWriter provides zero-copy streaming writes.
+type ShardStreamWriter struct {
 	file            *os.File
-	header          *ShardV2Header
+	header          *ShardHeader
 	entries         []streamEntryV2
 	dataStartOffset int64 // Where data section begins
 	currentOffset   int64 // Current write position
@@ -829,10 +829,10 @@ type streamEntryV2 struct {
 	contentType uint16
 }
 
-// NewShardV2StreamWriter creates a new streaming writer.
+// NewShardStreamWriter creates a new streaming writer.
 // maxEntries is the maximum number of entries (determines reserved index space).
 // If maxEntries is 0, defaults to 10000.
-func NewShardV2StreamWriter(path string, role ShardRole, maxEntries int) (*ShardV2StreamWriter, error) {
+func NewShardStreamWriter(path string, role ShardRole, maxEntries int) (*ShardStreamWriter, error) {
 	if maxEntries <= 0 {
 		maxEntries = 10000
 	}
@@ -842,17 +842,17 @@ func NewShardV2StreamWriter(path string, role ShardRole, maxEntries int) (*Shard
 		return nil, err
 	}
 
-	return &ShardV2StreamWriter{
+	return &ShardStreamWriter{
 		file:       f,
-		header:     NewShardV2Header(role),
+		header:     NewShardHeader(role),
 		entries:    make([]streamEntryV2, 0, maxEntries),
 		maxEntries: maxEntries,
 	}, nil
 }
 
 // SetAlignment sets the data alignment (0, 16, 32, or 64 bytes).
-// Returns ErrV2InvalidAlignment if the value is not valid, or an error if BeginData was already called.
-func (sw *ShardV2StreamWriter) SetAlignment(align uint8) error {
+// Returns ErrInvalidAlignment if the value is not valid, or an error if BeginData was already called.
+func (sw *ShardStreamWriter) SetAlignment(align uint8) error {
 	if sw.begun {
 		return fmt.Errorf("ucodec: cannot set alignment after BeginData")
 	}
@@ -861,19 +861,19 @@ func (sw *ShardV2StreamWriter) SetAlignment(align uint8) error {
 		sw.header.Alignment = align
 		return nil
 	default:
-		return fmt.Errorf("%w: got %d", ErrV2InvalidAlignment, align)
+		return fmt.Errorf("%w: got %d", ErrInvalidAlignment, align)
 	}
 }
 
 // SetCompression sets the default compression type.
-func (sw *ShardV2StreamWriter) SetCompression(comp uint8) {
+func (sw *ShardStreamWriter) SetCompression(comp uint8) {
 	sw.header.CompressionDefault = comp
 }
 
 // BeginData reserves space for header and index, then positions for data writes.
-func (sw *ShardV2StreamWriter) BeginData() error {
+func (sw *ShardStreamWriter) BeginData() error {
 	if sw.begun {
-		return fmt.Errorf("shard v2 stream: BeginData already called")
+		return fmt.Errorf("shard stream: BeginData already called")
 	}
 	sw.begun = true
 
@@ -881,10 +881,10 @@ func (sw *ShardV2StreamWriter) BeginData() error {
 	// Header: 64 bytes
 	// Index: maxEntries * 48 bytes
 	// String table: estimate avg name length of 64 bytes
-	reservedIndexSize := int64(sw.maxEntries) * int64(ShardV2IndexEntrySize)
+	reservedIndexSize := int64(sw.maxEntries) * int64(ShardIndexEntrySize)
 	reservedStringTableSize := int64(sw.maxEntries) * 64
 
-	sw.dataStartOffset = int64(ShardV2HeaderSize) + reservedIndexSize + reservedStringTableSize
+	sw.dataStartOffset = int64(ShardHeaderSize) + reservedIndexSize + reservedStringTableSize
 
 	// Align data start
 	if sw.header.Alignment > 0 {
@@ -902,35 +902,35 @@ func (sw *ShardV2StreamWriter) BeginData() error {
 }
 
 // WriteEntry writes an entry directly to the data section.
-func (sw *ShardV2StreamWriter) WriteEntry(name string, data []byte) error {
+func (sw *ShardStreamWriter) WriteEntry(name string, data []byte) error {
 	return sw.WriteEntryWithOptions(name, data, false, CompressNone)
 }
 
 // WriteEntryCompressed writes a compressed entry directly.
-func (sw *ShardV2StreamWriter) WriteEntryCompressed(name string, data []byte) error {
+func (sw *ShardStreamWriter) WriteEntryCompressed(name string, data []byte) error {
 	return sw.WriteEntryWithOptions(name, data, true, sw.header.CompressionDefault)
 }
 
 // WriteEntryTyped writes an entry with a content type hint.
-func (sw *ShardV2StreamWriter) WriteEntryTyped(name string, data []byte, contentType uint16) error {
+func (sw *ShardStreamWriter) WriteEntryTyped(name string, data []byte, contentType uint16) error {
 	return sw.writeEntryFull(name, data, false, CompressNone, contentType)
 }
 
 // WriteEntryWithOptions writes an entry with explicit options.
-func (sw *ShardV2StreamWriter) WriteEntryWithOptions(name string, data []byte, compress bool, compType uint8) error {
+func (sw *ShardStreamWriter) WriteEntryWithOptions(name string, data []byte, compress bool, compType uint8) error {
 	return sw.writeEntryFull(name, data, compress, compType, ContentTypeUnknown)
 }
 
 // writeEntryFull writes an entry with all options including content type.
-func (sw *ShardV2StreamWriter) writeEntryFull(name string, data []byte, compress bool, compType uint8, contentType uint16) error {
+func (sw *ShardStreamWriter) writeEntryFull(name string, data []byte, compress bool, compType uint8, contentType uint16) error {
 	if sw.closed {
 		return ErrShardClosed
 	}
 	if !sw.begun {
-		return fmt.Errorf("shard v2 stream: must call BeginData before writing entries")
+		return fmt.Errorf("shard stream: must call BeginData before writing entries")
 	}
 	if len(sw.entries) >= sw.maxEntries {
-		return fmt.Errorf("shard v2 stream: exceeded max entries %d", sw.maxEntries)
+		return fmt.Errorf("shard stream: exceeded max entries %d", sw.maxEntries)
 	}
 
 	origSize := int64(len(data))
@@ -988,25 +988,25 @@ func (sw *ShardV2StreamWriter) writeEntryFull(name string, data []byte, compress
 
 	// Set content types flag if any non-zero content type is used
 	if contentType != ContentTypeUnknown {
-		sw.header.Flags |= ShardV2FlagHasContentTypes
+		sw.header.Flags |= ShardFlagHasContentTypes
 	}
 
 	return nil
 }
 
 // Finalize writes the header, index, and string table, then closes the file.
-func (sw *ShardV2StreamWriter) Finalize() error {
+func (sw *ShardStreamWriter) Finalize() error {
 	if sw.closed {
 		return ErrShardClosed
 	}
 	sw.closed = true
 
 	if !sw.begun {
-		return fmt.Errorf("shard v2 stream: must call BeginData before Finalize")
+		return fmt.Errorf("shard stream: must call BeginData before Finalize")
 	}
 
 	entryCount := uint32(len(sw.entries))
-	indexSize := int64(entryCount) * int64(ShardV2IndexEntrySize)
+	indexSize := int64(entryCount) * int64(ShardIndexEntrySize)
 
 	// Build string table
 	stringTable := make([]byte, 0)
@@ -1018,7 +1018,7 @@ func (sw *ShardV2StreamWriter) Finalize() error {
 	}
 
 	// Calculate actual offsets
-	stringTableOffset := int64(ShardV2HeaderSize) + indexSize
+	stringTableOffset := int64(ShardHeaderSize) + indexSize
 	actualDataOffset := stringTableOffset + int64(len(stringTable))
 	if sw.header.Alignment > 0 {
 		align := int64(sw.header.Alignment)
@@ -1027,14 +1027,14 @@ func (sw *ShardV2StreamWriter) Finalize() error {
 
 	// Verify we didn't overflow reserved space
 	if actualDataOffset > sw.dataStartOffset {
-		return fmt.Errorf("shard v2 stream: index+strings overflow reserved space: need %d, reserved %d",
+		return fmt.Errorf("shard stream: index+strings overflow reserved space: need %d, reserved %d",
 			actualDataOffset, sw.dataStartOffset)
 	}
 
 	totalSize := sw.currentOffset
 
 	// Update header
-	sw.header.Flags |= ShardV2FlagStreaming
+	sw.header.Flags |= ShardFlagStreaming
 	sw.header.EntryCount = entryCount
 	sw.header.StringTableOffset = uint64(stringTableOffset)
 	sw.header.DataSectionOffset = uint64(sw.dataStartOffset)
@@ -1044,13 +1044,13 @@ func (sw *ShardV2StreamWriter) Finalize() error {
 	if _, err := sw.file.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	if err := WriteShardV2Header(sw.file, sw.header); err != nil {
+	if err := WriteShardHeader(sw.file, sw.header); err != nil {
 		return err
 	}
 
 	// Write index entries
 	for i, e := range sw.entries {
-		entry := &IndexEntryV2{
+		entry := &IndexEntry{
 			NameHash:   xxHash64String(e.name),
 			NameOffset: nameOffsets[i],
 			NameLen:    uint16(len(e.name)),
@@ -1061,7 +1061,7 @@ func (sw *ShardV2StreamWriter) Finalize() error {
 			Checksum:   e.checksum,
 			Reserved:   uint32(e.contentType),
 		}
-		if err := WriteIndexEntryV2(sw.file, entry); err != nil {
+		if err := WriteIndexEntry(sw.file, entry); err != nil {
 			return err
 		}
 	}
@@ -1084,7 +1084,7 @@ func (sw *ShardV2StreamWriter) Finalize() error {
 }
 
 // Close aborts the write if not finalized.
-func (sw *ShardV2StreamWriter) Close() error {
+func (sw *ShardStreamWriter) Close() error {
 	if sw.closed {
 		return nil
 	}
@@ -1093,89 +1093,89 @@ func (sw *ShardV2StreamWriter) Close() error {
 }
 
 // ============================================================
-// ShardV2Reader - Reader with fast index lookup
+// ShardReader - Reader with fast index lookup
 // ============================================================
 
-// ShardV2Reader provides reading of v2 shard files.
-type ShardV2Reader struct {
+// ShardReader provides reading of v2 shard files.
+type ShardReader struct {
 	file        *os.File
 	data        MMap
-	header      *ShardV2Header
-	index       []*IndexEntryV2
+	header      *ShardHeader
+	index       []*IndexEntry
 	stringTable []byte
 	nameMap     map[uint64][]int // hash -> candidate indices (collision-safe)
 	closed      bool
 }
 
-// OpenShardV2 opens a v2 shard file for reading.
-func OpenShardV2(path string) (*ShardV2Reader, error) {
+// OpenShard opens a v2 shard file for reading.
+func OpenShard(path string) (*ShardReader, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 
-	header, err := ReadShardV2Header(f)
+	header, err := ReadShardHeader(f)
 	if err != nil {
 		f.Close()
 		return nil, err
 	}
 
-	r := &ShardV2Reader{
+	r := &ShardReader{
 		file:   f,
 		header: header,
 	}
 
 	// Validate IndexEntrySize is exactly 48 bytes for v2
-	if header.IndexEntrySize != ShardV2IndexEntrySize {
+	if header.IndexEntrySize != ShardIndexEntrySize {
 		f.Close()
-		return nil, fmt.Errorf("%w: IndexEntrySize %d != expected %d", ErrV2IndexCorrupt, header.IndexEntrySize, ShardV2IndexEntrySize)
+		return nil, fmt.Errorf("%w: IndexEntrySize %d != expected %d", ErrIndexCorrupt, header.IndexEntrySize, ShardIndexEntrySize)
 	}
 
 	// Security: validate entry count
-	if header.EntryCount > MaxV2EntryCount {
+	if header.EntryCount > MaxEntryCount {
 		f.Close()
-		return nil, fmt.Errorf("%w: entry count %d exceeds limit %d", ErrV2IndexCorrupt, header.EntryCount, MaxV2EntryCount)
+		return nil, fmt.Errorf("%w: entry count %d exceeds limit %d", ErrIndexCorrupt, header.EntryCount, MaxEntryCount)
 	}
 
 	// Security: calculate index size with overflow protection
 	indexSize := int64(header.EntryCount) * int64(header.IndexEntrySize)
-	if indexSize > MaxV2IndexSize {
+	if indexSize > MaxIndexSize {
 		f.Close()
-		return nil, fmt.Errorf("%w: index size %d exceeds limit %d", ErrV2IndexCorrupt, indexSize, MaxV2IndexSize)
+		return nil, fmt.Errorf("%w: index size %d exceeds limit %d", ErrIndexCorrupt, indexSize, MaxIndexSize)
 	}
 
 	// Read index
 	indexData := make([]byte, indexSize)
 	if _, err := io.ReadFull(f, indexData); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("%w: %v", ErrV2IndexCorrupt, err)
+		return nil, fmt.Errorf("%w: %v", ErrIndexCorrupt, err)
 	}
 
-	r.index = make([]*IndexEntryV2, header.EntryCount)
+	r.index = make([]*IndexEntry, header.EntryCount)
 	for i := uint32(0); i < header.EntryCount; i++ {
 		offset := int64(i) * int64(header.IndexEntrySize)
-		r.index[i] = ParseIndexEntryV2(indexData[offset:])
+		r.index[i] = ParseIndexEntry(indexData[offset:])
 	}
 
 	// Security: validate string table size
 	if header.DataSectionOffset < header.StringTableOffset {
 		f.Close()
-		return nil, fmt.Errorf("%w: invalid section offsets", ErrV2IndexCorrupt)
+		return nil, fmt.Errorf("%w: invalid section offsets", ErrIndexCorrupt)
 	}
 	stringTableSize := header.DataSectionOffset - header.StringTableOffset
-	if stringTableSize > uint64(MaxV2StringTableSize) {
+	if stringTableSize > uint64(MaxStringTableSize) {
 		f.Close()
-		return nil, fmt.Errorf("%w: string table size %d invalid or exceeds limit %d", ErrV2IndexCorrupt, stringTableSize, MaxV2StringTableSize)
+		return nil, fmt.Errorf("%w: string table size %d invalid or exceeds limit %d", ErrIndexCorrupt, stringTableSize, MaxStringTableSize)
 	}
 	stringTableSizeInt, ok := uint64ToInt(stringTableSize)
 	if !ok {
 		f.Close()
-		return nil, fmt.Errorf("%w: string table size %d exceeds int range", ErrV2IndexCorrupt, stringTableSize)
+		return nil, fmt.Errorf("%w: string table size %d exceeds int range", ErrIndexCorrupt, stringTableSize)
 	}
 	stringTableOffset, ok := uint64ToInt64(header.StringTableOffset)
 	if !ok {
 		f.Close()
-		return nil, fmt.Errorf("%w: string table offset %d exceeds int64 range", ErrV2IndexCorrupt, header.StringTableOffset)
+		return nil, fmt.Errorf("%w: string table offset %d exceeds int64 range", ErrIndexCorrupt, header.StringTableOffset)
 	}
 
 	// Read string table
@@ -1198,11 +1198,11 @@ func OpenShardV2(path string) (*ShardV2Reader, error) {
 	totalFileSize, ok := uint64ToInt64(header.TotalFileSize)
 	if !ok {
 		f.Close()
-		return nil, fmt.Errorf("%w: total file size %d exceeds int64 range", ErrV2IndexCorrupt, header.TotalFileSize)
+		return nil, fmt.Errorf("%w: total file size %d exceeds int64 range", ErrIndexCorrupt, header.TotalFileSize)
 	}
 	if totalFileSize != info.Size() {
 		f.Close()
-		return nil, fmt.Errorf("%w: TotalFileSize %d != actual file size %d", ErrV2IndexCorrupt, header.TotalFileSize, info.Size())
+		return nil, fmt.Errorf("%w: TotalFileSize %d != actual file size %d", ErrIndexCorrupt, header.TotalFileSize, info.Size())
 	}
 
 	// Validate entry offsets are within file bounds and monotonically increasing
@@ -1211,17 +1211,17 @@ func OpenShardV2(path string) (*ShardV2Reader, error) {
 		// Check offset is within data section
 		if e.DataOffset < header.DataSectionOffset {
 			f.Close()
-			return nil, fmt.Errorf("%w: entry %d offset %d < data section offset %d", ErrV2IndexCorrupt, i, e.DataOffset, header.DataSectionOffset)
+			return nil, fmt.Errorf("%w: entry %d offset %d < data section offset %d", ErrIndexCorrupt, i, e.DataOffset, header.DataSectionOffset)
 		}
 		// Check offset + size doesn't exceed file
 		if e.DataOffset+e.DiskSize > header.TotalFileSize {
 			f.Close()
-			return nil, fmt.Errorf("%w: entry %d extends past file end", ErrV2IndexCorrupt, i)
+			return nil, fmt.Errorf("%w: entry %d extends past file end", ErrIndexCorrupt, i)
 		}
 		// Check monotonically increasing (entries are ordered by offset)
 		if i > 0 && e.DataOffset < prevOffset {
 			f.Close()
-			return nil, fmt.Errorf("%w: entry %d offset %d < previous offset %d (not monotonic)", ErrV2IndexCorrupt, i, e.DataOffset, prevOffset)
+			return nil, fmt.Errorf("%w: entry %d offset %d < previous offset %d (not monotonic)", ErrIndexCorrupt, i, e.DataOffset, prevOffset)
 		}
 		prevOffset = e.DataOffset + e.DiskSize
 	}
@@ -1236,17 +1236,17 @@ func OpenShardV2(path string) (*ShardV2Reader, error) {
 }
 
 // Header returns the v2 header.
-func (r *ShardV2Reader) Header() *ShardV2Header {
+func (r *ShardReader) Header() *ShardHeader {
 	return r.header
 }
 
 // EntryCount returns the number of entries.
-func (r *ShardV2Reader) EntryCount() int {
+func (r *ShardReader) EntryCount() int {
 	return len(r.index)
 }
 
 // EntryName returns the name of entry i.
-func (r *ShardV2Reader) EntryName(i int) string {
+func (r *ShardReader) EntryName(i int) string {
 	if i < 0 || i >= len(r.index) {
 		return ""
 	}
@@ -1265,7 +1265,7 @@ func (r *ShardV2Reader) EntryName(i int) string {
 }
 
 // EntryNames returns all entry names.
-func (r *ShardV2Reader) EntryNames() []string {
+func (r *ShardReader) EntryNames() []string {
 	names := make([]string, len(r.index))
 	for i := range r.index {
 		names[i] = r.EntryName(i)
@@ -1276,7 +1276,7 @@ func (r *ShardV2Reader) EntryNames() []string {
 // Lookup returns the index of an entry by name, or -1 if not found.
 // This is collision-safe: if multiple entries share the same hash,
 // all candidates are checked until a name match is found.
-func (r *ShardV2Reader) Lookup(name string) int {
+func (r *ShardReader) Lookup(name string) int {
 	hash := xxHash64String(name)
 	candidates, ok := r.nameMap[hash]
 	if !ok {
@@ -1291,22 +1291,22 @@ func (r *ShardV2Reader) Lookup(name string) int {
 }
 
 // ReadEntry reads entry data by index with checksum verification enabled.
-// Returns ErrV2ChecksumMismatch if the checksum doesn't match.
-func (r *ShardV2Reader) ReadEntry(i int) ([]byte, error) {
+// Returns ErrChecksumMismatch if the checksum doesn't match.
+func (r *ShardReader) ReadEntry(i int) ([]byte, error) {
 	return r.ReadEntryWithVerify(i, true)
 }
 
 // ReadEntryWithVerify reads entry data with optional checksum verification.
 //
 // Checksum policy:
-//   - verify=true: If ShardV2FlagHasChecksums is set and the computed checksum
-//     doesn't match the stored checksum, returns ErrV2ChecksumMismatch.
+//   - verify=true: If ShardFlagHasChecksums is set and the computed checksum
+//     doesn't match the stored checksum, returns ErrChecksumMismatch.
 //     This is a hard error; there is no "warn and continue" mode.
 //   - verify=false: No checksum validation is performed. Use this for
 //     performance-critical paths where data integrity is verified elsewhere.
 //
 // The checksum is computed on the uncompressed data using CRC32C (Castagnoli).
-func (r *ShardV2Reader) ReadEntryWithVerify(i int, verify bool) ([]byte, error) {
+func (r *ShardReader) ReadEntryWithVerify(i int, verify bool) ([]byte, error) {
 	if r.closed {
 		return nil, ErrShardClosed
 	}
@@ -1368,11 +1368,11 @@ func (r *ShardV2Reader) ReadEntryWithVerify(i int, verify bool) ([]byte, error) 
 
 	// Verify checksum — also verify when entry has a non-zero checksum,
 	// even if the header flag was stripped (CRC flag bypass defense).
-	if verify && (r.header.Flags&ShardV2FlagHasChecksums != 0 || e.Checksum != 0) {
+	if verify && (r.header.Flags&ShardFlagHasChecksums != 0 || e.Checksum != 0) {
 		checksum := ComputeChecksum(data)
 		if checksum != e.Checksum {
 			return nil, fmt.Errorf("%w: entry %d expected 0x%08x, got 0x%08x",
-				ErrV2ChecksumMismatch, i, e.Checksum, checksum)
+				ErrChecksumMismatch, i, e.Checksum, checksum)
 		}
 	}
 
@@ -1380,7 +1380,7 @@ func (r *ShardV2Reader) ReadEntryWithVerify(i int, verify bool) ([]byte, error) 
 }
 
 // ReadEntryByName reads entry data by name.
-func (r *ShardV2Reader) ReadEntryByName(name string) ([]byte, error) {
+func (r *ShardReader) ReadEntryByName(name string) ([]byte, error) {
 	i := r.Lookup(name)
 	if i < 0 {
 		return nil, fmt.Errorf("%w: %q", ErrEntryNotFound, name)
@@ -1392,7 +1392,7 @@ func (r *ShardV2Reader) ReadEntryByName(name string) ([]byte, error) {
 // This enables header-only scanning without loading full tensor data.
 // If the entry is smaller than maxBytes, returns the full entry.
 // If the entry is compressed, decompresses and returns up to maxBytes of the result.
-func (r *ShardV2Reader) ReadEntryPrefix(i int, maxBytes int64) ([]byte, error) {
+func (r *ShardReader) ReadEntryPrefix(i int, maxBytes int64) ([]byte, error) {
 	if r.closed {
 		return nil, ErrShardClosed
 	}
@@ -1400,7 +1400,7 @@ func (r *ShardV2Reader) ReadEntryPrefix(i int, maxBytes int64) ([]byte, error) {
 		return nil, ErrEntryNotFound
 	}
 	if maxBytes < 0 {
-		return nil, fmt.Errorf("%w: negative prefix size %d", ErrV2IndexCorrupt, maxBytes)
+		return nil, fmt.Errorf("%w: negative prefix size %d", ErrIndexCorrupt, maxBytes)
 	}
 
 	e := r.index[i]
@@ -1461,7 +1461,7 @@ func (r *ShardV2Reader) ReadEntryPrefix(i int, maxBytes int64) ([]byte, error) {
 }
 
 // EnableMmap enables memory-mapped access.
-func (r *ShardV2Reader) EnableMmap() error {
+func (r *ShardReader) EnableMmap() error {
 	if r.data != nil {
 		return nil
 	}
@@ -1481,7 +1481,7 @@ func (r *ShardV2Reader) EnableMmap() error {
 }
 
 // Close closes the reader.
-func (r *ShardV2Reader) Close() error {
+func (r *ShardReader) Close() error {
 	if r.closed {
 		return nil
 	}
@@ -1499,7 +1499,7 @@ func (r *ShardV2Reader) Close() error {
 }
 
 // GetEntryInfo returns the index entry for entry i.
-func (r *ShardV2Reader) GetEntryInfo(i int) *IndexEntryV2 {
+func (r *ShardReader) GetEntryInfo(i int) *IndexEntry {
 	if i < 0 || i >= len(r.index) {
 		return nil
 	}
@@ -1508,7 +1508,7 @@ func (r *ShardV2Reader) GetEntryInfo(i int) *IndexEntryV2 {
 
 // ReadMetadata reads and parses the schema metadata from the shard.
 // Returns nil, nil if no metadata is present.
-func (r *ShardV2Reader) ReadMetadata() (*ShardMetadata, error) {
+func (r *ShardReader) ReadMetadata() (*ShardMetadata, error) {
 	if r.closed {
 		return nil, ErrShardClosed
 	}
@@ -1516,7 +1516,7 @@ func (r *ShardV2Reader) ReadMetadata() (*ShardMetadata, error) {
 		return nil, nil // No metadata
 	}
 	if r.header.SchemaOffset > r.header.TotalFileSize {
-		return nil, fmt.Errorf("%w: schema offset %d exceeds total file size %d", ErrV2IndexCorrupt, r.header.SchemaOffset, r.header.TotalFileSize)
+		return nil, fmt.Errorf("%w: schema offset %d exceeds total file size %d", ErrIndexCorrupt, r.header.SchemaOffset, r.header.TotalFileSize)
 	}
 
 	// Calculate metadata size: from SchemaOffset to TotalFileSize
@@ -1563,7 +1563,7 @@ func (r *ShardV2Reader) ReadMetadata() (*ShardMetadata, error) {
 }
 
 // ListPrefix returns all entry names that start with the given prefix.
-func (r *ShardV2Reader) ListPrefix(prefix string) []string {
+func (r *ShardReader) ListPrefix(prefix string) []string {
 	var matches []string
 	for i := 0; i < len(r.index); i++ {
 		name := r.EntryName(i)
@@ -1575,7 +1575,7 @@ func (r *ShardV2Reader) ListPrefix(prefix string) []string {
 }
 
 // ListChildren returns immediate children under the given prefix.
-func (r *ShardV2Reader) ListChildren(prefix string) []string {
+func (r *ShardReader) ListChildren(prefix string) []string {
 	seen := make(map[string]bool)
 	var children []string
 
@@ -1608,7 +1608,7 @@ func (r *ShardV2Reader) ListChildren(prefix string) []string {
 
 // ListWithTag returns entry names that have the given tag in their per-entry metadata.
 // Requires metadata to be present in the schema section.
-func (r *ShardV2Reader) ListWithTag(tag string) ([]string, error) {
+func (r *ShardReader) ListWithTag(tag string) ([]string, error) {
 	meta, err := r.ReadMetadata()
 	if err != nil {
 		return nil, err
@@ -1633,7 +1633,7 @@ func (r *ShardV2Reader) ListWithTag(tag string) ([]string, error) {
 
 // ListWithTagBit returns entry names where the given tag bit (0-15) is set in the index.
 // This is O(n) over the index but does not require loading metadata — pure index scan.
-func (r *ShardV2Reader) ListWithTagBit(bit int) []string {
+func (r *ShardReader) ListWithTagBit(bit int) []string {
 	if bit < 0 || bit > 15 {
 		return nil
 	}
@@ -1648,7 +1648,7 @@ func (r *ShardV2Reader) ListWithTagBit(bit int) []string {
 
 // ListWithTagFast combines tag_dictionary lookup with tag bitmask for fast O(n) filtering.
 // Returns nil, nil if no tag_dictionary is present or tag not found in dictionary.
-func (r *ShardV2Reader) ListWithTagFast(tag string) ([]string, error) {
+func (r *ShardReader) ListWithTagFast(tag string) ([]string, error) {
 	meta, err := r.ReadMetadata()
 	if err != nil {
 		return nil, err
@@ -1749,11 +1749,11 @@ func compressData(data []byte, compType uint8) ([]byte, error) {
 const MaxDecompressSize = 1 << 30
 
 // decompressData decompresses data using the specified algorithm.
-// origSize is the expected decompressed size (from IndexEntryV2.OrigSize).
+// origSize is the expected decompressed size (from IndexEntry.OrigSize).
 func decompressData(data []byte, compType uint8, origSize uint64) ([]byte, error) {
 	// Security: cap decompressed size to prevent memory exhaustion
 	if origSize > MaxDecompressSize {
-		return nil, fmt.Errorf("%w: origSize %d exceeds limit %d", ErrV2CompressionFailed, origSize, MaxDecompressSize)
+		return nil, fmt.Errorf("%w: origSize %d exceeds limit %d", ErrCompressionFailed, origSize, MaxDecompressSize)
 	}
 
 	switch compType {

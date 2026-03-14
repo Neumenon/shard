@@ -88,7 +88,7 @@ await reader.close();
 
 ## File Format
 
-SampleShard uses the `.smpl` extension and the Shard v2 binary format:
+SampleShard uses the `.smpl` extension and the Shard binary format:
 
 - 64-byte header with magic bytes `SHRD`
 - Role byte = 0x02 (Sample)

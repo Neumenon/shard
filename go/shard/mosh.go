@@ -1,10 +1,10 @@
-// mosh.go - MoSH (Model Shard) profile for shard v2.
+// mosh.go - MoSH (Model Shard) profile for shard.
 //
 // MoSH stores model weights keyed by layer name for fast, mmap-friendly access.
 // This is the standalone version (no cowrie dependency) that uses JSON for metadata.
 //
 // Features:
-//   - Shard v2 format with content type hints
+//   - Shard format with content type hints
 //   - 64-byte aligned tensor data for SIMD/AVX-512 efficiency
 //   - Optional per-tensor compression (zstd/lz4)
 //   - CRC32C checksums for integrity verification
@@ -29,7 +29,7 @@ const MetadataEntryName = "__metadata__"
 
 // MoSHWriter writes MoSH shard files with model weights.
 type MoSHWriter struct {
-	sw          *ShardV2Writer
+	sw          *ShardWriter
 	shardMeta   *ShardMetadata
 	modelMeta   any
 	tensorCount int
@@ -37,7 +37,7 @@ type MoSHWriter struct {
 
 // NewMoSHWriter creates a new MoSH writer with 64-byte alignment.
 func NewMoSHWriter(path string) (*MoSHWriter, error) {
-	sw, err := NewShardV2Writer(path, ShardRoleMoSH)
+	sw, err := NewShardWriter(path, ShardRoleMoSH)
 	if err != nil {
 		return nil, err
 	}
@@ -179,13 +179,13 @@ func (w *MoSHWriter) TensorCount() int {
 
 // MoSHReader reads MoSH shard files.
 type MoSHReader struct {
-	sr *ShardV2Reader
+	sr *ShardReader
 }
 
 // OpenMoSH opens a MoSH shard file for reading.
 // Accepts MoSH (0x01) and Unknown (0x00) roles for compatibility.
 func OpenMoSH(path string) (*MoSHReader, error) {
-	sr, err := OpenShardV2(path)
+	sr, err := OpenShard(path)
 	if err != nil {
 		return nil, err
 	}
@@ -293,8 +293,8 @@ func (r *MoSHReader) Close() error {
 	return r.sr.Close()
 }
 
-// Header returns the underlying shard v2 header.
-func (r *MoSHReader) Header() *ShardV2Header {
+// Header returns the underlying shard header.
+func (r *MoSHReader) Header() *ShardHeader {
 	return r.sr.Header()
 }
 

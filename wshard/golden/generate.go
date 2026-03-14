@@ -22,7 +22,7 @@ import (
 )
 
 // ============================================================
-// Shard v2 binary constants (duplicated from shard package so
+// Shard binary constants (duplicated from shard package so
 // this generator has zero intra-repo deps).
 // ============================================================
 
@@ -52,7 +52,7 @@ func crc32c(data []byte) uint32 { return crc32.Checksum(data, crc32cTable) }
 func xxh64(s string) uint64 { return xxhash.Sum64String(s) }
 
 // ============================================================
-// Low-level shard v2 writer (standalone, no package import)
+// Low-level shard writer (standalone, no package import)
 // ============================================================
 
 type entry struct {

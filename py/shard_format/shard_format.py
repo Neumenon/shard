@@ -1,7 +1,7 @@
 """
-Shard v2 container format — reader and writer.
+Shard container format — reader and writer.
 
-Binary-compatible with the Go reference implementation at cowrie/ucodec/shard_v2.go.
+Binary-compatible with the Go reference implementation at cowrie/ucodec/shard_format.go.
 """
 import fnmatch
 import json
@@ -20,7 +20,7 @@ import lz4.block
 # ============================================================
 
 SHARD_MAGIC = b"SHRD"
-SHARD_VERSION2 = 0x02
+SHARD_VERSION = 0x02
 HEADER_SIZE = 64
 INDEX_ENTRY_SIZE = 48
 
@@ -428,9 +428,9 @@ def path_base(name: str) -> str:
 # ============================================================
 
 @dataclass
-class ShardV2Header:
+class ShardHeader:
     magic: bytes = SHARD_MAGIC
-    version: int = SHARD_VERSION2
+    version: int = SHARD_VERSION
     role: int = ROLE_MOSH
     flags: int = DEFAULT_FLAGS
     alignment: int = ALIGN_64
@@ -460,14 +460,14 @@ class ShardV2Header:
         return bytes(buf)
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> "ShardV2Header":
+    def from_bytes(cls, data: bytes) -> "ShardHeader":
         if len(data) < HEADER_SIZE:
             raise ValueError(f"header too short: {len(data)} < {HEADER_SIZE}")
         magic = data[0:4]
         if magic != SHARD_MAGIC:
             raise ValueError(f"invalid magic: {magic!r}")
         version = data[4]
-        if version != SHARD_VERSION2:
+        if version != SHARD_VERSION:
             raise ValueError(f"unsupported version: {version}")
         return cls(
             magic=magic,
@@ -486,7 +486,7 @@ class ShardV2Header:
 
 
 @dataclass
-class IndexEntryV2:
+class IndexEntry:
     name_hash: int = 0
     name_offset: int = 0
     name_len: int = 0
@@ -532,7 +532,7 @@ class IndexEntryV2:
         return bytes(buf)
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> "IndexEntryV2":
+    def from_bytes(cls, data: bytes) -> "IndexEntry":
         if len(data) < INDEX_ENTRY_SIZE:
             raise ValueError(f"entry too short: {len(data)}")
         return cls(
@@ -552,13 +552,13 @@ class IndexEntryV2:
 # Reader
 # ============================================================
 
-class ShardV2Reader:
-    """Read Shard v2 files."""
+class ShardReader:
+    """Read Shard files."""
 
     def __init__(self, path: Union[str, Path]):
         self._path = Path(path)
         self._data = self._path.read_bytes()
-        self._header = ShardV2Header.from_bytes(self._data[:HEADER_SIZE])
+        self._header = ShardHeader.from_bytes(self._data[:HEADER_SIZE])
 
         if self._header.index_entry_size != INDEX_ENTRY_SIZE:
             raise ValueError(
@@ -600,7 +600,7 @@ class ShardV2Reader:
                 f"total_file_size {self._header.total_file_size} != actual file size {len(self._data)}"
             )
 
-        self._entries: List[IndexEntryV2] = []
+        self._entries: List[IndexEntry] = []
         self._name_to_index: Dict[str, int] = {}
         self._parse_index()
 
@@ -614,7 +614,7 @@ class ShardV2Reader:
 
         for i in range(self._header.entry_count):
             off = HEADER_SIZE + i * INDEX_ENTRY_SIZE
-            entry = IndexEntryV2.from_bytes(
+            entry = IndexEntry.from_bytes(
                 self._data[off : off + INDEX_ENTRY_SIZE]
             )
             # Resolve name from string table (with bounds check matching Go)
@@ -655,7 +655,7 @@ class ShardV2Reader:
                 )
             prev_end = offset + size
 
-    def header(self) -> ShardV2Header:
+    def header(self) -> ShardHeader:
         return self._header
 
     def entry_count(self) -> int:
@@ -667,7 +667,7 @@ class ShardV2Reader:
     def entry_names(self) -> List[str]:
         return [e.name for e in self._entries]
 
-    def get_entry_info(self, i: int) -> IndexEntryV2:
+    def get_entry_info(self, i: int) -> IndexEntry:
         return self._entries[i]
 
     def lookup(self, name: str) -> int:
@@ -819,8 +819,8 @@ class _PendingEntry:
     comp_type: int = COMPRESS_NONE
 
 
-class ShardV2Writer:
-    """Write Shard v2 files."""
+class ShardWriter:
+    """Write Shard files."""
 
     def __init__(self, path: Union[str, Path], role: int = ROLE_MOSH):
         self._path = Path(path)
@@ -885,7 +885,7 @@ class ShardV2Writer:
             data_section_offset = _align_up(data_section_offset, align)
 
         # Layout data entries
-        index_entries: List[IndexEntryV2] = []
+        index_entries: List[IndexEntry] = []
         current_offset = data_section_offset
 
         # Precompute disk_data for each entry (applying compression where requested)
@@ -924,7 +924,7 @@ class ShardV2Writer:
             name_hash = compute_xxhash64(entry.name)
             name_bytes = entry.name.encode("utf-8")
 
-            ie = IndexEntryV2(
+            ie = IndexEntry(
                 name_hash=name_hash,
                 name_offset=name_offsets[i],
                 name_len=len(name_bytes),
@@ -953,7 +953,7 @@ class ShardV2Writer:
             total_file_size = current_offset
 
         # Build header
-        header = ShardV2Header(
+        header = ShardHeader(
             role=self._role,
             flags=hdr_flags,
             alignment=self._alignment,
@@ -1063,7 +1063,7 @@ def _match_pattern(pattern: str, name: str) -> bool:
     return bool(re.match(regex, name))
 
 
-def validate_schema(reader: "ShardV2Reader", schema: ShardSchema) -> List[ValidationError]:
+def validate_schema(reader: "ShardReader", schema: ShardSchema) -> List[ValidationError]:
     """Validate a shard against a schema.
 
     Returns a list of :class:`ValidationError` objects (empty list means valid).
@@ -1104,7 +1104,7 @@ def validate_schema(reader: "ShardV2Reader", schema: ShardSchema) -> List[Valida
 # Streaming Writer
 # ============================================================
 
-class ShardV2StreamWriter:
+class ShardStreamWriter:
     """Zero-copy streaming writer. Data goes directly to disk.
 
     The header+index region is written at the END via a seek-back to position 0,
@@ -1113,7 +1113,7 @@ class ShardV2StreamWriter:
 
     Usage::
 
-        sw = ShardV2StreamWriter(path, max_entries=1000)
+        sw = ShardStreamWriter(path, max_entries=1000)
         sw.set_alignment(ALIGN_64)   # optional, must be before begin_data()
         sw.begin_data()
         sw.write_entry("weights", tensor_bytes)
@@ -1288,7 +1288,7 @@ class ShardV2StreamWriter:
         total_file_size = self._current_offset
 
         # Build header
-        header = ShardV2Header(
+        header = ShardHeader(
             role=self._role,
             flags=DEFAULT_FLAGS | FLAG_STREAMING,
             alignment=self._alignment,
@@ -1300,12 +1300,12 @@ class ShardV2StreamWriter:
         )
 
         # Build index entries
-        index_entries: List[IndexEntryV2] = []
+        index_entries: List[IndexEntry] = []
         for i, (name, data_offset, disk_size, orig_size, checksum, flags) in enumerate(
             self._entries
         ):
             name_bytes = name.encode("utf-8")
-            ie = IndexEntryV2(
+            ie = IndexEntry(
                 name_hash=compute_xxhash64(name),
                 name_offset=name_offsets[i],
                 name_len=len(name_bytes),

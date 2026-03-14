@@ -20,8 +20,8 @@ export const SHARD_VERSION_2 = 0x02;
 export const WSHARD_ROLE = 0x05;
 
 // Header and index sizes
-export const SHARD_V2_HEADER_SIZE = 64;
-export const SHARD_V2_INDEX_ENTRY_SIZE = 48;
+export const SHARD_HEADER_SIZE = 64;
+export const SHARD_INDEX_ENTRY_SIZE = 48;
 
 // Default alignment (AVX-friendly)
 export const DEFAULT_ALIGNMENT = 32;
@@ -312,7 +312,7 @@ export function createShardHeader(): ShardHeader {
     compressionDefault: COMPRESS_NONE,
     entryCount: 0,
     stringTableOffset: 0n,
-    dataSectionOffset: BigInt(SHARD_V2_HEADER_SIZE),
+    dataSectionOffset: BigInt(SHARD_HEADER_SIZE),
     schemaOffset: 0n,
     totalFileSize: 0n,
   };
@@ -322,7 +322,7 @@ export function createShardHeader(): ShardHeader {
  * Serialize header to 64 bytes.
  */
 export function serializeHeader(header: ShardHeader): Buffer {
-  const buf = Buffer.alloc(SHARD_V2_HEADER_SIZE);
+  const buf = Buffer.alloc(SHARD_HEADER_SIZE);
 
   // Magic (4 bytes)
   header.magic.copy(buf, 0);
@@ -343,7 +343,7 @@ export function serializeHeader(header: ShardHeader): Buffer {
   buf.writeUInt8(header.compressionDefault, 9);
 
   // Index entry size (2 bytes, little-endian) - MUST be 48
-  buf.writeUInt16LE(SHARD_V2_INDEX_ENTRY_SIZE, 10);
+  buf.writeUInt16LE(SHARD_INDEX_ENTRY_SIZE, 10);
 
   // Entry count (4 bytes, little-endian)
   buf.writeUInt32LE(header.entryCount, 12);
@@ -369,8 +369,8 @@ export function serializeHeader(header: ShardHeader): Buffer {
  * Parse header from 64 bytes.
  */
 export function parseHeader(data: Buffer): ShardHeader {
-  if (data.length < SHARD_V2_HEADER_SIZE) {
-    throw new Error(`Header too short: ${data.length} < ${SHARD_V2_HEADER_SIZE}`);
+  if (data.length < SHARD_HEADER_SIZE) {
+    throw new Error(`Header too short: ${data.length} < ${SHARD_HEADER_SIZE}`);
   }
 
   const magic = data.subarray(0, 4);
@@ -407,7 +407,7 @@ export function parseHeader(data: Buffer): ShardHeader {
  * Serialize index entry to 48 bytes.
  */
 export function serializeIndexEntry(entry: IndexEntry): Buffer {
-  const buf = Buffer.alloc(SHARD_V2_INDEX_ENTRY_SIZE);
+  const buf = Buffer.alloc(SHARD_INDEX_ENTRY_SIZE);
 
   buf.writeBigUInt64LE(entry.nameHash, 0);
   buf.writeUInt32LE(entry.nameOffset, 8);
@@ -426,8 +426,8 @@ export function serializeIndexEntry(entry: IndexEntry): Buffer {
  * Parse index entry from 48 bytes.
  */
 export function parseIndexEntry(data: Buffer): IndexEntry {
-  if (data.length < SHARD_V2_INDEX_ENTRY_SIZE) {
-    throw new Error(`Entry too short: ${data.length} < ${SHARD_V2_INDEX_ENTRY_SIZE}`);
+  if (data.length < SHARD_INDEX_ENTRY_SIZE) {
+    throw new Error(`Entry too short: ${data.length} < ${SHARD_INDEX_ENTRY_SIZE}`);
   }
 
   const reserved = data.readUInt32LE(44);

@@ -1,7 +1,7 @@
 {
   "name": "shard-format",
   "version": "0.1.0",
-  "description": "Shard v2 binary container format — O(1) lookup, per-entry compression, CRC32C checksums",
+  "description": "Shard binary container format — O(1) lookup, per-entry compression, CRC32C checksums",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

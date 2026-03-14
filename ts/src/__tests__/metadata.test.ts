@@ -1,13 +1,13 @@
 /**
  * Tests for metadata/schema, security limits, listChildren, readEntryPrefix,
- * and path helpers added to shard_v2 TypeScript.
+ * and path helpers added to shard TypeScript.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
 
 import {
-  ShardV2Reader,
-  ShardV2Writer,
+  ShardReader,
+  ShardWriter,
   ShardMetadata,
   EntryMeta,
   initXxhash,
@@ -35,7 +35,7 @@ function makeShardBuffer(
   entries: Array<[string, Buffer]>,
   metadata?: ShardMetadata,
 ): Buffer {
-  const w = new ShardV2Writer();
+  const w = new ShardWriter();
   for (const [name, data] of entries) {
     w.writeEntry(name, data);
   }
@@ -115,7 +115,7 @@ describe('listChildren', () => {
       ['layer.1/weight', Buffer.from('w1')],
       ['embed', Buffer.from('tok')],
     ]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     const result = r.listChildren('layer.0/');
     expect(result.sort()).toEqual(['bias', 'weight']);
   });
@@ -127,7 +127,7 @@ describe('listChildren', () => {
       ['layer.1/weight', Buffer.from('w1')],
       ['embed', Buffer.from('tok')],
     ]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     const result = r.listChildren('');
     expect(result).toContain('layer.0');
     expect(result).toContain('layer.1');
@@ -143,7 +143,7 @@ describe('listChildren', () => {
       ['layer.1/weight', Buffer.from('w1')],
       ['embed', Buffer.from('tok')],
     ]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     const result = r.listChildren('layer.');
     expect(result.sort()).toEqual(['0', '1']);
   });
@@ -152,7 +152,7 @@ describe('listChildren', () => {
     const buf = makeShardBuffer([
       ['a/b', Buffer.from('x')],
     ]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     expect(r.listChildren('nonexistent/')).toEqual([]);
   });
 
@@ -162,7 +162,7 @@ describe('listChildren', () => {
       ['a/c', Buffer.from('2')],
       ['a/d', Buffer.from('3')],
     ]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     // Under "" we should see "a" only once
     const result = r.listChildren('');
     expect(result.filter(x => x === 'a').length).toBe(1);
@@ -175,7 +175,7 @@ describe('listChildren', () => {
       ['a/e', Buffer.from('3')],
       ['f', Buffer.from('4')],
     ]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
 
     const top = r.listChildren('');
     expect(top).toContain('a');
@@ -199,37 +199,37 @@ describe('readEntryPrefix', () => {
 
   it('returns first N bytes', () => {
     const buf = makeShardBuffer([['entry', data]]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     expect(r.readEntryPrefix(0, 5)).toEqual(Buffer.from('Hello'));
   });
 
   it('returns full entry when maxBytes equals entry length', () => {
     const buf = makeShardBuffer([['entry', data]]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     expect(r.readEntryPrefix(0, data.length)).toEqual(data);
   });
 
   it('returns full entry when maxBytes exceeds entry length', () => {
     const buf = makeShardBuffer([['entry', data]]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     expect(r.readEntryPrefix(0, 100_000)).toEqual(data);
   });
 
   it('returns empty buffer for maxBytes = 0', () => {
     const buf = makeShardBuffer([['entry', data]]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     expect(r.readEntryPrefix(0, 0)).toEqual(Buffer.alloc(0));
   });
 
   it('returns one byte', () => {
     const buf = makeShardBuffer([['entry', data]]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     expect(r.readEntryPrefix(0, 1)).toEqual(Buffer.from('H'));
   });
 
   it('throws on out-of-bounds index', () => {
     const buf = makeShardBuffer([['entry', data]]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     expect(() => r.readEntryPrefix(99, 10)).toThrow();
   });
 });
@@ -248,7 +248,7 @@ describe('ShardMetadata roundtrip', () => {
       tags: ['ml', 'test'],
     };
     const buf = makeShardBuffer([['data', Buffer.from('hello')]], meta);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     expect(r.header().flags & FLAG_HAS_SCHEMA).toBeTruthy();
     expect(Number(r.header().schemaOffset)).toBeGreaterThan(0);
 
@@ -283,7 +283,7 @@ describe('ShardMetadata roundtrip', () => {
       entryMetadata: { 'model/weight': em },
     };
     const buf = makeShardBuffer([['model/weight', Buffer.alloc(16)]], meta);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     const got = r.readMetadata();
     expect(got).not.toBeNull();
     expect(got!.entryMetadata).toBeDefined();
@@ -306,7 +306,7 @@ describe('ShardMetadata roundtrip', () => {
 
   it('no metadata returns null', () => {
     const buf = makeShardBuffer([['data', Buffer.from('hello')]]);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     expect(Number(r.header().schemaOffset)).toBe(0);
     expect(r.readMetadata()).toBeNull();
   });
@@ -317,7 +317,7 @@ describe('ShardMetadata roundtrip', () => {
       extra: { model_type: 'transformer', num_layers: 12 },
     };
     const buf = makeShardBuffer([['cfg', Buffer.from('x')]], meta);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     const got = r.readMetadata();
     expect(got).not.toBeNull();
     expect(got!.extra!['model_type']).toBe('transformer');
@@ -331,7 +331,7 @@ describe('ShardMetadata roundtrip', () => {
       schemaUri: 'https://example.com/schema.json',
     };
     const buf = makeShardBuffer([['x', Buffer.from('y')]], meta);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     const got = r.readMetadata();
     expect(got!.sourceUri).toBe('s3://bucket/model.safetensors');
     expect(got!.schemaUri).toBe('https://example.com/schema.json');
@@ -418,7 +418,7 @@ describe('security limits', () => {
     buf.writeBigUInt64LE(64n, 24); // data_section_offset
     buf.writeBigUInt64LE(0n, 32);  // schema_offset
     buf.writeBigUInt64LE(BigInt(buf.length), 40); // total_file_size
-    expect(() => new ShardV2Reader(buf)).toThrow(/MAX_ENTRY_COUNT/);
+    expect(() => new ShardReader(buf)).toThrow(/MAX_ENTRY_COUNT/);
   });
 
   it('total_file_size mismatch throws', () => {
@@ -426,7 +426,7 @@ describe('security limits', () => {
     const buf = makeShardBuffer([['x', Buffer.from('hello')]]);
     const corrupt = Buffer.from(buf);
     corrupt.writeBigUInt64LE(99999n, 40); // wrong total_file_size
-    expect(() => new ShardV2Reader(corrupt)).toThrow(/total_file_size/);
+    expect(() => new ShardReader(corrupt)).toThrow(/total_file_size/);
   });
 
   it('data_offset before data section throws', () => {
@@ -436,7 +436,7 @@ describe('security limits', () => {
     corrupt.writeBigUInt64LE(0n, 64 + 16); // set to 0 (before header)
     // Keep total_file_size consistent
     corrupt.writeBigUInt64LE(BigInt(corrupt.length), 40);
-    expect(() => new ShardV2Reader(corrupt)).toThrow();
+    expect(() => new ShardReader(corrupt)).toThrow();
   });
 
   it('data extends past end of file throws', () => {
@@ -445,6 +445,6 @@ describe('security limits', () => {
     // Set data_offset to huge value
     corrupt.writeBigUInt64LE(0xFFFFFFFFn, 64 + 16);
     corrupt.writeBigUInt64LE(BigInt(corrupt.length), 40);
-    expect(() => new ShardV2Reader(corrupt)).toThrow();
+    expect(() => new ShardReader(corrupt)).toThrow();
   });
 });

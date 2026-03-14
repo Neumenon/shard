@@ -8,12 +8,12 @@
 //! - deep path names (many '/' separators)
 //! - names that are prefixes of other names
 //!
-//! Strategy: build a real shard via ShardV2Writer using the fuzzed name list,
+//! Strategy: build a real shard via ShardWriter using the fuzzed name list,
 //! then exercise all lookup and prefix APIs.
 #![no_main]
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
-use shard_format::{ShardV2Reader, ShardV2Writer, ROLE_MOSH};
+use shard_format::{ShardReader, ShardWriter, ROLE_MOSH};
 
 #[derive(Arbitrary, Debug)]
 struct LookupInput {
@@ -31,7 +31,7 @@ fuzz_target!(|input: LookupInput| {
         return;
     }
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     for (i, name) in input.names.iter().enumerate().take(50) {
         // Skip names that would cause obvious writer issues.
         if name.len() > 1000 {
@@ -46,7 +46,7 @@ fuzz_target!(|input: LookupInput| {
     }
 
     let bytes = w.to_bytes();
-    let reader = match ShardV2Reader::from_bytes(bytes) {
+    let reader = match ShardReader::from_bytes(bytes) {
         Ok(r) => r,
         Err(_) => return, // writer produced an unreadable shard — skip
     };

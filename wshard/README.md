@@ -136,7 +136,7 @@ ep, err := shard.OpenWShard("episode.wshard")
 
 ## Format
 
-Shard v2 container (role `0x05`). 64-byte header, 48-byte index entries, aligned data blocks.
+Shard container (role `0x05`). 64-byte header, 48-byte index entries, aligned data blocks.
 
 ```
 [Header 64B] [Index N×48B] [String Table] [Padding] [Data Blocks...]

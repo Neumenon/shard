@@ -1,12 +1,12 @@
 //! Golden file parity tests.
 //!
 //! Reads the manifest from `../ucodec/testdata/golden_manifest.json` and verifies
-//! that the Rust Shard v2 reader produces identical results to the Go implementation.
+//! that the Rust Shard reader produces identical results to the Go implementation.
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use shard_format::{
-    compute_crc32c, compute_xxhash64, ShardV2Reader, SHARD_VERSION2, INDEX_ENTRY_SIZE,
+    compute_crc32c, compute_xxhash64, ShardReader, SHARD_VERSION, INDEX_ENTRY_SIZE,
 };
 use std::path::{Path, PathBuf};
 
@@ -128,7 +128,7 @@ fn test_header_fields() {
     let manifest = load_manifest();
     let dir = testdata_dir();
     for gf in &manifest.files {
-        let reader = ShardV2Reader::from_file(&dir.join(&gf.filename))
+        let reader = ShardReader::from_file(&dir.join(&gf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", gf.filename, e));
         let h = reader.header();
         let g = &gf.header;
@@ -180,7 +180,7 @@ fn test_entry_count() {
     let manifest = load_manifest();
     let dir = testdata_dir();
     for gf in &manifest.files {
-        let reader = ShardV2Reader::from_file(&dir.join(&gf.filename))
+        let reader = ShardReader::from_file(&dir.join(&gf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", gf.filename, e));
         assert_eq!(
             reader.entry_count(),
@@ -196,7 +196,7 @@ fn test_entry_names() {
     let manifest = load_manifest();
     let dir = testdata_dir();
     for gf in &manifest.files {
-        let reader = ShardV2Reader::from_file(&dir.join(&gf.filename))
+        let reader = ShardReader::from_file(&dir.join(&gf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", gf.filename, e));
         let names = reader.entry_names();
         let expected: Vec<&str> = gf.entries.iter().map(|e| e.name.as_str()).collect();
@@ -209,7 +209,7 @@ fn test_entry_details() {
     let manifest = load_manifest();
     let dir = testdata_dir();
     for gf in &manifest.files {
-        let reader = ShardV2Reader::from_file(&dir.join(&gf.filename))
+        let reader = ShardReader::from_file(&dir.join(&gf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", gf.filename, e));
         for (i, ge) in gf.entries.iter().enumerate() {
             let info = reader.get_entry_info(i).unwrap();
@@ -257,7 +257,7 @@ fn test_entry_data_sha256() {
     let manifest = load_manifest();
     let dir = testdata_dir();
     for gf in &manifest.files {
-        let reader = ShardV2Reader::from_file(&dir.join(&gf.filename))
+        let reader = ShardReader::from_file(&dir.join(&gf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", gf.filename, e));
         for (i, ge) in gf.entries.iter().enumerate() {
             let data = reader
@@ -278,7 +278,7 @@ fn test_lookup_by_name() {
     let manifest = load_manifest();
     let dir = testdata_dir();
     for gf in &manifest.files {
-        let reader = ShardV2Reader::from_file(&dir.join(&gf.filename))
+        let reader = ShardReader::from_file(&dir.join(&gf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", gf.filename, e));
         for (i, ge) in gf.entries.iter().enumerate() {
             let idx = reader.lookup(&ge.name);
@@ -307,7 +307,7 @@ fn test_read_by_name() {
     let manifest = load_manifest();
     let dir = testdata_dir();
     for gf in &manifest.files {
-        let reader = ShardV2Reader::from_file(&dir.join(&gf.filename))
+        let reader = ShardReader::from_file(&dir.join(&gf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", gf.filename, e));
         for (i, ge) in gf.entries.iter().enumerate() {
             let by_name = reader
@@ -352,7 +352,7 @@ fn test_xxhash64_known_values() {
 #[test]
 fn test_list_prefix_hierarchical() {
     let dir = testdata_dir();
-    let reader = ShardV2Reader::from_file(&dir.join("golden_hierarchical.shard"))
+    let reader = ShardReader::from_file(&dir.join("golden_hierarchical.shard"))
         .expect("open golden_hierarchical.shard");
 
     // All 4 attention entries
@@ -384,7 +384,7 @@ fn test_list_prefix_hierarchical() {
 #[test]
 fn test_list_prefix_wshard() {
     let dir = testdata_dir();
-    let reader = ShardV2Reader::from_file(&dir.join("golden_wshard.shard"))
+    let reader = ShardReader::from_file(&dir.join("golden_wshard.shard"))
         .expect("open golden_wshard.shard");
 
     // signal/ prefix
@@ -409,7 +409,7 @@ fn test_list_prefix_wshard() {
 
 #[test]
 fn test_version_constant() {
-    assert_eq!(SHARD_VERSION2, 0x02);
+    assert_eq!(SHARD_VERSION, 0x02);
 }
 
 #[test]

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "shard-format"
 version = "0.1.0"
-description = "Shard v2 binary container format — O(1) lookup, per-entry compression, CRC32C checksums"
+description = "Shard binary container format — O(1) lookup, per-entry compression, CRC32C checksums"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -47,7 +47,7 @@ Issues = "https://github.com/Neumenon/cowrie/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["shard_v2*"]
+include = ["shard_format*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

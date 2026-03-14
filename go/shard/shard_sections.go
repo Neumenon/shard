@@ -1,4 +1,4 @@
-// Package ucodec provides optional section support for ShardV2+.
+// Package ucodec provides optional section support for Shard+.
 //
 // This file adds forward-compatible sections for:
 //   - 64KB page alignment (align_pow2)
@@ -56,11 +56,11 @@ const (
 
 // Header flags for extended features
 const (
-	ShardV2FlagHasSectionDir ShardFlags = 0x0100 // Section directory present
-	ShardV2FlagHasNameMap    ShardFlags = 0x0200 // Name map section present
-	ShardV2FlagHasRegionTbl  ShardFlags = 0x0400 // Region table present
-	ShardV2FlagHasQuantMeta  ShardFlags = 0x0800 // Quant meta section present
-	ShardV2FlagAlignPow2     ShardFlags = 0x1000 // Uses align_pow2 semantics
+	ShardFlagHasSectionDir ShardFlags = 0x0100 // Section directory present
+	ShardFlagHasNameMap    ShardFlags = 0x0200 // Name map section present
+	ShardFlagHasRegionTbl  ShardFlags = 0x0400 // Region table present
+	ShardFlagHasQuantMeta  ShardFlags = 0x0800 // Quant meta section present
+	ShardFlagAlignPow2     ShardFlags = 0x1000 // Uses align_pow2 semantics
 )
 
 // ============================================================

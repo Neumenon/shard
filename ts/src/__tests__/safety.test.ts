@@ -16,9 +16,9 @@ import { tmpdir } from 'node:os';
 import { describe, it, expect, beforeAll } from 'vitest';
 
 import {
-  ShardV2Reader,
-  ShardV2Writer,
-  ShardV2StreamWriter,
+  ShardReader,
+  ShardWriter,
+  ShardStreamWriter,
   initXxhash,
   initCompression,
   ROLE_MOSH,
@@ -104,26 +104,26 @@ describe('safety: valid shards', () => {
       const mf = manifest.valid.find(v => v.filename === filename)!;
       expect(mf, `${filename} not in manifest`).toBeDefined();
       const buf = loadFixture(filename);
-      const reader = new ShardV2Reader(buf);
+      const reader = new ShardReader(buf);
       expect(reader).toBeDefined();
     });
 
     it('entry count matches manifest', () => {
       const mf = manifest.valid.find(v => v.filename === filename)!;
-      const reader = new ShardV2Reader(loadFixture(filename));
+      const reader = new ShardReader(loadFixture(filename));
       expect(reader.entryCount()).toBe(mf.entry_count);
     });
 
     it('entry names match manifest', () => {
       const mf = manifest.valid.find(v => v.filename === filename)!;
-      const reader = new ShardV2Reader(loadFixture(filename));
+      const reader = new ShardReader(loadFixture(filename));
       const expectedNames = mf.entries.map(e => e.name);
       expect(reader.entryNames()).toEqual(expectedNames);
     });
 
     it('entry data SHA256 matches manifest', () => {
       const mf = manifest.valid.find(v => v.filename === filename)!;
-      const reader = new ShardV2Reader(loadFixture(filename));
+      const reader = new ShardReader(loadFixture(filename));
 
       for (let j = 0; j < mf.entries.length; j++) {
         const expected = mf.entries[j];
@@ -135,7 +135,7 @@ describe('safety: valid shards', () => {
 
     it('entry data sizes match manifest', () => {
       const mf = manifest.valid.find(v => v.filename === filename)!;
-      const reader = new ShardV2Reader(loadFixture(filename));
+      const reader = new ShardReader(loadFixture(filename));
 
       for (let j = 0; j < mf.entries.length; j++) {
         const expected = mf.entries[j];
@@ -152,7 +152,7 @@ describe('safety: valid shards', () => {
 
     it('lookup by name works for all entries', () => {
       const mf = manifest.valid.find(v => v.filename === filename)!;
-      const reader = new ShardV2Reader(loadFixture(filename));
+      const reader = new ShardReader(loadFixture(filename));
 
       for (let j = 0; j < mf.entries.length; j++) {
         const name = mf.entries[j].name;
@@ -163,7 +163,7 @@ describe('safety: valid shards', () => {
 
     it('readEntryByName returns correct data', () => {
       const mf = manifest.valid.find(v => v.filename === filename)!;
-      const reader = new ShardV2Reader(loadFixture(filename));
+      const reader = new ShardReader(loadFixture(filename));
 
       for (const entry of mf.entries) {
         const data = reader.readEntryByName(entry.name);
@@ -173,7 +173,7 @@ describe('safety: valid shards', () => {
 
     it('hasEntry returns true for all entries', () => {
       const mf = manifest.valid.find(v => v.filename === filename)!;
-      const reader = new ShardV2Reader(loadFixture(filename));
+      const reader = new ShardReader(loadFixture(filename));
 
       for (const entry of mf.entries) {
         expect(reader.hasEntry(entry.name), `hasEntry(${entry.name})`).toBe(true);
@@ -182,7 +182,7 @@ describe('safety: valid shards', () => {
     });
 
     it('lookup returns undefined/-1 for nonexistent names', () => {
-      const reader = new ShardV2Reader(loadFixture(filename));
+      const reader = new ShardReader(loadFixture(filename));
 
       expect(reader.lookup('nonexistent')).toBe(-1);
       expect(reader.lookup('')).toBe(-1);
@@ -216,7 +216,7 @@ describe('safety: corrupt shards', () => {
       let threwError = false;
 
       try {
-        const reader = new ShardV2Reader(buf);
+        const reader = new ShardReader(buf);
         // If the constructor succeeded, try reading all entries.
         // Some corrupt files (e.g. CRC mismatch) only fail on readEntry.
         for (let i = 0; i < reader.entryCount(); i++) {
@@ -231,13 +231,13 @@ describe('safety: corrupt shards', () => {
   });
 
   it('rejects empty buffer', () => {
-    expect(() => new ShardV2Reader(Buffer.alloc(0))).toThrow();
+    expect(() => new ShardReader(Buffer.alloc(0))).toThrow();
   });
 
   it('rejects wrong magic', () => {
     const buf = Buffer.alloc(64, 0);
     buf.write('NOPE', 0, 'ascii');
-    expect(() => new ShardV2Reader(buf)).toThrow();
+    expect(() => new ShardReader(buf)).toThrow();
   });
 
   it('does not crash on random data', () => {
@@ -251,7 +251,7 @@ describe('safety: corrupt shards', () => {
     }
 
     try {
-      const reader = new ShardV2Reader(buf);
+      const reader = new ShardReader(buf);
       for (let i = 0; i < reader.entryCount(); i++) {
         reader.readEntry(i);
       }
@@ -268,8 +268,8 @@ describe('safety: corrupt shards', () => {
 // ============================================================
 
 describe('safety: cross-write roundtrip', () => {
-  it('ShardV2Writer roundtrip: write and read back entries', () => {
-    const writer = new ShardV2Writer(ROLE_MOSH);
+  it('ShardWriter roundtrip: write and read back entries', () => {
+    const writer = new ShardWriter(ROLE_MOSH);
     writer.setAlignment(ALIGN_64);
 
     const testEntries = [
@@ -284,7 +284,7 @@ describe('safety: cross-write roundtrip', () => {
     }
 
     const buf = writer.toBuffer();
-    const reader = new ShardV2Reader(buf);
+    const reader = new ShardReader(buf);
 
     expect(reader.entryCount()).toBe(testEntries.length);
     expect(reader.entryNames()).toEqual(testEntries.map(e => e.name));
@@ -297,11 +297,11 @@ describe('safety: cross-write roundtrip', () => {
     }
   });
 
-  it('ShardV2StreamWriter roundtrip: write and read back entries', () => {
+  it('ShardStreamWriter roundtrip: write and read back entries', () => {
     const tmpPath = resolve(tmpdir(), `safety_test_${Date.now()}_${Math.random().toString(36).slice(2)}.shard`);
 
     try {
-      const sw = new ShardV2StreamWriter(tmpPath, ROLE_MOSH, 100);
+      const sw = new ShardStreamWriter(tmpPath, ROLE_MOSH, 100);
       sw.setAlignment(ALIGN_64);
       sw.beginData();
 
@@ -317,7 +317,7 @@ describe('safety: cross-write roundtrip', () => {
       sw.finalize();
 
       const buf = readFileSync(tmpPath);
-      const reader = new ShardV2Reader(buf);
+      const reader = new ShardReader(buf);
 
       expect(reader.entryCount()).toBe(testEntries.length);
       expect(reader.entryNames()).toEqual(testEntries.map(e => e.name));
@@ -339,11 +339,11 @@ describe('safety: cross-write roundtrip', () => {
   });
 
   it('empty entry survives roundtrip', () => {
-    const writer = new ShardV2Writer(ROLE_MOSH);
+    const writer = new ShardWriter(ROLE_MOSH);
     writer.writeEntry('empty_test', Buffer.alloc(0));
 
     const buf = writer.toBuffer();
-    const reader = new ShardV2Reader(buf);
+    const reader = new ShardReader(buf);
 
     expect(reader.entryCount()).toBe(1);
     const data = reader.readEntry(0);
@@ -351,7 +351,7 @@ describe('safety: cross-write roundtrip', () => {
   });
 
   it('unicode names survive roundtrip', () => {
-    const writer = new ShardV2Writer(ROLE_MOSH);
+    const writer = new ShardWriter(ROLE_MOSH);
 
     const unicodeEntries = [
       { name: '\u6771\u4EAC\u30BF\u30EF\u30FC', data: Buffer.from('japanese') },      // 東京タワー
@@ -364,7 +364,7 @@ describe('safety: cross-write roundtrip', () => {
     }
 
     const buf = writer.toBuffer();
-    const reader = new ShardV2Reader(buf);
+    const reader = new ShardReader(buf);
 
     expect(reader.entryCount()).toBe(unicodeEntries.length);
     const names = reader.entryNames();
@@ -376,7 +376,7 @@ describe('safety: cross-write roundtrip', () => {
   });
 
   it('large entry (1MB+) roundtrip', () => {
-    const writer = new ShardV2Writer(ROLE_MOSH);
+    const writer = new ShardWriter(ROLE_MOSH);
 
     // 1 MB + 137 bytes (not a round number)
     const size = 1024 * 1024 + 137;
@@ -389,7 +389,7 @@ describe('safety: cross-write roundtrip', () => {
     writer.writeEntry('large_blob', largeData);
 
     const buf = writer.toBuffer();
-    const reader = new ShardV2Reader(buf);
+    const reader = new ShardReader(buf);
 
     expect(reader.entryCount()).toBe(1);
     const data = reader.readEntry(0);
@@ -398,7 +398,7 @@ describe('safety: cross-write roundtrip', () => {
   });
 
   it('many entries (200) roundtrip', () => {
-    const writer = new ShardV2Writer(ROLE_MOSH);
+    const writer = new ShardWriter(ROLE_MOSH);
 
     const count = 200;
     const entries: Array<{ name: string; data: Buffer }> = [];
@@ -410,7 +410,7 @@ describe('safety: cross-write roundtrip', () => {
     }
 
     const buf = writer.toBuffer();
-    const reader = new ShardV2Reader(buf);
+    const reader = new ShardReader(buf);
 
     expect(reader.entryCount()).toBe(count);
     const names = reader.entryNames();
@@ -424,7 +424,7 @@ describe('safety: cross-write roundtrip', () => {
   });
 
   it('detects corruption after write', () => {
-    const writer = new ShardV2Writer(ROLE_MOSH);
+    const writer = new ShardWriter(ROLE_MOSH);
     writer.writeEntry('integrity_check', Buffer.from('this data must not be silently corrupted'));
 
     const buf = writer.toBuffer();
@@ -436,7 +436,7 @@ describe('safety: cross-write roundtrip', () => {
 
     let threwError = false;
     try {
-      const reader = new ShardV2Reader(corruptedBuf);
+      const reader = new ShardReader(corruptedBuf);
       for (let i = 0; i < reader.entryCount(); i++) {
         reader.readEntry(i); // checksum verification should catch corruption
       }
@@ -448,7 +448,7 @@ describe('safety: cross-write roundtrip', () => {
   });
 
   it('preserves entry order', () => {
-    const writer = new ShardV2Writer(ROLE_MOSH);
+    const writer = new ShardWriter(ROLE_MOSH);
 
     const orderedNames: string[] = [];
     for (let i = 0; i < 20; i++) {
@@ -459,13 +459,13 @@ describe('safety: cross-write roundtrip', () => {
     }
 
     const buf = writer.toBuffer();
-    const reader = new ShardV2Reader(buf);
+    const reader = new ShardReader(buf);
 
     expect(reader.entryNames()).toEqual(orderedNames);
   });
 
   it('lookup works after roundtrip', () => {
-    const writer = new ShardV2Writer(ROLE_MOSH);
+    const writer = new ShardWriter(ROLE_MOSH);
     const namedEntries = [
       { name: 'first_entry', data: Buffer.from('aaa') },
       { name: 'second_entry', data: Buffer.from('bbb') },
@@ -477,7 +477,7 @@ describe('safety: cross-write roundtrip', () => {
     }
 
     const buf = writer.toBuffer();
-    const reader = new ShardV2Reader(buf);
+    const reader = new ShardReader(buf);
 
     for (let i = 0; i < namedEntries.length; i++) {
       const idx = reader.lookup(namedEntries[i].name);
@@ -491,12 +491,12 @@ describe('safety: cross-write roundtrip', () => {
   });
 
   it('binary data survives roundtrip (all 256 byte values)', () => {
-    const writer = new ShardV2Writer(ROLE_MOSH);
+    const writer = new ShardWriter(ROLE_MOSH);
     const allBytes = Buffer.from(Array.from({ length: 256 }, (_, i) => i));
     writer.writeEntry('all_bytes', allBytes);
 
     const buf = writer.toBuffer();
-    const reader = new ShardV2Reader(buf);
+    const reader = new ShardReader(buf);
     const data = reader.readEntry(0);
 
     expect(data.length).toBe(256);

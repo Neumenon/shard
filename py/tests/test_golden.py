@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from shard_v2 import (
-    ShardV2Reader,
+from shard_format import (
+    ShardReader,
     compute_crc32c,
     compute_xxhash64,
 )
@@ -56,7 +56,7 @@ class TestGoldenFiles:
     def test_header_fields(self, manifest, file_index):
         gf = manifest["files"][file_index]
         path = TESTDATA / gf["filename"]
-        reader = ShardV2Reader(path)
+        reader = ShardReader(path)
         h = reader.header()
         gh = gf["header"]
 
@@ -79,7 +79,7 @@ class TestGoldenFiles:
     )
     def test_entry_count(self, manifest, file_index):
         gf = manifest["files"][file_index]
-        reader = ShardV2Reader(TESTDATA / gf["filename"])
+        reader = ShardReader(TESTDATA / gf["filename"])
         assert reader.entry_count() == len(gf["entries"])
 
     @pytest.mark.parametrize(
@@ -89,7 +89,7 @@ class TestGoldenFiles:
     )
     def test_entry_names(self, manifest, file_index):
         gf = manifest["files"][file_index]
-        reader = ShardV2Reader(TESTDATA / gf["filename"])
+        reader = ShardReader(TESTDATA / gf["filename"])
         expected = [e["name"] for e in gf["entries"]]
         assert reader.entry_names() == expected
 
@@ -100,7 +100,7 @@ class TestGoldenFiles:
     )
     def test_entry_details(self, manifest, file_index):
         gf = manifest["files"][file_index]
-        reader = ShardV2Reader(TESTDATA / gf["filename"])
+        reader = ShardReader(TESTDATA / gf["filename"])
 
         for i, ge in enumerate(gf["entries"]):
             info = reader.get_entry_info(i)
@@ -119,7 +119,7 @@ class TestGoldenFiles:
     )
     def test_entry_data_sha256(self, manifest, file_index):
         gf = manifest["files"][file_index]
-        reader = ShardV2Reader(TESTDATA / gf["filename"])
+        reader = ShardReader(TESTDATA / gf["filename"])
 
         for i, ge in enumerate(gf["entries"]):
             data = reader.read_entry(i)
@@ -135,7 +135,7 @@ class TestGoldenFiles:
     )
     def test_lookup_by_name(self, manifest, file_index):
         gf = manifest["files"][file_index]
-        reader = ShardV2Reader(TESTDATA / gf["filename"])
+        reader = ShardReader(TESTDATA / gf["filename"])
 
         for i, ge in enumerate(gf["entries"]):
             idx = reader.lookup(ge["name"])
@@ -152,7 +152,7 @@ class TestGoldenFiles:
     )
     def test_read_by_name(self, manifest, file_index):
         gf = manifest["files"][file_index]
-        reader = ShardV2Reader(TESTDATA / gf["filename"])
+        reader = ShardReader(TESTDATA / gf["filename"])
 
         for ge in gf["entries"]:
             data = reader.read_entry_by_name(ge["name"])
@@ -196,7 +196,7 @@ class TestXXHash64:
 class TestListPrefix:
     def test_hierarchical(self, manifest):
         gf = manifest["files"][5]  # golden_hierarchical.shard
-        reader = ShardV2Reader(TESTDATA / gf["filename"])
+        reader = ShardReader(TESTDATA / gf["filename"])
 
         attn = reader.list_prefix("layer.0/attention/")
         assert len(attn) == 4
@@ -208,7 +208,7 @@ class TestListPrefix:
 
     def test_wshard_lanes(self, manifest):
         gf = manifest["files"][4]  # golden_wshard.shard
-        reader = ShardV2Reader(TESTDATA / gf["filename"])
+        reader = ShardReader(TESTDATA / gf["filename"])
 
         signals = reader.list_prefix("signal/")
         assert len(signals) == 1

@@ -21,7 +21,7 @@ import (
 //	w.Close() // flushes final row group, writes schema, finalizes shard
 type ColumnShardWriter struct {
 	path         string
-	shard        *ShardV2Writer
+	shard        *ShardWriter
 	schema       *ColumnShardSchema
 	rowGroupSize int
 
@@ -47,7 +47,7 @@ func NewColumnShardWriter(path string, rowGroupSize int) (*ColumnShardWriter, er
 		rowGroupSize = 65536
 	}
 
-	shard, err := NewShardV2Writer(path, ShardRoleColumn)
+	shard, err := NewShardWriter(path, ShardRoleColumn)
 	if err != nil {
 		return nil, err
 	}

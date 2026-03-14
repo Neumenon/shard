@@ -1,8 +1,8 @@
 /// Tests for metadata/schema, security limits, list_children, read_entry_prefix,
-/// and path helpers added to shard_v2.
+/// and path helpers added to shard.
 use shard_format::{
     EntryMeta, FLAG_HAS_SCHEMA, HEADER_SIZE, INDEX_ENTRY_SIZE, MAX_ENTRY_COUNT, ROLE_MOSH,
-    ShardMetadata, ShardV2Reader, ShardV2Writer, join_path, path_base, path_parent, split_path,
+    ShardMetadata, ShardReader, ShardWriter, join_path, path_base, path_parent, split_path,
 };
 
 // ============================================================
@@ -10,7 +10,7 @@ use shard_format::{
 // ============================================================
 
 fn make_shard(entries: &[(&str, &[u8])]) -> Vec<u8> {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     for (name, data) in entries {
         w.write_entry(name, data);
     }
@@ -18,7 +18,7 @@ fn make_shard(entries: &[(&str, &[u8])]) -> Vec<u8> {
 }
 
 fn make_shard_with_meta(entries: &[(&str, &[u8])], meta: ShardMetadata) -> Vec<u8> {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     for (name, data) in entries {
         w.write_entry(name, data);
     }
@@ -112,7 +112,7 @@ fn make_layered_shard() -> Vec<u8> {
 #[test]
 fn list_children_exact_prefix_with_slash() {
     let buf = make_layered_shard();
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let mut result = r.list_children("layer.0/");
     result.sort();
     assert_eq!(result, vec!["layer.0/bias", "layer.0/weight"]);
@@ -121,7 +121,7 @@ fn list_children_exact_prefix_with_slash() {
 #[test]
 fn list_children_empty_prefix_returns_top_level() {
     let buf = make_layered_shard();
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let result = r.list_children("");
     assert!(result.contains(&"layer.0/".to_string()));
     assert!(result.contains(&"layer.1/".to_string()));
@@ -135,7 +135,7 @@ fn list_children_empty_prefix_returns_top_level() {
 #[test]
 fn list_children_partial_prefix() {
     let buf = make_layered_shard();
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let mut result = r.list_children("layer.");
     result.sort();
     assert_eq!(result, vec!["layer.0/", "layer.1/"]);
@@ -144,7 +144,7 @@ fn list_children_partial_prefix() {
 #[test]
 fn list_children_nonexistent_prefix() {
     let buf = make_shard(&[("a/b", b"x")]);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let result = r.list_children("nonexistent/");
     assert!(result.is_empty());
 }
@@ -156,7 +156,7 @@ fn list_children_dedup_directories() {
         ("a/c", b"2"),
         ("a/d", b"3"),
     ]);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let result = r.list_children("");
     // "a/" should appear exactly once
     assert_eq!(result.iter().filter(|x| x.as_str() == "a/").count(), 1);
@@ -170,7 +170,7 @@ fn list_children_hierarchical_three_levels() {
         ("a/e", b"3"),
         ("f", b"4"),
     ]);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
 
     let top = r.list_children("");
     assert!(top.contains(&"a/".to_string()));
@@ -194,7 +194,7 @@ const PAYLOAD: &[u8] = b"Hello World, this is a test payload!";
 #[test]
 fn read_entry_prefix_first_n_bytes() {
     let buf = make_shard(&[("entry", PAYLOAD)]);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let got = r.read_entry_prefix(0, 5).unwrap();
     assert_eq!(got, b"Hello");
 }
@@ -202,7 +202,7 @@ fn read_entry_prefix_first_n_bytes() {
 #[test]
 fn read_entry_prefix_full_entry() {
     let buf = make_shard(&[("entry", PAYLOAD)]);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let got = r.read_entry_prefix(0, PAYLOAD.len()).unwrap();
     assert_eq!(got, PAYLOAD);
 }
@@ -210,7 +210,7 @@ fn read_entry_prefix_full_entry() {
 #[test]
 fn read_entry_prefix_exceeds_entry_length() {
     let buf = make_shard(&[("entry", PAYLOAD)]);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let got = r.read_entry_prefix(0, 100_000).unwrap();
     assert_eq!(got, PAYLOAD);
 }
@@ -218,7 +218,7 @@ fn read_entry_prefix_exceeds_entry_length() {
 #[test]
 fn read_entry_prefix_zero_bytes() {
     let buf = make_shard(&[("entry", PAYLOAD)]);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let got = r.read_entry_prefix(0, 0).unwrap();
     assert!(got.is_empty());
 }
@@ -226,7 +226,7 @@ fn read_entry_prefix_zero_bytes() {
 #[test]
 fn read_entry_prefix_one_byte() {
     let buf = make_shard(&[("entry", PAYLOAD)]);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let got = r.read_entry_prefix(0, 1).unwrap();
     assert_eq!(got, b"H");
 }
@@ -245,7 +245,7 @@ fn metadata_basic_roundtrip() {
     meta.tags = vec!["ml".to_string(), "test".to_string()];
 
     let buf = make_shard_with_meta(&[("data", b"hello")], meta);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
 
     // FLAG_HAS_SCHEMA must be set
     assert!(r.header().flags & FLAG_HAS_SCHEMA != 0);
@@ -275,7 +275,7 @@ fn metadata_entry_metadata_roundtrip() {
     meta.entry_metadata.insert("model/weight".to_string(), em);
 
     let buf = make_shard_with_meta(&[("model/weight", &[0u8; 16])], meta);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let got = r.read_metadata().unwrap().expect("metadata should be Some");
 
     assert!(got.entry_metadata.contains_key("model/weight"));
@@ -289,7 +289,7 @@ fn metadata_entry_metadata_roundtrip() {
 #[test]
 fn metadata_no_metadata_returns_none() {
     let buf = make_shard(&[("data", b"hello")]);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     assert_eq!(r.header().schema_offset, 0);
     assert!(r.read_metadata().unwrap().is_none());
 }
@@ -301,7 +301,7 @@ fn metadata_extra_fields() {
     meta.extra.insert("num_layers".to_string(), serde_json::json!(12));
 
     let buf = make_shard_with_meta(&[("cfg", b"x")], meta);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let got = r.read_metadata().unwrap().expect("metadata should be Some");
     assert_eq!(got.extra["model_type"], serde_json::json!("transformer"));
     assert_eq!(got.extra["num_layers"], serde_json::json!(12));
@@ -314,7 +314,7 @@ fn metadata_source_uri_schema_uri() {
     meta.schema_uri = "https://example.com/schema.json".to_string();
 
     let buf = make_shard_with_meta(&[("x", b"y")], meta);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let got = r.read_metadata().unwrap().expect("metadata should be Some");
     assert_eq!(got.source_uri, "s3://bucket/model.safetensors");
     assert_eq!(got.schema_uri, "https://example.com/schema.json");
@@ -324,7 +324,7 @@ fn metadata_source_uri_schema_uri() {
 fn metadata_default_schema_version() {
     let meta = ShardMetadata::default();
     let buf = make_shard_with_meta(&[("x", b"y")], meta);
-    let r = ShardV2Reader::from_bytes(buf).unwrap();
+    let r = ShardReader::from_bytes(buf).unwrap();
     let got = r.read_metadata().unwrap().expect("metadata should be Some");
     assert_eq!(got.schema_version, "shard-v2.1");
 }
@@ -335,7 +335,7 @@ fn security_schema_offset_beyond_file_is_rejected() {
     let invalid = (buf.len() as u64) + 1;
     buf[32..40].copy_from_slice(&invalid.to_le_bytes());
 
-    let err = ShardV2Reader::from_bytes(buf).unwrap_err();
+    let err = ShardReader::from_bytes(buf).unwrap_err();
     let msg = format!("{}", err);
     assert!(msg.contains("schema_offset"), "expected schema_offset error, got: {}", msg);
 }
@@ -351,7 +351,7 @@ fn security_schema_offset_overlapping_data_is_rejected() {
     );
     buf[32..40].copy_from_slice(&data_offset.to_le_bytes());
 
-    let err = ShardV2Reader::from_bytes(buf).unwrap_err();
+    let err = ShardReader::from_bytes(buf).unwrap_err();
     let msg = format!("{}", err);
     assert!(msg.contains("schema_offset"), "expected schema_offset error, got: {}", msg);
 }
@@ -387,7 +387,7 @@ fn make_corrupt_header(entry_count: u32, total_file_size_override: Option<u64>) 
 fn security_entry_count_too_large() {
     let too_many = (MAX_ENTRY_COUNT + 1) as u32;
     let buf = make_corrupt_header(too_many, Some(HEADER_SIZE as u64));
-    let err = ShardV2Reader::from_bytes(buf).unwrap_err();
+    let err = ShardReader::from_bytes(buf).unwrap_err();
     let msg = format!("{}", err);
     assert!(
         msg.contains("MAX_ENTRY_COUNT"),
@@ -403,7 +403,7 @@ fn security_total_file_size_mismatch() {
     // Overwrite total_file_size at offset 40
     let corrupt_size = 99999u64;
     buf[40..48].copy_from_slice(&corrupt_size.to_le_bytes());
-    let err = ShardV2Reader::from_bytes(buf).unwrap_err();
+    let err = ShardReader::from_bytes(buf).unwrap_err();
     let msg = format!("{}", err);
     assert!(
         msg.contains("total_file_size"),
@@ -421,7 +421,7 @@ fn security_data_offset_before_data_section() {
     // Keep total_file_size consistent
     let tfs = buf.len() as u64;
     buf[40..48].copy_from_slice(&tfs.to_le_bytes());
-    assert!(ShardV2Reader::from_bytes(buf).is_err());
+    assert!(ShardReader::from_bytes(buf).is_err());
 }
 
 #[test]
@@ -432,5 +432,5 @@ fn security_data_extends_past_end_of_file() {
     buf[entry_off..entry_off + 8].copy_from_slice(&0xFFFF_FFFFu64.to_le_bytes());
     let tfs = buf.len() as u64;
     buf[40..48].copy_from_slice(&tfs.to_le_bytes());
-    assert!(ShardV2Reader::from_bytes(buf).is_err());
+    assert!(ShardReader::from_bytes(buf).is_err());
 }

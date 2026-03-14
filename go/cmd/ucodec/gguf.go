@@ -41,7 +41,7 @@ Example:
 Notes:
   - GGUF files from Ollama are stored in ~/.ollama/models/blobs/
   - Find the correct blob with: ollama show <model> --modelfile
-  - Output format is MoSH (Model Shard) using Shard v2.1 spec
+  - Output format is MoSH (Model Shard) using Shard.1 spec
   - Unmapped tensors are logged to stderr for debugging
 `)
 	}
@@ -102,7 +102,7 @@ Notes:
 	}
 
 	fmt.Printf("\nSuccess! Model saved to %s\n", *output)
-	fmt.Printf("Format: MoSH (Model Shard, Shard v2.1)\n")
+	fmt.Printf("Format: MoSH (Model Shard, Shard.1)\n")
 	return nil
 }
 

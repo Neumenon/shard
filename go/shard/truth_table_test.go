@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// Truth table tests for shard v2 — 9 cases from testdata/robustness/truth_cases.json.
+// Truth table tests for shard — 9 cases from testdata/robustness/truth_cases.json.
 
 // fixtureDir returns the path to the corrupt fixture directory.
 func fixtureDir() string {
@@ -18,9 +18,9 @@ func fixtureDir() string {
 func writeShardToBytes(t *testing.T, entries []struct{ name string; data []byte }) []byte {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.shard")
-	w, err := NewShardV2Writer(path, ShardRoleMoSH)
+	w, err := NewShardWriter(path, ShardRoleMoSH)
 	if err != nil {
-		t.Fatalf("NewShardV2Writer: %v", err)
+		t.Fatalf("NewShardWriter: %v", err)
 	}
 	for _, e := range entries {
 		if err := w.WriteEntry(e.name, e.data); err != nil {
@@ -39,17 +39,17 @@ func writeShardToBytes(t *testing.T, entries []struct{ name string; data []byte 
 }
 
 // helper: open a shard file by path and return the reader (or error).
-func openShardFile(path string) (*ShardV2Reader, error) {
-	return OpenShardV2(path)
+func openShardFile(path string) (*ShardReader, error) {
+	return OpenShard(path)
 }
 
 // Case 1: duplicate_entry_names_rejected
 // Writing 2 entries with the same name should produce an error at some point.
 func TestTruthDuplicateEntryNamesRejected(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dup.shard")
-	w, err := NewShardV2Writer(path, ShardRoleMoSH)
+	w, err := NewShardWriter(path, ShardRoleMoSH)
 	if err != nil {
-		t.Fatalf("NewShardV2Writer: %v", err)
+		t.Fatalf("NewShardWriter: %v", err)
 	}
 
 	err1 := w.WriteEntry("a", []byte("first"))
@@ -66,7 +66,7 @@ func TestTruthDuplicateEntryNamesRejected(t *testing.T) {
 
 	// Writer didn't reject — check that the resulting shard is malformed or
 	// the reader sees only one entry (last-writer-wins is also acceptable).
-	r, err := OpenShardV2(path)
+	r, err := OpenShard(path)
 	if err != nil {
 		// Reader rejected the duplicate — acceptable.
 		return
@@ -94,9 +94,9 @@ func TestTruthZeroLengthEntryValid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r, err := OpenShardV2(path)
+	r, err := OpenShard(path)
 	if err != nil {
-		t.Fatalf("OpenShardV2 failed for zero-length entry shard: %v", err)
+		t.Fatalf("OpenShard failed for zero-length entry shard: %v", err)
 	}
 	defer r.Close()
 
@@ -125,9 +125,9 @@ func TestTruthUnicodeEntryName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r, err := OpenShardV2(path)
+	r, err := OpenShard(path)
 	if err != nil {
-		t.Fatalf("OpenShardV2 failed for unicode name shard: %v", err)
+		t.Fatalf("OpenShard failed for unicode name shard: %v", err)
 	}
 	defer r.Close()
 
@@ -152,7 +152,7 @@ func TestTruthUnicodeEntryName(t *testing.T) {
 // Case 4: bad_magic_rejected
 func TestTruthBadMagicRejected(t *testing.T) {
 	path := filepath.Join(fixtureDir(), "corrupt_bad_magic.shard")
-	_, err := OpenShardV2(path)
+	_, err := OpenShard(path)
 	if err == nil {
 		t.Fatal("expected error for bad magic, got nil")
 	}
@@ -161,7 +161,7 @@ func TestTruthBadMagicRejected(t *testing.T) {
 // Case 5: truncated_header_rejected
 func TestTruthTruncatedHeaderRejected(t *testing.T) {
 	path := filepath.Join(fixtureDir(), "corrupt_truncated_header.shard")
-	_, err := OpenShardV2(path)
+	_, err := OpenShard(path)
 	if err == nil {
 		t.Fatal("expected error for truncated header, got nil")
 	}
@@ -170,7 +170,7 @@ func TestTruthTruncatedHeaderRejected(t *testing.T) {
 // Case 6: crc_mismatch_rejected
 func TestTruthCrcMismatchRejected(t *testing.T) {
 	path := filepath.Join(fixtureDir(), "corrupt_crc_mismatch.shard")
-	r, err := OpenShardV2(path)
+	r, err := OpenShard(path)
 	if err != nil {
 		// Rejected at open — acceptable.
 		return
@@ -190,7 +190,7 @@ func TestTruthCrcMismatchRejected(t *testing.T) {
 // Case 7: truncated_data_rejected
 func TestTruthTruncatedDataRejected(t *testing.T) {
 	path := filepath.Join(fixtureDir(), "corrupt_truncated_data.shard")
-	r, err := OpenShardV2(path)
+	r, err := OpenShard(path)
 	if err != nil {
 		// Rejected at open — acceptable.
 		return
@@ -210,7 +210,7 @@ func TestTruthTruncatedDataRejected(t *testing.T) {
 // Case 8: entry_count_overflow_rejected
 func TestTruthEntryCountOverflowRejected(t *testing.T) {
 	path := filepath.Join(fixtureDir(), "corrupt_entry_count_overflow.shard")
-	_, err := OpenShardV2(path)
+	_, err := OpenShard(path)
 	if err == nil {
 		t.Fatal("expected error for entry count overflow, got nil")
 	}
@@ -223,7 +223,7 @@ func TestTruthEmptyInputRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := OpenShardV2(path)
+	_, err := OpenShard(path)
 	if err == nil {
 		t.Fatal("expected error for empty input, got nil")
 	}

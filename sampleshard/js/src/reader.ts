@@ -19,8 +19,8 @@ import {
   SampleShardProfile,
   ManifestProfile,
   ShardRole,
-  SHARD_V2_HEADER_SIZE,
-  SHARD_V2_INDEX_ENTRY_SIZE,
+  SHARD_HEADER_SIZE,
+  SHARD_INDEX_ENTRY_SIZE,
   parseHeader,
   parseIndexEntry,
   isCompressed,
@@ -85,8 +85,8 @@ export class SampleShardReader {
     this.fd = fs.openSync(this.path, 'r');
 
     // Read header
-    const headerBuf = Buffer.alloc(SHARD_V2_HEADER_SIZE);
-    fs.readSync(this.fd, headerBuf, 0, SHARD_V2_HEADER_SIZE, 0);
+    const headerBuf = Buffer.alloc(SHARD_HEADER_SIZE);
+    fs.readSync(this.fd, headerBuf, 0, SHARD_HEADER_SIZE, 0);
     this.header = parseHeader(headerBuf);
 
     // Verify role
@@ -99,13 +99,13 @@ export class SampleShardReader {
     }
 
     // v2 format: Index is at offset 64 (right after header)
-    const indexSize = this.header.entryCount * SHARD_V2_INDEX_ENTRY_SIZE;
+    const indexSize = this.header.entryCount * SHARD_INDEX_ENTRY_SIZE;
     const indexData = Buffer.alloc(indexSize);
-    fs.readSync(this.fd, indexData, 0, indexSize, SHARD_V2_HEADER_SIZE);
+    fs.readSync(this.fd, indexData, 0, indexSize, SHARD_HEADER_SIZE);
 
     for (let i = 0; i < this.header.entryCount; i++) {
-      const offset = i * SHARD_V2_INDEX_ENTRY_SIZE;
-      const entryBuf = indexData.subarray(offset, offset + SHARD_V2_INDEX_ENTRY_SIZE);
+      const offset = i * SHARD_INDEX_ENTRY_SIZE;
+      const entryBuf = indexData.subarray(offset, offset + SHARD_INDEX_ENTRY_SIZE);
       const entry = parseIndexEntry(entryBuf);
       this.entries.push(entry);
     }

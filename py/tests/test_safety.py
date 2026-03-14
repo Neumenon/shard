@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from shard_v2 import ShardV2Reader, ShardV2Writer
+from shard_format import ShardReader, ShardWriter
 
 SAFETY_DIR = Path(__file__).resolve().parent.parent.parent / "ucodec" / "testdata" / "safety"
 MANIFEST_PATH = SAFETY_DIR / "safety_manifest.json"
@@ -49,7 +49,7 @@ class TestValidShards:
     def test_entry_count(self, manifest, valid_index):
         """Open each valid shard and verify entry_count matches manifest."""
         vf = manifest["valid"][valid_index]
-        reader = ShardV2Reader(SAFETY_DIR / vf["filename"])
+        reader = ShardReader(SAFETY_DIR / vf["filename"])
         assert reader.entry_count() == vf["entry_count"], (
             f"{vf['filename']}: entry_count {reader.entry_count()} != expected {vf['entry_count']}"
         )
@@ -60,7 +60,7 @@ class TestValidShards:
     def test_entry_names(self, manifest, valid_index):
         """Verify entry names match manifest for each valid shard."""
         vf = manifest["valid"][valid_index]
-        reader = ShardV2Reader(SAFETY_DIR / vf["filename"])
+        reader = ShardReader(SAFETY_DIR / vf["filename"])
         expected_names = [e["name"] for e in vf["entries"]]
         actual_names = reader.entry_names()
         assert actual_names == expected_names, (
@@ -75,7 +75,7 @@ class TestValidShards:
     def test_entry_data_sha256(self, manifest, valid_index):
         """Read each entry and verify SHA256 of data matches manifest."""
         vf = manifest["valid"][valid_index]
-        reader = ShardV2Reader(SAFETY_DIR / vf["filename"])
+        reader = ShardReader(SAFETY_DIR / vf["filename"])
 
         for i, entry_spec in enumerate(vf["entries"]):
             data = reader.read_entry(i)
@@ -93,7 +93,7 @@ class TestValidShards:
     def test_entry_sizes(self, manifest, valid_index):
         """Verify data sizes match manifest for each entry."""
         vf = manifest["valid"][valid_index]
-        reader = ShardV2Reader(SAFETY_DIR / vf["filename"])
+        reader = ShardReader(SAFETY_DIR / vf["filename"])
 
         for i, entry_spec in enumerate(vf["entries"]):
             data = reader.read_entry(i)
@@ -123,7 +123,7 @@ class TestValidShards:
     def test_lookup_by_name(self, manifest, valid_index):
         """Verify lookup(name) returns correct index for every entry in the manifest."""
         vf = manifest["valid"][valid_index]
-        reader = ShardV2Reader(SAFETY_DIR / vf["filename"])
+        reader = ShardReader(SAFETY_DIR / vf["filename"])
 
         for i, entry_spec in enumerate(vf["entries"]):
             idx = reader.lookup(entry_spec["name"])
@@ -138,7 +138,7 @@ class TestValidShards:
     def test_read_entry_by_name(self, manifest, valid_index):
         """Verify read_entry_by_name(name) returns the same data as read_entry(index)."""
         vf = manifest["valid"][valid_index]
-        reader = ShardV2Reader(SAFETY_DIR / vf["filename"])
+        reader = ShardReader(SAFETY_DIR / vf["filename"])
 
         for i, entry_spec in enumerate(vf["entries"]):
             data_by_index = reader.read_entry(i)
@@ -160,7 +160,7 @@ class TestValidShards:
     def test_lookup_nonexistent(self, manifest, valid_index):
         """Verify that looking up nonexistent names returns -1 or raises."""
         vf = manifest["valid"][valid_index]
-        reader = ShardV2Reader(SAFETY_DIR / vf["filename"])
+        reader = ShardReader(SAFETY_DIR / vf["filename"])
 
         for bad_name in ("nonexistent", "", "__garbage__"):
             idx = reader.lookup(bad_name)
@@ -198,7 +198,7 @@ class TestCorruptShards:
         path = SAFETY_DIR / cf["filename"]
 
         try:
-            reader = ShardV2Reader(path)
+            reader = ShardReader(path)
             # If the reader opens without error, try reading all entries.
             # At least one operation must fail.
             for i in range(reader.entry_count()):
@@ -232,7 +232,7 @@ class TestCorruptShards:
         # The test passes if we reach the end -- no uncaught exception
         # crashes the process.  We tolerate any raised exception.
         try:
-            reader = ShardV2Reader(path)
+            reader = ShardReader(path)
             for i in range(reader.entry_count()):
                 reader.read_entry(i)
         except Exception:
@@ -245,7 +245,7 @@ class TestCorruptShards:
             empty_path.write_bytes(b"")
 
             with pytest.raises(Exception):
-                ShardV2Reader(empty_path)
+                ShardReader(empty_path)
 
     def test_corrupt_wrong_magic(self):
         """A 64-byte file with wrong magic bytes must be rejected."""
@@ -255,7 +255,7 @@ class TestCorruptShards:
             bad_path.write_bytes(bad_data)
 
             with pytest.raises((ValueError, Exception)):
-                ShardV2Reader(bad_path)
+                ShardReader(bad_path)
 
     def test_corrupt_random_bytes(self):
         """A 1024-byte file of random data must not crash (may raise)."""
@@ -267,7 +267,7 @@ class TestCorruptShards:
             rand_path.write_bytes(random_data)
 
             try:
-                reader = ShardV2Reader(rand_path)
+                reader = ShardReader(rand_path)
                 for i in range(reader.entry_count()):
                     reader.read_entry(i)
             except Exception:
@@ -299,13 +299,13 @@ class TestCrossWriteRoundTrip:
             shard_path = Path(tmpdir) / "roundtrip.shard"
 
             # Write
-            writer = ShardV2Writer(shard_path)
+            writer = ShardWriter(shard_path)
             for name, data in entries:
                 writer.write_entry(name, data)
             writer.close()
 
             # Read back
-            reader = ShardV2Reader(shard_path)
+            reader = ShardReader(shard_path)
             assert reader.entry_count() == len(entries)
 
             for i, (name, original_data) in enumerate(entries):
@@ -324,11 +324,11 @@ class TestCrossWriteRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             shard_path = Path(tmpdir) / "empty_roundtrip.shard"
 
-            writer = ShardV2Writer(shard_path)
+            writer = ShardWriter(shard_path)
             writer.write_entry("empty", b"")
             writer.close()
 
-            reader = ShardV2Reader(shard_path)
+            reader = ShardReader(shard_path)
             assert reader.entry_count() == 1
             data = reader.read_entry(0)
             assert data == b""
@@ -352,12 +352,12 @@ class TestCrossWriteRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             shard_path = Path(tmpdir) / "unicode_roundtrip.shard"
 
-            writer = ShardV2Writer(shard_path)
+            writer = ShardWriter(shard_path)
             for name, data in entries:
                 writer.write_entry(name, data)
             writer.close()
 
-            reader = ShardV2Reader(shard_path)
+            reader = ShardReader(shard_path)
             assert reader.entry_count() == len(entries)
 
             for i, (name, _) in enumerate(entries):
@@ -374,11 +374,11 @@ class TestCrossWriteRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             shard_path = Path(tmpdir) / "binary_roundtrip.shard"
 
-            writer = ShardV2Writer(shard_path)
+            writer = ShardWriter(shard_path)
             writer.write_entry("all_bytes", all_bytes)
             writer.close()
 
-            reader = ShardV2Reader(shard_path)
+            reader = ShardReader(shard_path)
             data = reader.read_entry(0)
             assert hashlib.sha256(data).hexdigest() == expected_sha
             assert data == all_bytes
@@ -392,11 +392,11 @@ class TestCrossWriteRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             shard_path = Path(tmpdir) / "large_roundtrip.shard"
 
-            writer = ShardV2Writer(shard_path)
+            writer = ShardWriter(shard_path)
             writer.write_entry("large_blob", large_data)
             writer.close()
 
-            reader = ShardV2Reader(shard_path)
+            reader = ShardReader(shard_path)
             assert reader.entry_count() == 1
             data = reader.read_entry(0)
             assert len(data) == len(large_data)
@@ -420,12 +420,12 @@ class TestCrossWriteRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             shard_path = Path(tmpdir) / "many_entries.shard"
 
-            writer = ShardV2Writer(shard_path)
+            writer = ShardWriter(shard_path)
             for name, data in entries:
                 writer.write_entry(name, data)
             writer.close()
 
-            reader = ShardV2Reader(shard_path)
+            reader = ShardReader(shard_path)
             assert reader.entry_count() == 200
 
             actual_names = reader.entry_names()
@@ -448,12 +448,12 @@ class TestCrossWriteRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             shard_path = Path(tmpdir) / "crc_integrity.shard"
 
-            writer = ShardV2Writer(shard_path)
+            writer = ShardWriter(shard_path)
             writer.write_entry("check_me", original_data)
             writer.close()
 
             # Verify clean read succeeds
-            reader = ShardV2Reader(shard_path)
+            reader = ShardReader(shard_path)
             data = reader.read_entry(0)
             assert hashlib.sha256(data).hexdigest() == expected_sha
 
@@ -466,7 +466,7 @@ class TestCrossWriteRoundTrip:
 
             # Re-read: must either raise (CRC check) or return different data
             try:
-                reader2 = ShardV2Reader(shard_path)
+                reader2 = ShardReader(shard_path)
                 data2 = reader2.read_entry(0)
                 # If no exception, data must differ from original
                 actual_sha2 = hashlib.sha256(data2).hexdigest()
@@ -484,12 +484,12 @@ class TestCrossWriteRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             shard_path = Path(tmpdir) / "order_roundtrip.shard"
 
-            writer = ShardV2Writer(shard_path)
+            writer = ShardWriter(shard_path)
             for name, data in entries:
                 writer.write_entry(name, data)
             writer.close()
 
-            reader = ShardV2Reader(shard_path)
+            reader = ShardReader(shard_path)
             assert reader.entry_count() == 20
 
             actual_names = reader.entry_names()
@@ -529,7 +529,7 @@ class TestThreadSafety:
             try:
                 # Each thread opens its own reader (independent mmap/buffer)
                 barrier.wait(timeout=5)
-                reader = ShardV2Reader(shard_path)
+                reader = ShardReader(shard_path)
 
                 assert reader.entry_count() == vf["entry_count"]
 
@@ -576,7 +576,7 @@ class TestThreadSafety:
                               errs=errors, vfile=vf, b=barrier):
                 try:
                     b.wait(timeout=5)
-                    reader = ShardV2Reader(path)
+                    reader = ShardReader(path)
                     assert reader.entry_count() == vfile["entry_count"]
                     for i in range(reader.entry_count()):
                         data = reader.read_entry(i)
@@ -627,7 +627,7 @@ class TestThreadSafety:
             try:
                 barrier.wait(timeout=10)
                 for iteration in range(reads_per_thread):
-                    reader = ShardV2Reader(shard_path)
+                    reader = ShardReader(shard_path)
                     assert reader.entry_count() == vf["entry_count"]
 
                     for i in range(reader.entry_count()):

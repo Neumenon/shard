@@ -171,16 +171,6 @@ def _decode_wshard(data: bytes) -> Episode:
 
         block_data = data[block_offset : block_offset + disk_size]
 
-        # Verify checksum
-        checksum = entry["checksum"]
-        if checksum != 0:
-            actual = compute_crc32(block_data)
-            if actual != checksum:
-                raise ValueError(
-                    f"Checksum mismatch for {name}: "
-                    f"expected {checksum:08x}, got {actual:08x}"
-                )
-
         # Decompress if needed — detect compression type per-block from flags
         if (entry_flags & BLOCK_FLAG_COMPRESSED) and disk_size != orig_size:
             if entry_flags & BLOCK_FLAG_LZ4:
@@ -192,6 +182,16 @@ def _decode_wshard(data: bytes) -> Episode:
                 block_comp_type = compression_default
             decompressor = Compressor(block_comp_type)
             block_data = decompressor.decompress(block_data, orig_size)
+
+        # Verify checksum on the logical block payload (uncompressed bytes)
+        checksum = entry["checksum"]
+        if checksum != 0:
+            actual = compute_crc32(block_data)
+            if actual != checksum:
+                raise ValueError(
+                    f"Checksum mismatch for {name}: "
+                    f"expected {checksum:08x}, got {actual:08x}"
+                )
 
         blocks[name] = block_data
 
@@ -492,7 +492,7 @@ def _encode_wshard(
         disk_size = len(disk_data)
         orig_size = orig_sizes[name]
         flags = block_flags[name]
-        checksum = compute_crc32(disk_data)
+        checksum = compute_crc32(blocks[name])
 
         entry = bytearray(INDEX_ENTRY_SIZE)
         # xxHash64 name hash, matching Go's xxhash.Sum64String()

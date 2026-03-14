@@ -1,5 +1,5 @@
 /*
- * test_safety.c -- Cross-language safety tests for shard_v2.c
+ * test_safety.c -- Cross-language safety tests for shard.c
  *
  * Validates correct handling of:
  *   - Valid shards (basic, compressed, empty entry, long name, unicode, binary data)
@@ -13,7 +13,7 @@
  *   default testdata_dir = ../ucodec/testdata/safety
  */
 
-#include "shard_v2.h"
+#include "shard.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -115,13 +115,13 @@ static void test_valid_shard(const char* dir, const char* filename,
 
     /* Test: open succeeds */
     snprintf(desc, sizeof(desc), "%s: open succeeds", filename);
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, desc);
     if (!r) return;
 
     /* Test: entry_count matches */
     snprintf(desc, sizeof(desc), "%s: entry_count == %u", filename, exp_entry_count);
-    uint32_t count = shard_v2_entry_count(r);
+    uint32_t count = shard_entry_count(r);
     check(count == exp_entry_count, desc);
 
     /* Test: each entry can be read and data size matches */
@@ -129,13 +129,13 @@ static void test_valid_shard(const char* dir, const char* filename,
         const expected_safety_entry_t* ex = &exp_entries[i];
 
         /* Verify entry name */
-        const char* name = shard_v2_entry_name(r, i);
+        const char* name = shard_entry_name(r, i);
         snprintf(desc, sizeof(desc), "%s[%u]: name == \"%s\"", filename, i, ex->name);
         check(name != NULL && strcmp(name, ex->name) == 0, desc);
 
         /* Read entry data */
         size_t out_size = 0;
-        const uint8_t* data = shard_v2_read_entry(r, i, &out_size);
+        const uint8_t* data = shard_read_entry(r, i, &out_size);
         snprintf(desc, sizeof(desc), "%s[%u]: read_entry succeeds", filename, i);
         check(data != NULL || ex->size == 0, desc);
 
@@ -148,7 +148,7 @@ static void test_valid_shard(const char* dir, const char* filename,
 
         /* Verify lookup by name */
         if (name) {
-            int32_t idx = shard_v2_lookup(r, name);
+            int32_t idx = shard_lookup(r, name);
             snprintf(desc, sizeof(desc), "%s[%u]: lookup(\"%s\") == %u",
                      filename, i, name, i);
             check(idx == (int32_t)i, desc);
@@ -157,9 +157,9 @@ static void test_valid_shard(const char* dir, const char* filename,
 
     /* Verify lookup for non-existent name returns -1 */
     snprintf(desc, sizeof(desc), "%s: lookup(\"__nonexistent__\") == -1", filename);
-    check(shard_v2_lookup(r, "__nonexistent__") == -1, desc);
+    check(shard_lookup(r, "__nonexistent__") == -1, desc);
 
-    shard_v2_close(r);
+    shard_close(r);
 }
 
 /* ============================================================
@@ -201,7 +201,7 @@ static void test_corrupt_shard(const char* dir, const char* filename,
     }
 
     /* Attempt to open the corrupt shard */
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
 
     if (r == NULL) {
         /* Open failed gracefully -- this is the expected outcome for most
@@ -221,12 +221,12 @@ static void test_corrupt_shard(const char* dir, const char* filename,
         /* Not necessarily a failure -- the error may manifest on read */
         printf("  INFO  %s\n", desc);
 
-        uint32_t count = shard_v2_entry_count(r);
+        uint32_t count = shard_entry_count(r);
         bool any_read_failed = false;
 
         for (uint32_t i = 0; i < count; i++) {
             size_t out_size = 0;
-            const uint8_t* data = shard_v2_read_entry(r, i, &out_size);
+            const uint8_t* data = shard_read_entry(r, i, &out_size);
             if (data == NULL) {
                 any_read_failed = true;
             }
@@ -242,7 +242,7 @@ static void test_corrupt_shard(const char* dir, const char* filename,
                  filename, expected_error);
         check(true, desc);
 
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     g_in_guard = 0;
@@ -278,9 +278,9 @@ static void test_corrupt_empty_file(void) {
     }
     fclose(f);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r == NULL, "corrupt_empty_file: open returns NULL (0-byte file rejected)");
-    if (r) shard_v2_close(r);
+    if (r) shard_close(r);
 
     unlink(path);
     printf("\n");
@@ -298,9 +298,9 @@ static void test_corrupt_wrong_magic(void) {
 
     write_temp_file(path, buf, sizeof(buf));
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r == NULL, "corrupt_wrong_magic: open returns NULL (bad magic rejected)");
-    if (r) shard_v2_close(r);
+    if (r) shard_close(r);
 
     unlink(path);
     printf("\n");
@@ -343,15 +343,15 @@ static void test_corrupt_random_bytes(void) {
         return;
     }
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     if (r != NULL) {
         /* If open succeeded despite random data, try reading entries */
-        uint32_t count = shard_v2_entry_count(r);
+        uint32_t count = shard_entry_count(r);
         for (uint32_t i = 0; i < count && i < 100; i++) {
             size_t out_size = 0;
-            shard_v2_read_entry(r, i, &out_size);
+            shard_read_entry(r, i, &out_size);
         }
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     g_in_guard = 0;
@@ -376,9 +376,9 @@ static void test_corrupt_all_zeros(void) {
 
     write_temp_file(path, buf, sizeof(buf));
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r == NULL, "corrupt_all_zeros: open returns NULL (all-zeros rejected)");
-    if (r) shard_v2_close(r);
+    if (r) shard_close(r);
 
     unlink(path);
     printf("\n");
@@ -391,7 +391,7 @@ static void test_corrupt_overflowing_entry_range(void) {
     memset(buf, 0, sizeof(buf));
 
     memcpy(buf, SHARD_MAGIC, 4);
-    buf[4] = SHARD_VERSION2;
+    buf[4] = SHARD_VERSION;
     buf[5] = ROLE_UNKNOWN;
     write_u16_le(buf + 6, FLAG_LITTLE_ENDIAN);
     buf[8] = ALIGN_NONE;
@@ -417,9 +417,9 @@ static void test_corrupt_overflowing_entry_range(void) {
     buf[SHARD_HEADER_SIZE + SHARD_INDEX_ENTRY_SIZE] = 'x';
     buf[SHARD_HEADER_SIZE + SHARD_INDEX_ENTRY_SIZE + 1] = '\0';
 
-    shard_v2_reader_t* r = shard_v2_from_buffer(buf, sizeof(buf));
+    shard_reader_t* r = shard_from_buffer(buf, sizeof(buf));
     check(r == NULL, "corrupt_overflowing_entry_range: open returns NULL (overflowing data range rejected)");
-    if (r) shard_v2_close(r);
+    if (r) shard_close(r);
 
     printf("\n");
 }
@@ -442,14 +442,14 @@ static void* concurrent_reader(void* arg) {
     concurrent_arg_t* a = (concurrent_arg_t*)arg;
     a->passed = true;
 
-    shard_v2_reader_t* r = shard_v2_open(a->path);
+    shard_reader_t* r = shard_open(a->path);
     if (!r) {
         fprintf(stderr, "  thread %d: open failed\n", a->thread_id);
         a->passed = false;
         return NULL;
     }
 
-    uint32_t count = shard_v2_entry_count(r);
+    uint32_t count = shard_entry_count(r);
     if (count != a->expected_count) {
         fprintf(stderr, "  thread %d: entry_count %u != %u\n",
                 a->thread_id, count, a->expected_count);
@@ -458,7 +458,7 @@ static void* concurrent_reader(void* arg) {
 
     for (uint32_t i = 0; i < count && i < a->expected_count; i++) {
         size_t out_size = 0;
-        const uint8_t* data = shard_v2_read_entry(r, i, &out_size);
+        const uint8_t* data = shard_read_entry(r, i, &out_size);
         if (!data && a->expected_sizes[i] != 0) {
             fprintf(stderr, "  thread %d: read_entry(%u) returned NULL\n",
                     a->thread_id, i);
@@ -472,7 +472,7 @@ static void* concurrent_reader(void* arg) {
         }
     }
 
-    shard_v2_close(r);
+    shard_close(r);
     return NULL;
 }
 
@@ -483,13 +483,13 @@ static void test_concurrent_reads(const char* testdata) {
     make_path(path, sizeof(path), testdata, "valid_basic.shard");
 
     /* Verify the file exists first */
-    shard_v2_reader_t* probe = shard_v2_open(path);
+    shard_reader_t* probe = shard_open(path);
     if (!probe) {
         check(false, "concurrent_reads: cannot open valid_basic.shard");
         printf("\n");
         return;
     }
-    shard_v2_close(probe);
+    shard_close(probe);
 
     #define NUM_THREADS 4
     pthread_t threads[NUM_THREADS];
@@ -542,7 +542,7 @@ int main(int argc, char* argv[]) {
     const char* testdata = (argc > 1) ? argv[1]
                                       : "../ucodec/testdata/safety";
 
-    printf("=== shard_v2 safety tests ===\n\n");
+    printf("=== shard safety tests ===\n\n");
 
     /* ============================================================
      * Valid shard tests

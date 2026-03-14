@@ -16,20 +16,20 @@ import (
 // Header Tests
 // ============================================================
 
-func TestShardV2HeaderRoundtrip(t *testing.T) {
-	h := NewShardV2Header(ShardRoleMoSH)
+func TestShardHeaderRoundtrip(t *testing.T) {
+	h := NewShardHeader(ShardRoleMoSH)
 	h.EntryCount = 42
 	h.Alignment = Align64
 
 	var buf bytes.Buffer
-	if err := WriteShardV2Header(&buf, h); err != nil {
+	if err := WriteShardHeader(&buf, h); err != nil {
 		t.Fatalf("write header: %v", err)
 	}
 	if buf.Len() != 64 {
 		t.Fatalf("expected 64 bytes, got %d", buf.Len())
 	}
 
-	h2, err := ReadShardV2Header(&buf)
+	h2, err := ReadShardHeader(&buf)
 	if err != nil {
 		t.Fatalf("read header: %v", err)
 	}
@@ -48,18 +48,18 @@ func TestShardV2HeaderRoundtrip(t *testing.T) {
 	}
 }
 
-func TestShardV2HeaderAllRoles(t *testing.T) {
+func TestShardHeaderAllRoles(t *testing.T) {
 	roles := []ShardRole{
 		ShardRoleUnknown, ShardRoleMoSH, ShardRoleSample,
 		ShardRoleGemmPanel, ShardRoleManifest, ShardRoleWShard, ShardRoleUMSH,
 	}
 	for _, role := range roles {
-		h := NewShardV2Header(role)
+		h := NewShardHeader(role)
 		var buf bytes.Buffer
-		if err := WriteShardV2Header(&buf, h); err != nil {
+		if err := WriteShardHeader(&buf, h); err != nil {
 			t.Fatalf("write role %d: %v", role, err)
 		}
-		h2, err := ReadShardV2Header(&buf)
+		h2, err := ReadShardHeader(&buf)
 		if err != nil {
 			t.Fatalf("read role %d: %v", role, err)
 		}
@@ -69,13 +69,13 @@ func TestShardV2HeaderAllRoles(t *testing.T) {
 	}
 }
 
-func TestShardV2HeaderAllFlags(t *testing.T) {
-	h := NewShardV2Header(ShardRoleMoSH)
-	h.Flags = ShardFlagLittleEndian | ShardV2FlagHasSchema | ShardV2FlagHasChecksums | ShardV2FlagStreaming | ShardV2FlagHasContentTypes
+func TestShardHeaderAllFlags(t *testing.T) {
+	h := NewShardHeader(ShardRoleMoSH)
+	h.Flags = ShardFlagLittleEndian | ShardFlagHasSchema | ShardFlagHasChecksums | ShardFlagStreaming | ShardFlagHasContentTypes
 
 	var buf bytes.Buffer
-	WriteShardV2Header(&buf, h)
-	h2, err := ReadShardV2Header(&buf)
+	WriteShardHeader(&buf, h)
+	h2, err := ReadShardHeader(&buf)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -84,53 +84,53 @@ func TestShardV2HeaderAllFlags(t *testing.T) {
 	}
 }
 
-func TestShardV2HeaderBadMagic(t *testing.T) {
+func TestShardHeaderBadMagic(t *testing.T) {
 	buf := make([]byte, 64)
 	copy(buf[0:4], []byte("NOPE"))
 	buf[4] = ShardVersion2
-	binary.LittleEndian.PutUint16(buf[10:12], ShardV2IndexEntrySize)
-	_, err := ReadShardV2Header(bytes.NewReader(buf))
+	binary.LittleEndian.PutUint16(buf[10:12], ShardIndexEntrySize)
+	_, err := ReadShardHeader(bytes.NewReader(buf))
 	if err == nil {
 		t.Fatal("expected error for bad magic")
 	}
 }
 
-func TestShardV2HeaderBadVersion(t *testing.T) {
+func TestShardHeaderBadVersion(t *testing.T) {
 	buf := make([]byte, 64)
 	copy(buf[0:4], ShardMagic[:])
 	buf[4] = 0xFF // bad version
-	binary.LittleEndian.PutUint16(buf[10:12], ShardV2IndexEntrySize)
-	_, err := ReadShardV2Header(bytes.NewReader(buf))
+	binary.LittleEndian.PutUint16(buf[10:12], ShardIndexEntrySize)
+	_, err := ReadShardHeader(bytes.NewReader(buf))
 	if err == nil {
 		t.Fatal("expected error for bad version")
 	}
 }
 
-func TestShardV2HeaderBadIndexEntrySize(t *testing.T) {
+func TestShardHeaderBadIndexEntrySize(t *testing.T) {
 	buf := make([]byte, 64)
 	copy(buf[0:4], ShardMagic[:])
 	buf[4] = ShardVersion2
 	binary.LittleEndian.PutUint16(buf[10:12], 99) // wrong size
-	_, err := ReadShardV2Header(bytes.NewReader(buf))
+	_, err := ReadShardHeader(bytes.NewReader(buf))
 	if err == nil {
 		t.Fatal("expected error for bad index entry size")
 	}
 }
 
-func TestShardV2HeaderTruncated(t *testing.T) {
-	_, err := ReadShardV2Header(bytes.NewReader(make([]byte, 10)))
+func TestShardHeaderTruncated(t *testing.T) {
+	_, err := ReadShardHeader(bytes.NewReader(make([]byte, 10)))
 	if err == nil {
 		t.Fatal("expected error for truncated header")
 	}
 }
 
-func TestShardV2HeaderAllAlignments(t *testing.T) {
+func TestShardHeaderAllAlignments(t *testing.T) {
 	for _, align := range []uint8{AlignNone, Align16, Align32, Align64} {
-		h := NewShardV2Header(ShardRoleMoSH)
+		h := NewShardHeader(ShardRoleMoSH)
 		h.Alignment = align
 		var buf bytes.Buffer
-		WriteShardV2Header(&buf, h)
-		h2, _ := ReadShardV2Header(&buf)
+		WriteShardHeader(&buf, h)
+		h2, _ := ReadShardHeader(&buf)
 		if h2.Alignment != align {
 			t.Errorf("alignment %d roundtrip: got %d", align, h2.Alignment)
 		}
@@ -141,8 +141,8 @@ func TestShardV2HeaderAllAlignments(t *testing.T) {
 // Index Entry Tests
 // ============================================================
 
-func TestIndexEntryV2Roundtrip(t *testing.T) {
-	e := &IndexEntryV2{
+func TestIndexEntryRoundtrip(t *testing.T) {
+	e := &IndexEntry{
 		NameHash:   0xDEADBEEF12345678,
 		NameOffset: 42,
 		NameLen:    10,
@@ -155,14 +155,14 @@ func TestIndexEntryV2Roundtrip(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := WriteIndexEntryV2(&buf, e); err != nil {
+	if err := WriteIndexEntry(&buf, e); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if buf.Len() != 48 {
 		t.Fatalf("expected 48 bytes, got %d", buf.Len())
 	}
 
-	e2, err := ReadIndexEntryV2(&buf)
+	e2, err := ReadIndexEntry(&buf)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -180,8 +180,8 @@ func TestIndexEntryV2Roundtrip(t *testing.T) {
 	}
 }
 
-func TestIndexEntryV2Flags(t *testing.T) {
-	e := &IndexEntryV2{}
+func TestIndexEntryFlags(t *testing.T) {
+	e := &IndexEntry{}
 
 	// Not compressed initially
 	if e.IsCompressed() {
@@ -216,8 +216,8 @@ func TestIndexEntryV2Flags(t *testing.T) {
 	}
 }
 
-func TestIndexEntryV2ContentType(t *testing.T) {
-	e := &IndexEntryV2{}
+func TestIndexEntryContentType(t *testing.T) {
+	e := &IndexEntry{}
 
 	if e.ContentType() != ContentTypeUnknown {
 		t.Errorf("expected unknown, got %d", e.ContentType())
@@ -235,8 +235,8 @@ func TestIndexEntryV2ContentType(t *testing.T) {
 	}
 }
 
-func TestIndexEntryV2TagBits(t *testing.T) {
-	e := &IndexEntryV2{}
+func TestIndexEntryTagBits(t *testing.T) {
+	e := &IndexEntry{}
 
 	if e.TagBits() != 0 {
 		t.Errorf("expected 0 tag bits, got %d", e.TagBits())
@@ -263,7 +263,7 @@ func TestIndexEntryV2TagBits(t *testing.T) {
 	}
 
 	// Out of range bits are no-ops
-	e2 := &IndexEntryV2{}
+	e2 := &IndexEntry{}
 	e2.SetTagBit(-1)
 	e2.SetTagBit(16)
 	e2.SetTagBit(100)
@@ -275,8 +275,8 @@ func TestIndexEntryV2TagBits(t *testing.T) {
 	}
 }
 
-func TestIndexEntryV2TagBitsPreserveContentType(t *testing.T) {
-	e := &IndexEntryV2{}
+func TestIndexEntryTagBitsPreserveContentType(t *testing.T) {
+	e := &IndexEntry{}
 	e.SetContentType(ContentTypeImage)
 	e.SetTagBits(0xABCD)
 
@@ -394,10 +394,10 @@ func TestPathBase(t *testing.T) {
 // Writer/Reader Integration Tests
 // ============================================================
 
-func TestShardV2WriteRead(t *testing.T) {
+func TestShardWriteRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.shard")
 
-	w, err := NewShardV2Writer(path, ShardRoleMoSH)
+	w, err := NewShardWriter(path, ShardRoleMoSH)
 	if err != nil {
 		t.Fatalf("create writer: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestShardV2WriteRead(t *testing.T) {
 	}
 
 	// Read back
-	r, err := OpenShardV2(path)
+	r, err := OpenShard(path)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -482,15 +482,15 @@ func TestShardV2WriteRead(t *testing.T) {
 	}
 }
 
-func TestShardV2EmptyShard(t *testing.T) {
+func TestShardEmptyShard(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "empty.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	if err := w.Close(); err != nil {
 		t.Fatalf("close empty: %v", err)
 	}
 
-	r, err := OpenShardV2(path)
+	r, err := OpenShard(path)
 	if err != nil {
 		t.Fatalf("open empty: %v", err)
 	}
@@ -507,14 +507,14 @@ func TestShardV2EmptyShard(t *testing.T) {
 	}
 }
 
-func TestShardV2SingleByteEntry(t *testing.T) {
+func TestShardSingleByteEntry(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tiny.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("x", []byte{0x42})
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	data, err := r.ReadEntry(0)
@@ -526,14 +526,14 @@ func TestShardV2SingleByteEntry(t *testing.T) {
 	}
 }
 
-func TestShardV2EmptyData(t *testing.T) {
+func TestShardEmptyData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "empty-data.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("empty", []byte{})
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	data, err := r.ReadEntry(0)
@@ -545,7 +545,7 @@ func TestShardV2EmptyData(t *testing.T) {
 	}
 }
 
-func TestShardV2LargeEntry(t *testing.T) {
+func TestShardLargeEntry(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "large.shard")
 
 	data := make([]byte, 1<<20) // 1MB
@@ -553,11 +553,11 @@ func TestShardV2LargeEntry(t *testing.T) {
 		data[i] = byte(i % 251) // prime modulus for variety
 	}
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("big", data)
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	got, err := r.ReadEntry(0)
@@ -569,18 +569,18 @@ func TestShardV2LargeEntry(t *testing.T) {
 	}
 }
 
-func TestShardV2ManyEntries(t *testing.T) {
+func TestShardManyEntries(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "many.shard")
 	count := 500
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	for i := 0; i < count; i++ {
 		name := filepath.Join("entries", string(rune('A'+i%26)), string(rune('0'+i%10)))
 		w.WriteEntry(name, []byte{byte(i)})
 	}
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	if r.EntryCount() != count {
@@ -599,7 +599,7 @@ func TestShardV2ManyEntries(t *testing.T) {
 	}
 }
 
-func TestShardV2BinaryData(t *testing.T) {
+func TestShardBinaryData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "binary.shard")
 
 	// All 256 byte values
@@ -608,11 +608,11 @@ func TestShardV2BinaryData(t *testing.T) {
 		data[i] = byte(i)
 	}
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("allbytes", data)
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	got, _ := r.ReadEntry(0)
@@ -621,18 +621,18 @@ func TestShardV2BinaryData(t *testing.T) {
 	}
 }
 
-func TestShardV2UnicodeNames(t *testing.T) {
+func TestShardUnicodeNames(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "unicode.shard")
 
 	names := []string{"日本語", "Ω/α/β", "emoji🎉", "layer.0/wëights"}
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	for i, name := range names {
 		w.WriteEntry(name, []byte{byte(i)})
 	}
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	for i, name := range names {
@@ -652,17 +652,17 @@ func TestShardV2UnicodeNames(t *testing.T) {
 // Compression Tests
 // ============================================================
 
-func TestShardV2ZstdRoundtrip(t *testing.T) {
+func TestShardZstdRoundtrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "zstd.shard")
 
 	data := bytes.Repeat([]byte("compressible data pattern "), 200) // ~5KB, highly compressible
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.SetCompression(CompressZstd)
 	w.WriteEntryCompressed("data", data)
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	info := r.GetEntryInfo(0)
@@ -685,17 +685,17 @@ func TestShardV2ZstdRoundtrip(t *testing.T) {
 	}
 }
 
-func TestShardV2LZ4Roundtrip(t *testing.T) {
+func TestShardLZ4Roundtrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lz4.shard")
 
 	data := bytes.Repeat([]byte("lz4 compressible pattern!! "), 200)
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.SetCompression(CompressLZ4)
 	w.WriteEntryCompressed("data", data)
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	info := r.GetEntryInfo(0)
@@ -715,17 +715,17 @@ func TestShardV2LZ4Roundtrip(t *testing.T) {
 	}
 }
 
-func TestShardV2SmallDataNotCompressed(t *testing.T) {
+func TestShardSmallDataNotCompressed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "small.shard")
 
 	data := []byte("tiny") // < minCompressSize (256)
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.SetCompression(CompressZstd)
 	w.WriteEntryCompressed("data", data)
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	info := r.GetEntryInfo(0)
@@ -734,19 +734,19 @@ func TestShardV2SmallDataNotCompressed(t *testing.T) {
 	}
 }
 
-func TestShardV2MixedCompression(t *testing.T) {
+func TestShardMixedCompression(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mixed.shard")
 
 	compressible := bytes.Repeat([]byte("AAAA"), 500)
 	plain := []byte("uncompressed")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.SetCompression(CompressZstd)
 	w.WriteEntryCompressed("compressed", compressible)
 	w.WriteEntry("plain", plain)
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	info0 := r.GetEntryInfo(0)
@@ -773,10 +773,10 @@ func TestShardV2MixedCompression(t *testing.T) {
 // Checksum / Corruption Tests
 // ============================================================
 
-func TestShardV2ChecksumMismatch(t *testing.T) {
+func TestShardChecksumMismatch(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "corrupt.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("data", []byte("hello world"))
 	w.Close()
 
@@ -787,7 +787,7 @@ func TestShardV2ChecksumMismatch(t *testing.T) {
 		os.WriteFile(path, raw, 0o644)
 	}
 
-	r, err := OpenShardV2(path)
+	r, err := OpenShard(path)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -799,10 +799,10 @@ func TestShardV2ChecksumMismatch(t *testing.T) {
 	}
 }
 
-func TestShardV2ChecksumVerifyFalse(t *testing.T) {
+func TestShardChecksumVerifyFalse(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "corrupt-noverify.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("data", []byte("hello world"))
 	w.Close()
 
@@ -812,7 +812,7 @@ func TestShardV2ChecksumVerifyFalse(t *testing.T) {
 		os.WriteFile(path, raw, 0o644)
 	}
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	// Should succeed with verify=false
@@ -822,10 +822,10 @@ func TestShardV2ChecksumVerifyFalse(t *testing.T) {
 	}
 }
 
-func TestShardV2TruncatedFile(t *testing.T) {
+func TestShardTruncatedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "truncated.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("data", bytes.Repeat([]byte("A"), 1000))
 	w.Close()
 
@@ -833,45 +833,45 @@ func TestShardV2TruncatedFile(t *testing.T) {
 	// Truncate to half
 	os.WriteFile(path, raw[:len(raw)/2], 0o644)
 
-	_, err := OpenShardV2(path)
+	_, err := OpenShard(path)
 	if err == nil {
 		t.Error("expected error opening truncated file")
 	}
 }
 
-func TestShardV2EmptyFile(t *testing.T) {
+func TestShardEmptyFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "empty.shard")
 	os.WriteFile(path, []byte{}, 0o644)
 
-	_, err := OpenShardV2(path)
+	_, err := OpenShard(path)
 	if err == nil {
 		t.Error("expected error opening empty file")
 	}
 }
 
-func TestShardV2WrongMagicFile(t *testing.T) {
+func TestShardWrongMagicFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "badmagic.shard")
 	os.WriteFile(path, bytes.Repeat([]byte("X"), 200), 0o644)
 
-	_, err := OpenShardV2(path)
+	_, err := OpenShard(path)
 	if err == nil {
 		t.Error("expected error for bad magic")
 	}
 }
 
-func TestShardV2CRCOnDecompressedData(t *testing.T) {
+func TestShardCRCOnDecompressedData(t *testing.T) {
 	// Verify CRC is computed on decompressed data, not compressed
 	path := filepath.Join(t.TempDir(), "crc-decompressed.shard")
 
 	data := bytes.Repeat([]byte("verify CRC is on decompressed "), 200)
 	expectedCRC := ComputeChecksum(data)
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.SetCompression(CompressZstd)
 	w.WriteEntryCompressed("data", data)
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	info := r.GetEntryInfo(0)
@@ -887,17 +887,17 @@ func TestShardV2CRCOnDecompressedData(t *testing.T) {
 // Alignment Tests
 // ============================================================
 
-func TestShardV2AlignmentValues(t *testing.T) {
+func TestShardAlignmentValues(t *testing.T) {
 	for _, align := range []uint8{AlignNone, Align16, Align32, Align64} {
 		path := filepath.Join(t.TempDir(), "align.shard")
 
-		w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+		w, _ := NewShardWriter(path, ShardRoleMoSH)
 		w.SetAlignment(align)
 		w.WriteEntry("a", []byte("hello"))
 		w.WriteEntry("b", []byte("world"))
 		w.Close()
 
-		r, _ := OpenShardV2(path)
+		r, _ := OpenShard(path)
 
 		if align > 0 {
 			for i := 0; i < r.EntryCount(); i++ {
@@ -918,9 +918,9 @@ func TestShardV2AlignmentValues(t *testing.T) {
 	}
 }
 
-func TestShardV2InvalidAlignment(t *testing.T) {
+func TestShardInvalidAlignment(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "badalign.shard")
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	err := w.SetAlignment(7)
 	if err == nil {
 		t.Error("expected error for invalid alignment 7")
@@ -932,14 +932,14 @@ func TestShardV2InvalidAlignment(t *testing.T) {
 // Lookup Tests
 // ============================================================
 
-func TestShardV2LookupMissing(t *testing.T) {
+func TestShardLookupMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lookup.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("exists", []byte("yes"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	if r.Lookup("exists") < 0 {
@@ -950,15 +950,15 @@ func TestShardV2LookupMissing(t *testing.T) {
 	}
 }
 
-func TestShardV2ReadEntryByName(t *testing.T) {
+func TestShardReadEntryByName(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "byname.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("alpha", []byte("A"))
 	w.WriteEntry("beta", []byte("B"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	d, err := r.ReadEntryByName("beta")
@@ -975,14 +975,14 @@ func TestShardV2ReadEntryByName(t *testing.T) {
 	}
 }
 
-func TestShardV2ReadEntryOutOfBounds(t *testing.T) {
+func TestShardReadEntryOutOfBounds(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "oob.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("x", []byte("data"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	_, err := r.ReadEntry(-1)
@@ -995,13 +995,13 @@ func TestShardV2ReadEntryOutOfBounds(t *testing.T) {
 	}
 }
 
-func TestShardV2GetEntryInfoOutOfBounds(t *testing.T) {
+func TestShardGetEntryInfoOutOfBounds(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "info-oob.shard")
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("x", []byte("y"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	if r.GetEntryInfo(-1) != nil {
@@ -1012,13 +1012,13 @@ func TestShardV2GetEntryInfoOutOfBounds(t *testing.T) {
 	}
 }
 
-func TestShardV2EntryNameOutOfBounds(t *testing.T) {
+func TestShardEntryNameOutOfBounds(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "name-oob.shard")
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("x", []byte("y"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	if r.EntryName(-1) != "" {
@@ -1033,16 +1033,16 @@ func TestShardV2EntryNameOutOfBounds(t *testing.T) {
 // ReadEntryPrefix Tests
 // ============================================================
 
-func TestShardV2ReadEntryPrefix(t *testing.T) {
+func TestShardReadEntryPrefix(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prefix.shard")
 
 	data := bytes.Repeat([]byte("X"), 1000)
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("data", data)
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	// Read first 10 bytes
@@ -1064,17 +1064,17 @@ func TestShardV2ReadEntryPrefix(t *testing.T) {
 	}
 }
 
-func TestShardV2ReadEntryPrefixCompressed(t *testing.T) {
+func TestShardReadEntryPrefixCompressed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prefix-compressed.shard")
 
 	data := bytes.Repeat([]byte("compressible "), 200)
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.SetCompression(CompressZstd)
 	w.WriteEntryCompressed("data", data)
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	// Even for compressed entries, prefix works (decompresses full, then truncates)
@@ -1094,17 +1094,17 @@ func TestShardV2ReadEntryPrefixCompressed(t *testing.T) {
 // ListPrefix / ListChildren Tests
 // ============================================================
 
-func TestShardV2ListPrefix(t *testing.T) {
+func TestShardListPrefix(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prefix.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("layer0/weight", []byte("w0"))
 	w.WriteEntry("layer0/bias", []byte("b0"))
 	w.WriteEntry("layer1/weight", []byte("w1"))
 	w.WriteEntry("config", []byte("cfg"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	matches := r.ListPrefix("layer0/")
@@ -1118,14 +1118,14 @@ func TestShardV2ListPrefix(t *testing.T) {
 	}
 }
 
-func TestShardV2ListPrefixEmpty(t *testing.T) {
+func TestShardListPrefixEmpty(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prefix-empty.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("a", []byte("1"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	// Empty prefix matches all
@@ -1141,10 +1141,10 @@ func TestShardV2ListPrefixEmpty(t *testing.T) {
 	}
 }
 
-func TestShardV2ListChildren(t *testing.T) {
+func TestShardListChildren(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "children.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("model/encoder/layer0/weight", []byte("w"))
 	w.WriteEntry("model/encoder/layer0/bias", []byte("b"))
 	w.WriteEntry("model/encoder/layer1/weight", []byte("w"))
@@ -1152,7 +1152,7 @@ func TestShardV2ListChildren(t *testing.T) {
 	w.WriteEntry("config", []byte("c"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	// Root children
@@ -1202,16 +1202,16 @@ func TestShardV2ListChildren(t *testing.T) {
 	}
 }
 
-func TestShardV2ListChildrenBareComponents(t *testing.T) {
+func TestShardListChildrenBareComponents(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bare.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("a/b/c", []byte("1"))
 	w.WriteEntry("a/b/d", []byte("2"))
 	w.WriteEntry("a/x", []byte("3"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	children := r.ListChildren("a/")
@@ -1229,14 +1229,14 @@ func TestShardV2ListChildrenBareComponents(t *testing.T) {
 // Mmap Tests
 // ============================================================
 
-func TestShardV2Mmap(t *testing.T) {
+func TestShardMmap(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mmap.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("data", []byte("mmap test data"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	if err := r.EnableMmap(); err != nil {
@@ -1257,17 +1257,17 @@ func TestShardV2Mmap(t *testing.T) {
 	}
 }
 
-func TestShardV2MmapCompressed(t *testing.T) {
+func TestShardMmapCompressed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mmap-compressed.shard")
 
 	data := bytes.Repeat([]byte("mmap compressible "), 200)
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.SetCompression(CompressZstd)
 	w.WriteEntryCompressed("data", data)
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 	r.EnableMmap()
 
@@ -1284,18 +1284,18 @@ func TestShardV2MmapCompressed(t *testing.T) {
 // Concurrent Read Tests
 // ============================================================
 
-func TestShardV2ConcurrentReads(t *testing.T) {
+func TestShardConcurrentReads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "concurrent.shard")
 
 	entries := 20
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	for i := 0; i < entries; i++ {
 		data := bytes.Repeat([]byte{byte(i)}, 100)
 		w.WriteEntry(strings.Repeat(string(rune('A'+i)), 5), data)
 	}
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	var wg sync.WaitGroup
@@ -1332,18 +1332,18 @@ func TestShardV2ConcurrentReads(t *testing.T) {
 	}
 }
 
-func TestShardV2ConcurrentMmapReads(t *testing.T) {
+func TestShardConcurrentMmapReads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "concurrent-mmap.shard")
 
 	entries := 20
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	for i := 0; i < entries; i++ {
 		data := bytes.Repeat([]byte{byte(i)}, 100)
 		w.WriteEntry(strings.Repeat(string(rune('A'+i)), 5), data)
 	}
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 	r.EnableMmap()
 
@@ -1379,10 +1379,10 @@ func TestShardV2ConcurrentMmapReads(t *testing.T) {
 // Stream Writer Tests
 // ============================================================
 
-func TestShardV2StreamWriter(t *testing.T) {
+func TestShardStreamWriter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stream.shard")
 
-	sw, err := NewShardV2StreamWriter(path, ShardRoleMoSH, 100)
+	sw, err := NewShardStreamWriter(path, ShardRoleMoSH, 100)
 	if err != nil {
 		t.Fatalf("create stream writer: %v", err)
 	}
@@ -1407,7 +1407,7 @@ func TestShardV2StreamWriter(t *testing.T) {
 	}
 
 	// Read back
-	r, err := OpenShardV2(path)
+	r, err := OpenShard(path)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -1418,15 +1418,15 @@ func TestShardV2StreamWriter(t *testing.T) {
 	}
 
 	// Verify streaming flag
-	if r.Header().Flags&ShardV2FlagStreaming == 0 {
+	if r.Header().Flags&ShardFlagStreaming == 0 {
 		t.Error("expected streaming flag set")
 	}
 }
 
-func TestShardV2StreamWriterCompressed(t *testing.T) {
+func TestShardStreamWriterCompressed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stream-compressed.shard")
 
-	sw, _ := NewShardV2StreamWriter(path, ShardRoleMoSH, 10)
+	sw, _ := NewShardStreamWriter(path, ShardRoleMoSH, 10)
 	sw.SetCompression(CompressZstd)
 	sw.BeginData()
 
@@ -1434,7 +1434,7 @@ func TestShardV2StreamWriterCompressed(t *testing.T) {
 	sw.WriteEntryCompressed("data", data)
 	sw.Finalize()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	got, err := r.ReadEntry(0)
@@ -1446,15 +1446,15 @@ func TestShardV2StreamWriterCompressed(t *testing.T) {
 	}
 }
 
-func TestShardV2StreamWriterContentType(t *testing.T) {
+func TestShardStreamWriterContentType(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stream-typed.shard")
 
-	sw, _ := NewShardV2StreamWriter(path, ShardRoleMoSH, 10)
+	sw, _ := NewShardStreamWriter(path, ShardRoleMoSH, 10)
 	sw.BeginData()
 	sw.WriteEntryTyped("data", []byte("hello"), ContentTypeText)
 	sw.Finalize()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	info := r.GetEntryInfo(0)
@@ -1467,10 +1467,10 @@ func TestShardV2StreamWriterContentType(t *testing.T) {
 // Metadata Tests
 // ============================================================
 
-func TestShardV2MetadataRoundtrip(t *testing.T) {
+func TestShardMetadataRoundtrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "meta.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	meta := &ShardMetadata{
 		SchemaVersion: "shard-v2.1",
 		Producer:      "test",
@@ -1481,7 +1481,7 @@ func TestShardV2MetadataRoundtrip(t *testing.T) {
 	w.WriteEntry("data", []byte("test"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	restored, err := r.ReadMetadata()
@@ -1502,14 +1502,14 @@ func TestShardV2MetadataRoundtrip(t *testing.T) {
 	}
 }
 
-func TestShardV2MetadataNoMetadata(t *testing.T) {
+func TestShardMetadataNoMetadata(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nometa.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("data", []byte("no metadata"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	meta, err := r.ReadMetadata()
@@ -1521,10 +1521,10 @@ func TestShardV2MetadataNoMetadata(t *testing.T) {
 	}
 }
 
-func TestShardV2MetadataProfilesRoundtrip(t *testing.T) {
+func TestShardMetadataProfilesRoundtrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "profiles.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleSample)
+	w, _ := NewShardWriter(path, ShardRoleSample)
 	meta := NewShardMetadata()
 	meta.SetEntryMeta("samples/0", &EntryMeta{
 		ContentType:       "application/cowrie",
@@ -1566,7 +1566,7 @@ func TestShardV2MetadataProfilesRoundtrip(t *testing.T) {
 	w.WriteEntry("samples/0", []byte("test"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	restored, err := r.ReadMetadata()
@@ -1606,10 +1606,10 @@ func TestShardV2MetadataProfilesRoundtrip(t *testing.T) {
 	}
 }
 
-func TestShardV2WriterBackfillsSampleProfileDefaults(t *testing.T) {
+func TestShardWriterBackfillsSampleProfileDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sample-profile-defaults.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleSample)
+	w, _ := NewShardWriter(path, ShardRoleSample)
 	meta := NewShardMetadata()
 	meta.SetSampleProfile(&SampleProfile{
 		DatasetName: "mnist-train",
@@ -1622,7 +1622,7 @@ func TestShardV2WriterBackfillsSampleProfileDefaults(t *testing.T) {
 		t.Fatalf("close writer: %v", err)
 	}
 
-	r, err := OpenShardV2(path)
+	r, err := OpenShard(path)
 	if err != nil {
 		t.Fatalf("open shard: %v", err)
 	}
@@ -1646,7 +1646,7 @@ func TestShardV2WriterBackfillsSampleProfileDefaults(t *testing.T) {
 	}
 }
 
-func TestShardV2MetadataEntryMetaOperations(t *testing.T) {
+func TestShardMetadataEntryMetaOperations(t *testing.T) {
 	m := NewShardMetadata()
 
 	// GetEntryMeta on empty
@@ -1668,7 +1668,7 @@ func TestShardV2MetadataEntryMetaOperations(t *testing.T) {
 	}
 }
 
-func TestShardV2MetadataMarshalUnmarshal(t *testing.T) {
+func TestShardMetadataMarshalUnmarshal(t *testing.T) {
 	m := NewShardMetadata()
 	m.Producer = "test"
 	m.Tags = []string{"a", "b"}
@@ -1695,7 +1695,7 @@ func TestShardV2MetadataMarshalUnmarshal(t *testing.T) {
 	}
 }
 
-func TestShardV2MetadataGetEntryMetaNilMap(t *testing.T) {
+func TestShardMetadataGetEntryMetaNilMap(t *testing.T) {
 	m := &ShardMetadata{} // no EntryMetadata map
 	if m.GetEntryMeta("anything") != nil {
 		t.Error("expected nil from nil map")
@@ -1706,17 +1706,17 @@ func TestShardV2MetadataGetEntryMetaNilMap(t *testing.T) {
 // Tag Dictionary & Schema ID Tests (Tier 1)
 // ============================================================
 
-func TestShardV2TagDictionaryRoundtrip(t *testing.T) {
+func TestShardTagDictionaryRoundtrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tagdict.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	meta := NewShardMetadata()
 	meta.TagDictionary = []string{"train", "eval", "frozen", "quantized"}
 	w.SetMetadata(meta)
 	w.WriteEntry("data", []byte("x"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	restored, _ := r.ReadMetadata()
@@ -1731,10 +1731,10 @@ func TestShardV2TagDictionaryRoundtrip(t *testing.T) {
 	}
 }
 
-func TestShardV2SchemaIDRoundtrip(t *testing.T) {
+func TestShardSchemaIDRoundtrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schemaid.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	meta := NewShardMetadata()
 	meta.TagDictionary = []string{"train", "eval"}
 	meta.SetEntryMeta("weights", &EntryMeta{ContentType: "tensor", SemanticType: "embedding"})
@@ -1743,7 +1743,7 @@ func TestShardV2SchemaIDRoundtrip(t *testing.T) {
 	w.WriteEntry("weights", []byte("w"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	restored, _ := r.ReadMetadata()
@@ -1758,7 +1758,7 @@ func TestShardV2SchemaIDRoundtrip(t *testing.T) {
 	}
 }
 
-func TestShardV2ComputeSchemaIDDeterministic(t *testing.T) {
+func TestShardComputeSchemaIDDeterministic(t *testing.T) {
 	m1 := NewShardMetadata()
 	m1.TagDictionary = []string{"a", "b"}
 	m1.SetEntryMeta("x", &EntryMeta{ContentType: "json", SemanticType: "config"})
@@ -1774,7 +1774,7 @@ func TestShardV2ComputeSchemaIDDeterministic(t *testing.T) {
 	}
 }
 
-func TestShardV2ComputeSchemaIDDiffers(t *testing.T) {
+func TestShardComputeSchemaIDDiffers(t *testing.T) {
 	m1 := NewShardMetadata()
 	m1.TagDictionary = []string{"a"}
 	m1.SetEntryMeta("x", &EntryMeta{ContentType: "json"})
@@ -1792,10 +1792,10 @@ func TestShardV2ComputeSchemaIDDiffers(t *testing.T) {
 // ListWithTag / ListWithTagBit / ListWithTagFast Tests
 // ============================================================
 
-func TestShardV2ListWithTag(t *testing.T) {
+func TestShardListWithTag(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "listtag.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	meta := NewShardMetadata()
 	meta.SetEntryMeta("layer0/weight", &EntryMeta{Tags: []string{"trainable", "float32"}})
 	meta.SetEntryMeta("layer0/bias", &EntryMeta{Tags: []string{"trainable"}})
@@ -1806,7 +1806,7 @@ func TestShardV2ListWithTag(t *testing.T) {
 	w.WriteEntry("config", []byte("c"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	trainable, err := r.ListWithTag("trainable")
@@ -1832,14 +1832,14 @@ func TestShardV2ListWithTag(t *testing.T) {
 	}
 }
 
-func TestShardV2ListWithTagNoMetadata(t *testing.T) {
+func TestShardListWithTagNoMetadata(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "notag.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("x", []byte("y"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	result, err := r.ListWithTag("anything")
@@ -1851,10 +1851,10 @@ func TestShardV2ListWithTagNoMetadata(t *testing.T) {
 	}
 }
 
-func TestShardV2ListWithTagBit(t *testing.T) {
+func TestShardListWithTagBit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tagbit.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	// Write entries, then we'll manipulate tag bits via the reader
 	w.WriteEntry("a", []byte("1"))
 	w.WriteEntry("b", []byte("2"))
@@ -1864,7 +1864,7 @@ func TestShardV2ListWithTagBit(t *testing.T) {
 	// Directly set tag bits in the file by rewriting
 	// Instead, test via the writer approach — write with content type that includes tag bits
 	// Actually, let's test via the reader's index manipulation:
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	// Manually set tag bits on entries for testing
@@ -1901,10 +1901,10 @@ func TestShardV2ListWithTagBit(t *testing.T) {
 	}
 }
 
-func TestShardV2ListWithTagFast(t *testing.T) {
+func TestShardListWithTagFast(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tagfast.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	meta := NewShardMetadata()
 	meta.TagDictionary = []string{"train", "eval", "frozen"}
 	w.SetMetadata(meta)
@@ -1913,7 +1913,7 @@ func TestShardV2ListWithTagFast(t *testing.T) {
 	w.WriteEntry("c", []byte("3"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	// Set tag bits matching dictionary
@@ -1943,14 +1943,14 @@ func TestShardV2ListWithTagFast(t *testing.T) {
 	}
 }
 
-func TestShardV2ListWithTagFastNoMetadata(t *testing.T) {
+func TestShardListWithTagFastNoMetadata(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tagfast-nometa.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("x", []byte("y"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	result, err := r.ListWithTagFast("anything")
@@ -1966,10 +1966,10 @@ func TestShardV2ListWithTagFastNoMetadata(t *testing.T) {
 // Writer State Tests
 // ============================================================
 
-func TestShardV2WriterDoubleClose(t *testing.T) {
+func TestShardWriterDoubleClose(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dclose.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("x", []byte("y"))
 	w.Close()
 
@@ -1979,10 +1979,10 @@ func TestShardV2WriterDoubleClose(t *testing.T) {
 	}
 }
 
-func TestShardV2WriterWriteAfterClose(t *testing.T) {
+func TestShardWriterWriteAfterClose(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "wac.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.Close()
 
 	err := w.WriteEntry("x", []byte("y"))
@@ -1991,14 +1991,14 @@ func TestShardV2WriterWriteAfterClose(t *testing.T) {
 	}
 }
 
-func TestShardV2ReaderReadAfterClose(t *testing.T) {
+func TestShardReaderReadAfterClose(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rac.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("x", []byte("y"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	r.Close()
 
 	_, err := r.ReadEntry(0)
@@ -2007,14 +2007,14 @@ func TestShardV2ReaderReadAfterClose(t *testing.T) {
 	}
 }
 
-func TestShardV2ReaderDoubleClose(t *testing.T) {
+func TestShardReaderDoubleClose(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rdc.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("x", []byte("y"))
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	r.Close()
 	// Second close should be no-op
 	err := r.Close()
@@ -2027,15 +2027,15 @@ func TestShardV2ReaderDoubleClose(t *testing.T) {
 // Header Field Roundtrip Tests
 // ============================================================
 
-func TestShardV2HeaderFieldsRoundtrip(t *testing.T) {
-	h := &ShardV2Header{
+func TestShardHeaderFieldsRoundtrip(t *testing.T) {
+	h := &ShardHeader{
 		Magic:              ShardMagic,
 		Version:            ShardVersion2,
 		Role:               ShardRoleSample,
 		Flags:              0x00F3,
 		Alignment:          Align32,
 		CompressionDefault: CompressLZ4,
-		IndexEntrySize:     ShardV2IndexEntrySize,
+		IndexEntrySize:     ShardIndexEntrySize,
 		EntryCount:         12345,
 		StringTableOffset:  0x100,
 		DataSectionOffset:  0x200,
@@ -2044,8 +2044,8 @@ func TestShardV2HeaderFieldsRoundtrip(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	WriteShardV2Header(&buf, h)
-	h2, err := ReadShardV2Header(&buf)
+	WriteShardHeader(&buf, h)
+	h2, err := ReadShardHeader(&buf)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -2120,11 +2120,11 @@ func TestXxHash64Deterministic(t *testing.T) {
 // Fuzz-like Random Data Tests
 // ============================================================
 
-func TestShardV2RandomData(t *testing.T) {
+func TestShardRandomData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "random.shard")
 	rng := rand.New(rand.NewSource(42))
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.SetCompression(CompressZstd)
 
 	entries := make(map[string][]byte)
@@ -2148,7 +2148,7 @@ func TestShardV2RandomData(t *testing.T) {
 	}
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	if r.EntryCount() != 50 {
@@ -2175,7 +2175,7 @@ func TestShardV2RandomData(t *testing.T) {
 // Content Type on Writer Tests
 // ============================================================
 
-func TestShardV2AllContentTypes(t *testing.T) {
+func TestShardAllContentTypes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "alltypes.shard")
 
 	types := []uint16{
@@ -2184,14 +2184,14 @@ func TestShardV2AllContentTypes(t *testing.T) {
 		ContentTypeAudio, ContentTypeVideo, ContentTypeProto, ContentTypeBlob,
 	}
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	for i, ct := range types {
 		name := ContentTypeName(ct)
 		w.WriteEntryTyped(name, []byte{byte(i)}, ct)
 	}
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	for i, ct := range types {
@@ -2202,21 +2202,21 @@ func TestShardV2AllContentTypes(t *testing.T) {
 	}
 
 	// Verify content types flag is set
-	if r.Header().Flags&ShardV2FlagHasContentTypes == 0 {
-		t.Error("expected ShardV2FlagHasContentTypes flag")
+	if r.Header().Flags&ShardFlagHasContentTypes == 0 {
+		t.Error("expected ShardFlagHasContentTypes flag")
 	}
 }
 
-func TestShardV2UserContentType(t *testing.T) {
+func TestShardUserContentType(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "usertype.shard")
 
 	ct := ContentTypeUserBase + 42
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntryTyped("custom", []byte("data"), ct)
 	w.Close()
 
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	defer r.Close()
 
 	info := r.GetEntryInfo(0)
@@ -2251,15 +2251,15 @@ func TestShardRoleString(t *testing.T) {
 // File Size Validation Tests
 // ============================================================
 
-func TestShardV2TotalFileSizeValidated(t *testing.T) {
+func TestShardTotalFileSizeValidated(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "filesize.shard")
 
-	w, _ := NewShardV2Writer(path, ShardRoleMoSH)
+	w, _ := NewShardWriter(path, ShardRoleMoSH)
 	w.WriteEntry("data", []byte("hello"))
 	w.Close()
 
 	// Verify TotalFileSize matches
-	r, _ := OpenShardV2(path)
+	r, _ := OpenShard(path)
 	info, _ := r.file.Stat()
 	if r.Header().TotalFileSize != uint64(info.Size()) {
 		t.Errorf("TotalFileSize %d != actual %d", r.Header().TotalFileSize, info.Size())
@@ -2271,7 +2271,7 @@ func TestShardV2TotalFileSizeValidated(t *testing.T) {
 	raw = append(raw, 0, 0, 0, 0)
 	os.WriteFile(path, raw, 0o644)
 
-	_, err := OpenShardV2(path)
+	_, err := OpenShard(path)
 	if err == nil {
 		t.Error("expected error for mismatched file size")
 	}

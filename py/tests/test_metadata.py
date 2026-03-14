@@ -1,6 +1,6 @@
 """
 Tests for metadata/schema, security limits, list_children, read_entry_prefix,
-and path helpers added to shard_v2.
+and path helpers added to shard_format.
 """
 import pytest
 import struct
@@ -8,10 +8,10 @@ import tempfile
 import os
 from pathlib import Path
 
-from shard_v2 import (
-    ShardV2Reader,
-    ShardV2Writer,
-    ShardV2Header,
+from shard_format import (
+    ShardReader,
+    ShardWriter,
+    ShardHeader,
     ShardMetadata,
     EntryMeta,
     SampleProfile,
@@ -38,7 +38,7 @@ def make_shard(entries, role=1, metadata=None):
     """Write a shard to a temp file and return the path."""
     tmp = tempfile.NamedTemporaryFile(suffix=".shard", delete=False)
     tmp.close()
-    w = ShardV2Writer(tmp.name, role=role)
+    w = ShardWriter(tmp.name, role=role)
     for name, data in entries:
         w.write_entry(name, data)
     if metadata is not None:
@@ -110,12 +110,12 @@ class TestListChildren:
         os.unlink(self._path)
 
     def test_list_children_exact_prefix(self):
-        r = ShardV2Reader(self._path)
+        r = ShardReader(self._path)
         result = r.list_children("layer.0/")
         assert sorted(result) == ["bias", "weight"]
 
     def test_list_children_empty_prefix(self):
-        r = ShardV2Reader(self._path)
+        r = ShardReader(self._path)
         result = r.list_children("")
         # Should return deduplicated bare first components
         assert "layer.0" in result
@@ -125,24 +125,24 @@ class TestListChildren:
         assert len(result) == len(set(result))
 
     def test_list_children_partial_prefix(self):
-        r = ShardV2Reader(self._path)
+        r = ShardReader(self._path)
         result = r.list_children("layer.")
         assert sorted(result) == ["0", "1"]
 
     def test_list_children_nonexistent_prefix(self):
-        r = ShardV2Reader(self._path)
+        r = ShardReader(self._path)
         result = r.list_children("nonexistent/")
         assert result == []
 
     def test_list_children_leaf_entry(self):
-        r = ShardV2Reader(self._path)
+        r = ShardReader(self._path)
         result = r.list_children("embed")
         # "embed" is an exact leaf match; remainder is "" which is filtered out
         assert result == []
 
     def test_list_children_dedup(self):
         """Multiple entries under same child dir should not produce duplicates."""
-        r = ShardV2Reader(self._path)
+        r = ShardReader(self._path)
         result = r.list_children("layer.")
         # bare component "0" appears only once even though there are 2 entries under layer.0/
         assert result.count("0") == 1
@@ -155,7 +155,7 @@ class TestListChildren:
             ("f", b"4"),
         ])
         try:
-            r = ShardV2Reader(path)
+            r = ShardReader(path)
             # Top-level children: bare components, no trailing slash
             top = r.list_children("")
             assert "a" in top
@@ -184,28 +184,28 @@ class TestReadEntryPrefix:
         os.unlink(self._path)
 
     def test_read_prefix_exact(self):
-        r = ShardV2Reader(self._path)
+        r = ShardReader(self._path)
         result = r.read_entry_prefix(0, len(self._data))
         assert result == self._data
 
     def test_read_prefix_partial(self):
-        r = ShardV2Reader(self._path)
+        r = ShardReader(self._path)
         result = r.read_entry_prefix(0, 5)
         assert result == b"Hello"
 
     def test_read_prefix_zero(self):
-        r = ShardV2Reader(self._path)
+        r = ShardReader(self._path)
         result = r.read_entry_prefix(0, 0)
         assert result == b""
 
     def test_read_prefix_larger_than_entry(self):
         """Requesting more bytes than entry size returns full entry."""
-        r = ShardV2Reader(self._path)
+        r = ShardReader(self._path)
         result = r.read_entry_prefix(0, 10_000)
         assert result == self._data
 
     def test_read_prefix_one_byte(self):
-        r = ShardV2Reader(self._path)
+        r = ShardReader(self._path)
         result = r.read_entry_prefix(0, 1)
         assert result == b"H"
 
@@ -225,7 +225,7 @@ class TestShardMetadata:
         )
         path = make_shard([("data", b"hello")], metadata=meta)
         try:
-            r = ShardV2Reader(path)
+            r = ShardReader(path)
             h = r.header()
             # FLAG_HAS_SCHEMA should be set
             assert h.flags & FLAG_HAS_SCHEMA
@@ -264,7 +264,7 @@ class TestShardMetadata:
         )
         path = make_shard([("model/weight", b"\x00" * 16)], metadata=meta)
         try:
-            r = ShardV2Reader(path)
+            r = ShardReader(path)
             got = r.read_metadata()
             assert got is not None
             assert "model/weight" in got.entry_metadata
@@ -315,7 +315,7 @@ class TestShardMetadata:
         )
         path = make_shard([("sample/0", b"payload")], metadata=meta)
         try:
-            r = ShardV2Reader(path)
+            r = ShardReader(path)
             got = r.read_metadata()
             assert got is not None
             assert got.profile == "sampleshard.v1"
@@ -335,7 +335,7 @@ class TestShardMetadata:
     def test_no_metadata_returns_none(self):
         path = make_shard([("data", b"hello")])
         try:
-            r = ShardV2Reader(path)
+            r = ShardReader(path)
             h = r.header()
             assert h.schema_offset == 0
             assert r.read_metadata() is None
@@ -348,7 +348,7 @@ class TestShardMetadata:
         )
         path = make_shard([("cfg", b"x")], metadata=meta)
         try:
-            r = ShardV2Reader(path)
+            r = ShardReader(path)
             got = r.read_metadata()
             assert got is not None
             assert got.extra["model_type"] == "transformer"
@@ -363,7 +363,7 @@ class TestShardMetadata:
         )
         path = make_shard([("x", b"y")], metadata=meta)
         try:
-            r = ShardV2Reader(path)
+            r = ShardReader(path)
             got = r.read_metadata()
             assert got is not None
             assert got.source_uri == "s3://bucket/model.safetensors"
@@ -375,7 +375,7 @@ class TestShardMetadata:
         meta = ShardMetadata()
         path = make_shard([("x", b"y")], metadata=meta)
         try:
-            r = ShardV2Reader(path)
+            r = ShardReader(path)
             got = r.read_metadata()
             assert got is not None
             assert got.schema_version == "shard-v2.1"
@@ -429,7 +429,7 @@ class TestSecurityLimits:
             tmp_path = f.name
         try:
             with pytest.raises(ValueError, match="MAX_ENTRY_COUNT"):
-                ShardV2Reader(tmp_path)
+                ShardReader(tmp_path)
         finally:
             os.unlink(tmp_path)
 
@@ -443,7 +443,7 @@ class TestSecurityLimits:
             struct.pack_into("<Q", data, 40, 99999)  # wrong size
             Path(path).write_bytes(bytes(data))
             with pytest.raises(ValueError, match="total_file_size"):
-                ShardV2Reader(path)
+                ShardReader(path)
         finally:
             os.unlink(path)
 
@@ -460,7 +460,7 @@ class TestSecurityLimits:
             struct.pack_into("<Q", data, 40, len(data))
             Path(path).write_bytes(bytes(data))
             with pytest.raises(ValueError):
-                ShardV2Reader(path)
+                ShardReader(path)
         finally:
             os.unlink(path)
 
@@ -475,6 +475,6 @@ class TestSecurityLimits:
             struct.pack_into("<Q", data, 40, len(data))
             Path(path).write_bytes(bytes(data))
             with pytest.raises(ValueError):
-                ShardV2Reader(path)
+                ShardReader(path)
         finally:
             os.unlink(path)

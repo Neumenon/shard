@@ -4,7 +4,7 @@
  * Tests for the TypeScript W-SHARD implementation.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -13,21 +13,46 @@ import {
   WShardReader,
   SHARD_MAGIC,
   WSHARD_ROLE,
-  crc32IEEE,
+  SHARD_HEADER_SIZE,
+  SHARD_INDEX_ENTRY_SIZE,
+  crc32C,
   simpleHash64,
   encodeFloat32,
+  encodeFloat32_2D,
   decodeFloat32,
   encodeInt32,
   decodeInt32,
   encodeBool,
   decodeBool,
   Compressor,
+  parseIndexEntry,
 } from '../src/index.js';
+
+function readIndexEntryByName(filePath: string, targetName: string) {
+  const file = fs.readFileSync(filePath);
+  const entryCount = file.readUInt32LE(12);
+  const stringTableOffset = Number(file.readBigUInt64LE(16));
+  const dataSectionOffset = Number(file.readBigUInt64LE(24));
+  const stringTable = file.subarray(stringTableOffset, dataSectionOffset);
+
+  for (let i = 0; i < entryCount; i++) {
+    const offset = SHARD_HEADER_SIZE + i * SHARD_INDEX_ENTRY_SIZE;
+    const entry = parseIndexEntry(file.subarray(offset, offset + SHARD_INDEX_ENTRY_SIZE));
+    entry.name = stringTable
+      .subarray(entry.nameOffset, entry.nameOffset + entry.nameLen)
+      .toString('utf-8');
+    if (entry.name === targetName) {
+      return entry;
+    }
+  }
+
+  throw new Error(`Index entry not found: ${targetName}`);
+}
 
 describe('W-SHARD types', () => {
   it('should compute CRC32C (Castagnoli) correctly', () => {
     const data = Buffer.from('hello', 'utf-8');
-    const crc = crc32IEEE(data);
+    const crc = crc32C(data);
     // Expected CRC32C (Castagnoli) for "hello" — matches Go's crc32.Castagnoli
     expect(crc).toBe(0x9a71bb4c);
   });
@@ -219,10 +244,10 @@ describe('W-SHARD roundtrip', () => {
     const T = 200;
 
     try {
-      // Create test data with patterns (compressible)
+      // Create test data with repeated values so compression definitely kicks in.
       const ticks = Array.from({ length: T }, (_, i) => i);
-      const actions = Array.from({ length: T }, (_, t) => [t * 0.1, t * 0.2]);
-      const signals = Array.from({ length: T }, (_, t) => [Math.sin(t * 0.05)]);
+      const actions = Array.from({ length: T }, () => [0, 0]);
+      const signals = Array.from({ length: T }, () => [0]);
       const rewards = Array.from({ length: T }, () => 1.0);
       const done = Array.from({ length: T }, (_, t) => t === T - 1);
 
@@ -242,6 +267,11 @@ describe('W-SHARD roundtrip', () => {
         .setDone(done);
 
       await writer.write();
+
+      const obsEntry = readIndexEntryByName(compressedFile, 'signal/obs');
+      const obsBytes = encodeFloat32_2D(signals);
+      expect(Number(obsEntry.diskSize)).toBeLessThan(Number(obsEntry.origSize));
+      expect(obsEntry.checksum).toBe(crc32C(obsBytes));
 
       // Read back
       const reader = new WShardReader(compressedFile);

@@ -121,7 +121,7 @@ var outputDir string
 var quantBits int
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, `shardctl - inspect and verify shard v2 files
+	fmt.Fprintln(os.Stderr, `shardctl - inspect and verify shard files
 
 Usage: shardctl [flags] <command> [args...]
 
@@ -146,7 +146,7 @@ Flags:
 }
 
 func cmdInfo(path string) {
-	reader, err := ucodec.OpenShardV2(path)
+	reader, err := ucodec.OpenShard(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error opening shard: %v\n", err)
 		os.Exit(1)
@@ -161,7 +161,7 @@ func cmdInfo(path string) {
 		os.Exit(1)
 	}
 
-	hasContentTypes := h.Flags&ucodec.ShardV2FlagHasContentTypes != 0
+	hasContentTypes := h.Flags&ucodec.ShardFlagHasContentTypes != 0
 
 	if jsonOutput {
 		out := map[string]any{
@@ -193,7 +193,7 @@ func cmdInfo(path string) {
 }
 
 func cmdList(path string, prefix string) {
-	reader, err := ucodec.OpenShardV2(path)
+	reader, err := ucodec.OpenShard(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error opening shard: %v\n", err)
 		os.Exit(1)
@@ -218,7 +218,7 @@ func cmdList(path string, prefix string) {
 		}
 	}
 
-	hasContentTypes := reader.Header().Flags&ucodec.ShardV2FlagHasContentTypes != 0
+	hasContentTypes := reader.Header().Flags&ucodec.ShardFlagHasContentTypes != 0
 
 	if jsonOutput {
 		entries := make([]map[string]any, len(indices))
@@ -278,7 +278,7 @@ func cmdList(path string, prefix string) {
 }
 
 func cmdCat(path, entryName string) {
-	reader, err := ucodec.OpenShardV2(path)
+	reader, err := ucodec.OpenShard(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error opening shard: %v\n", err)
 		os.Exit(1)
@@ -340,7 +340,7 @@ func cmdCat(path, entryName string) {
 }
 
 func cmdStats(path string) {
-	reader, err := ucodec.OpenShardV2(path)
+	reader, err := ucodec.OpenShard(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error opening shard: %v\n", err)
 		os.Exit(1)
@@ -399,7 +399,7 @@ func cmdStats(path string) {
 			"compression_ratio":  overallRatio,
 			"compressed_entries": compressedCount,
 			"raw_entries":        uncompressedCount,
-			"has_checksums":      h.Flags&ucodec.ShardV2FlagHasChecksums != 0,
+			"has_checksums":      h.Flags&ucodec.ShardFlagHasChecksums != 0,
 			"entries":            entries,
 		}
 		enc := json.NewEncoder(os.Stdout)
@@ -414,7 +414,7 @@ func cmdStats(path string) {
 	fmt.Printf("  Compression Ratio:  %.2f%% (%.3fx)\n", overallRatio*100, overallRatio)
 	fmt.Printf("  Compressed Entries: %d\n", compressedCount)
 	fmt.Printf("  Raw Entries:        %d\n", uncompressedCount)
-	fmt.Printf("  Has Checksums:      %v\n", h.Flags&ucodec.ShardV2FlagHasChecksums != 0)
+	fmt.Printf("  Has Checksums:      %v\n", h.Flags&ucodec.ShardFlagHasChecksums != 0)
 
 	fmt.Printf("\nPer-entry checksums:\n")
 	fmt.Printf("%-40s %12s\n", "NAME", "CRC32C")
@@ -560,7 +560,7 @@ func printHexDump(data []byte) {
 // cmdVerify verifies all checksums in the shard file.
 // Returns 0 if all checksums pass, 1 if any fail.
 func cmdVerify(path string) int {
-	reader, err := ucodec.OpenShardV2(path)
+	reader, err := ucodec.OpenShard(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error opening shard: %v\n", err)
 		return 1
@@ -568,7 +568,7 @@ func cmdVerify(path string) int {
 	defer reader.Close()
 
 	h := reader.Header()
-	hasChecksums := h.Flags&ucodec.ShardV2FlagHasChecksums != 0
+	hasChecksums := h.Flags&ucodec.ShardFlagHasChecksums != 0
 
 	if !hasChecksums {
 		if jsonOutput {
@@ -657,14 +657,14 @@ func cmdVerify(path string) int {
 
 // cmdDiff compares two shard files and reports differences.
 func cmdDiff(path1, path2 string) int {
-	reader1, err := ucodec.OpenShardV2(path1)
+	reader1, err := ucodec.OpenShard(path1)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error opening %s: %v\n", path1, err)
 		return 1
 	}
 	defer reader1.Close()
 
-	reader2, err := ucodec.OpenShardV2(path2)
+	reader2, err := ucodec.OpenShard(path2)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error opening %s: %v\n", path2, err)
 		return 1
@@ -785,7 +785,7 @@ func cmdAudit(path string) int {
 		return 1
 	}
 
-	reader, err := ucodec.OpenShardV2(path)
+	reader, err := ucodec.OpenShard(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error opening shard: %v\n", err)
 		return 1
@@ -815,7 +815,7 @@ func cmdAudit(path string) int {
 	}
 
 	// Check 2: Checksums enabled
-	hasChecksums := h.Flags&ucodec.ShardV2FlagHasChecksums != 0
+	hasChecksums := h.Flags&ucodec.ShardFlagHasChecksums != 0
 	if !hasChecksums {
 		issues = append(issues, auditIssue{
 			Severity: "warning",

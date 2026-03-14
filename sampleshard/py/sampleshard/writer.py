@@ -28,8 +28,8 @@ from .types import (
     SampleProfile,
     ManifestFileRef,
     ManifestProfile,
-    SHARD_V2_HEADER_SIZE,
-    SHARD_V2_INDEX_ENTRY_SIZE,
+    SHARD_HEADER_SIZE,
+    SHARD_INDEX_ENTRY_SIZE,
     ALIGN_64,
     COMPRESS_NONE,
     SHARD_FLAG_HAS_SCHEMA,
@@ -270,7 +270,7 @@ class SampleShardWriter:
     def _finalize(self) -> None:
         """Write the final shard file in v2 format."""
         entry_count = len(self._entries)
-        index_size = entry_count * SHARD_V2_INDEX_ENTRY_SIZE
+        index_size = entry_count * SHARD_INDEX_ENTRY_SIZE
 
         # Build string table
         string_table = bytearray()
@@ -281,7 +281,7 @@ class SampleShardWriter:
             string_table.append(0)  # null terminator
 
         # Calculate offsets
-        string_table_offset = SHARD_V2_HEADER_SIZE + index_size
+        string_table_offset = SHARD_HEADER_SIZE + index_size
         data_section_offset = string_table_offset + len(string_table)
 
         # Align data section

@@ -1,7 +1,7 @@
 //! Schema validation tests for shard-rs.
 
 use shard_format::{
-    match_pattern, validate_schema, ShardSchema, ShardV2Reader, ShardV2Writer,
+    match_pattern, validate_schema, ShardSchema, ShardReader, ShardWriter,
     CONTENT_TYPE_JSON, CONTENT_TYPE_TENSOR, CONTENT_TYPE_TEXT, CONTENT_TYPE_UNKNOWN,
     ROLE_MOSH,
 };
@@ -10,9 +10,9 @@ use shard_format::{
 // Helpers
 // ============================================================
 
-fn roundtrip(writer: ShardV2Writer) -> ShardV2Reader {
+fn roundtrip(writer: ShardWriter) -> ShardReader {
     let bytes = writer.to_bytes();
-    ShardV2Reader::from_bytes(bytes).expect("roundtrip: from_bytes failed")
+    ShardReader::from_bytes(bytes).expect("roundtrip: from_bytes failed")
 }
 
 // ============================================================
@@ -72,7 +72,7 @@ fn test_match_no_wildcard_no_separator() {
 
 #[test]
 fn test_valid_schema_exact_names_and_types() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry_typed("model/weight", &[1, 2, 3], CONTENT_TYPE_TENSOR);
     w.write_entry_typed("config.json", b"{}", CONTENT_TYPE_JSON);
     let r = roundtrip(w);
@@ -87,7 +87,7 @@ fn test_valid_schema_exact_names_and_types() {
 
 #[test]
 fn test_missing_required_entry() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("only_one", b"data");
     let r = roundtrip(w);
 
@@ -102,7 +102,7 @@ fn test_missing_required_entry() {
 
 #[test]
 fn test_optional_missing_is_not_error() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("required", b"data");
     let r = roundtrip(w);
 
@@ -116,7 +116,7 @@ fn test_optional_missing_is_not_error() {
 
 #[test]
 fn test_dot_wildcard_pattern() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("layer.0.weight", b"w0");
     w.write_entry("layer.1.weight", b"w1");
     w.write_entry("layer.2.weight", b"w2");
@@ -131,7 +131,7 @@ fn test_dot_wildcard_pattern() {
 
 #[test]
 fn test_slash_wildcard_pattern() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("layer/0/weight", b"w0");
     w.write_entry("layer/1/weight", b"w1");
     let r = roundtrip(w);
@@ -145,7 +145,7 @@ fn test_slash_wildcard_pattern() {
 
 #[test]
 fn test_prefix_wildcard() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("layers/0/attn/q", b"q");
     w.write_entry("layers/0/attn/k", b"k");
     let r = roundtrip(w);
@@ -159,7 +159,7 @@ fn test_prefix_wildcard() {
 
 #[test]
 fn test_wrong_content_type() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry_typed("data", b"not_a_tensor", CONTENT_TYPE_TEXT);
     let r = roundtrip(w);
 
@@ -178,7 +178,7 @@ fn test_wrong_content_type() {
 
 #[test]
 fn test_empty_schema_always_valid() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("anything", b"data");
     let r = roundtrip(w);
 
@@ -189,7 +189,7 @@ fn test_empty_schema_always_valid() {
 
 #[test]
 fn test_multiple_errors() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("only_this", b"data");
     let r = roundtrip(w);
 
@@ -208,7 +208,7 @@ fn test_multiple_errors() {
 
 #[test]
 fn test_content_type_zero_means_any() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry_typed("data", b"x", CONTENT_TYPE_JSON);
     let r = roundtrip(w);
 
@@ -233,7 +233,7 @@ fn test_add_spec_chaining() {
 
 #[test]
 fn test_validation_error_fields() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("present", b"data");
     let r = roundtrip(w);
 
@@ -249,7 +249,7 @@ fn test_validation_error_fields() {
 #[test]
 fn test_optional_entry_that_exists_is_type_checked() {
     // An optional entry that IS present should still have its type verified.
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry_typed("meta", b"text", CONTENT_TYPE_TEXT);
     let r = roundtrip(w);
 
@@ -263,7 +263,7 @@ fn test_optional_entry_that_exists_is_type_checked() {
 
 #[test]
 fn test_required_wildcard_no_match_is_error() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("other.entry", b"x");
     let r = roundtrip(w);
 

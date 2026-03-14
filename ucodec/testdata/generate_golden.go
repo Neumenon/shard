@@ -79,7 +79,7 @@ func main() {
 	// === golden_basic.shard ===
 	{
 		path := filepath.Join(outDir, "golden_basic.shard")
-		w, err := ucodec.NewShardV2Writer(path, ucodec.ShardRoleMoSH)
+		w, err := ucodec.NewShardWriter(path, ucodec.ShardRoleMoSH)
 		must(err)
 
 		// Entry 1: simple text
@@ -106,7 +106,7 @@ func main() {
 	// === golden_types.shard ===
 	{
 		path := filepath.Join(outDir, "golden_types.shard")
-		w, err := ucodec.NewShardV2Writer(path, ucodec.ShardRoleSample)
+		w, err := ucodec.NewShardWriter(path, ucodec.ShardRoleSample)
 		must(err)
 
 		// Various content types
@@ -125,7 +125,7 @@ func main() {
 	// === golden_align16.shard ===
 	{
 		path := filepath.Join(outDir, "golden_align16.shard")
-		w, err := ucodec.NewShardV2Writer(path, ucodec.ShardRoleMoSH)
+		w, err := ucodec.NewShardWriter(path, ucodec.ShardRoleMoSH)
 		must(err)
 		must(w.SetAlignment(ucodec.Align16))
 
@@ -141,7 +141,7 @@ func main() {
 	// === golden_noalign.shard ===
 	{
 		path := filepath.Join(outDir, "golden_noalign.shard")
-		w, err := ucodec.NewShardV2Writer(path, ucodec.ShardRoleMoSH)
+		w, err := ucodec.NewShardWriter(path, ucodec.ShardRoleMoSH)
 		must(err)
 		must(w.SetAlignment(ucodec.AlignNone))
 
@@ -157,7 +157,7 @@ func main() {
 	// === golden_wshard.shard (WShard role) ===
 	{
 		path := filepath.Join(outDir, "golden_wshard.shard")
-		w, err := ucodec.NewShardV2Writer(path, ucodec.ShardRoleWShard)
+		w, err := ucodec.NewShardWriter(path, ucodec.ShardRoleWShard)
 		must(err)
 
 		must(w.WriteEntryTyped("signal/imu", makePattern(600, 0x11), ucodec.ContentTypeBlob))
@@ -173,7 +173,7 @@ func main() {
 	// === golden_hierarchical.shard (deep paths) ===
 	{
 		path := filepath.Join(outDir, "golden_hierarchical.shard")
-		w, err := ucodec.NewShardV2Writer(path, ucodec.ShardRoleMoSH)
+		w, err := ucodec.NewShardWriter(path, ucodec.ShardRoleMoSH)
 		must(err)
 
 		must(w.WriteEntryTyped("layer.0/attention/q_proj/weight", makePattern(512, 0x01), ucodec.ContentTypeTensor))
@@ -218,7 +218,7 @@ func readGoldenFile(path string) GoldenFile {
 	fileHash := sha256.Sum256(fileData)
 
 	// Open with reader
-	r, err := ucodec.OpenShardV2(path)
+	r, err := ucodec.OpenShard(path)
 	must(err)
 	defer r.Close()
 

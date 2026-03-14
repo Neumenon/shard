@@ -4,7 +4,7 @@ TypeScript implementation of the W-SHARD (World-Model Episode Shard) format for 
 
 ## Features
 
-- Full Shard v2 format support (role=0x05)
+- Full Shard format support (role=0x05)
 - LZ4 block compression (zstd via deflate fallback)
 - Sign2ndDiff residual encoding
 - Cross-language compatible with Go and Python implementations
@@ -81,7 +81,7 @@ compressor.close();
 
 ## Format
 
-W-SHARD uses the Shard v2 container format with role=0x05. Layout:
+W-SHARD uses the Shard container format with role=0x05. Layout:
 
 ```
 Header (64 bytes)

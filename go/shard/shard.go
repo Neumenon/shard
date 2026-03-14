@@ -67,7 +67,7 @@
 //
 // Writing a shard:
 //
-//	w, _ := NewShardV2Writer("model.shard", ShardRoleMoSH)
+//	w, _ := NewShardWriter("model.shard", ShardRoleMoSH)
 //	w.SetAlignment(64)
 //	w.SetCompression(CompressZstd)
 //	w.WriteEntry("layer.0.weight", tensorBytes)
@@ -76,20 +76,20 @@
 //
 // Reading a shard:
 //
-//	r, _ := OpenShardV2("model.shard")
+//	r, _ := OpenShard("model.shard")
 //	data, _ := r.ReadEntryByName("layer.0.weight")
 //	r.Close()
 //
 // Streaming write (for very large models):
 //
-//	sw, _ := NewShardV2StreamWriter("model.shard", ShardRoleMoSH, 1000)
+//	sw, _ := NewShardStreamWriter("model.shard", ShardRoleMoSH, 1000)
 //	sw.BeginData()
 //	sw.WriteEntry("layer.0.weight", tensorBytes)
 //	sw.Finalize()
 //
 // # See Also
 //
-//   - shard_v2.go: v2 implementation
+//   - shard_format.go: v2 implementation
 //   - mosh.go: MoSH-specific wrapper for model weights
 //   - tensor_v1.go: TensorV1 encoding for entry data
 //   - schema.go: Optional schema validation

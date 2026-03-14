@@ -452,7 +452,7 @@ func TestMoSHRoleValidation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "wrongrole.shard")
 
 	// Write a WShard
-	w, err := NewShardV2Writer(path, ShardRoleWShard)
+	w, err := NewShardWriter(path, ShardRoleWShard)
 	if err != nil {
 		t.Fatal(err)
 	}

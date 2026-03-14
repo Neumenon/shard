@@ -47,8 +47,8 @@ from .types import (
     ShardMetadata,
     SampleProfile,
     ManifestProfile,
-    SHARD_V2_HEADER_SIZE,
-    SHARD_V2_INDEX_ENTRY_SIZE,
+    SHARD_HEADER_SIZE,
+    SHARD_INDEX_ENTRY_SIZE,
     crc32c,
 )
 
@@ -117,7 +117,7 @@ class SampleShardReader:
         self._file = open(self.path, "rb")
 
         # Read header
-        header_data = self._file.read(SHARD_V2_HEADER_SIZE)
+        header_data = self._file.read(SHARD_HEADER_SIZE)
         self._header = ShardHeader.from_bytes(header_data)
 
         # Verify role
@@ -130,12 +130,12 @@ class SampleShardReader:
 
         # v2 format: Index is at offset 64 (right after header)
         # Read index entries first
-        index_size = self._header.entry_count * SHARD_V2_INDEX_ENTRY_SIZE
+        index_size = self._header.entry_count * SHARD_INDEX_ENTRY_SIZE
         index_data = self._file.read(index_size)
 
         for i in range(self._header.entry_count):
-            offset = i * SHARD_V2_INDEX_ENTRY_SIZE
-            entry_data = index_data[offset : offset + SHARD_V2_INDEX_ENTRY_SIZE]
+            offset = i * SHARD_INDEX_ENTRY_SIZE
+            entry_data = index_data[offset : offset + SHARD_INDEX_ENTRY_SIZE]
             entry = IndexEntry.from_bytes(entry_data)
             self._entries.append(entry)
 

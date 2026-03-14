@@ -61,7 +61,7 @@ Each named block is independently addressable. A training loop that only needs `
 
 ## 2. The Binary Format — Byte by Byte
 
-WShard rides on **Shard v2**, a general-purpose binary container format (like a simplified ZIP with aligned data sections). WShard is Shard v2 with `role = 0x05`.
+WShard rides on **Shard**, a general-purpose binary container format (like a simplified ZIP with aligned data sections). WShard is Shard with `role = 0x05`.
 
 ### File Layout
 
@@ -137,6 +137,49 @@ Names are hierarchical paths separated by `/`:
 | `done` | Termination flags | `done` |
 
 This naming convention is semantic, not syntactic. The reader uses it to route blocks to the correct Episode fields. Action blocks go to `ep.actions`, signal blocks to `ep.observations`, omen blocks to `ep.omens`.
+
+### Timebase
+
+The `meta/wshard` block contains a `timebase` object describing the episode's time axis:
+
+```json
+{
+  "timebase": {
+    "type": "ticks",
+    "tick_hz": 30.0
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `string` | `"ticks"` (fixed-rate) or `"timestamps_ns"` (variable-rate wall clock) |
+| `tick_hz` | `float64` | Ticks per second. Only meaningful when `type == "ticks"`. |
+
+When `type == "ticks"`, each timestep `t` corresponds to real time `t / tick_hz` seconds. When `type == "timestamps_ns"`, the `time/timestamps_ns` block contains per-timestep nanosecond timestamps (int64 LE).
+
+### Multi-Modal Signal Naming
+
+Multi-modal observations use a two-level signal path: `signal/{group}/{modality}`:
+
+| Modality | Constant | Example block name |
+|----------|----------|--------------------|
+| RGB camera | `rgb` | `signal/cam0/rgb` |
+| Depth sensor | `depth` | `signal/cam0/depth` |
+| Language | `language` | `signal/cmd/language` |
+| Proprioception | `proprioception` | `signal/arm/proprioception` |
+| Audio | `audio` | `signal/mic/audio` |
+| Video | `video` | `signal/cam0/video` |
+| Point cloud | `pointcloud` | `signal/lidar/pointcloud` |
+
+### Latent Action Naming
+
+Latent action embeddings and codebook indices use the `omen/` namespace:
+
+| Block name pattern | Description |
+|--------------------|-------------|
+| `omen/latent_action/{model}` | Latent action embeddings from model |
+| `omen/latent_action_codebook/{model}` | Discrete codebook indices for latent actions |
 
 ### Supported Data Types
 
@@ -280,6 +323,9 @@ These are exactly the bugs that unit tests don't catch. Each implementation pass
 | `simple_episode.wshard` | Basic episode: obs [T,4], actions [T,2], reward, done |
 | `dtype_zoo.wshard` | All 13 dtypes exercised |
 | `per_block_compressed.wshard` | Zstd-compressed blocks with 100 timesteps |
+| `omen_uncert.wshard` | Omen predictions, uncertainty estimates, sign2nddiff residuals |
+| `multimodal.wshard` | Multi-modal observations (RGB + proprioception groups) |
+| `latent_action.wshard` | Latent action embeddings and codebook indices |
 
 Python and TypeScript tests read these files and assert:
 - CRC32C checksums match `golden_hashes.json`

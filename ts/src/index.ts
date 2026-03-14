@@ -1,7 +1,7 @@
 /**
- * Shard v2 binary container format — TypeScript implementation.
+ * Shard binary container format — TypeScript implementation.
  *
- * Binary-compatible with the Go reference implementation at cowrie/ucodec/shard_v2.go.
+ * Binary-compatible with the Go reference implementation at cowrie/ucodec/shard_format.go.
  *
  * Layout:
  *   [Header 64B] [Index N×48B] [String Table] [padding to alignment] [Data entries]
@@ -559,7 +559,7 @@ export function pathBase(name: string): string {
 const HEADER_SIZE = 64;
 const INDEX_ENTRY_SIZE = 48;
 const SHARD_MAGIC = Buffer.from([0x53, 0x48, 0x52, 0x44]); // 'S','H','R','D'
-const SHARD_VERSION2 = 0x02;
+const SHARD_VERSION = 0x02;
 
 // ============================================================
 // CRC32C — Castagnoli polynomial 0x82F63B78
@@ -616,7 +616,7 @@ export function computeXxhash64(name: string): bigint {
 // Data structures
 // ============================================================
 
-export interface ShardV2Header {
+export interface ShardHeader {
   magic: Buffer;
   version: number;
   role: number;
@@ -685,7 +685,7 @@ function writeUint64LE(buf: Buffer, offset: number, value: bigint): void {
 // Header parsing
 // ============================================================
 
-function parseHeader(buf: Buffer): ShardV2Header {
+function parseHeader(buf: Buffer): ShardHeader {
   if (buf.length < HEADER_SIZE) {
     throw new Error(`header too short: ${buf.length} < ${HEADER_SIZE}`);
   }
@@ -696,7 +696,7 @@ function parseHeader(buf: Buffer): ShardV2Header {
   }
 
   const version = buf[4];
-  if (version !== SHARD_VERSION2) {
+  if (version !== SHARD_VERSION) {
     throw new Error(`unsupported version: ${version}`);
   }
 
@@ -716,7 +716,7 @@ function parseHeader(buf: Buffer): ShardV2Header {
   };
 }
 
-function serializeHeader(h: ShardV2Header): Buffer {
+function serializeHeader(h: ShardHeader): Buffer {
   const buf = Buffer.alloc(HEADER_SIZE, 0);
   SHARD_MAGIC.copy(buf, 0);
   buf[4] = h.version;
@@ -813,12 +813,12 @@ function alignUpNum(value: number, alignment: number): number {
 }
 
 // ============================================================
-// ShardV2Reader
+// ShardReader
 // ============================================================
 
-export class ShardV2Reader {
+export class ShardReader {
   private readonly _buf: Buffer;
-  private readonly _header: ShardV2Header;
+  private readonly _header: ShardHeader;
   private readonly _entries: IndexEntry[];
   private readonly _nameToIndex: Map<string, number>;
 
@@ -902,7 +902,7 @@ export class ShardV2Reader {
     }
   }
 
-  header(): ShardV2Header {
+  header(): ShardHeader {
     return this._header;
   }
 
@@ -1102,7 +1102,7 @@ export class ShardV2Reader {
 }
 
 // ============================================================
-// ShardV2Writer
+// ShardWriter
 // ============================================================
 
 interface PendingEntry {
@@ -1201,7 +1201,7 @@ function matchPattern(pattern: string, name: string): boolean {
  * 2. Matched entries have the expected ``contentType`` when the spec specifies
  *    one (non-zero).
  */
-export function validateSchema(reader: ShardV2Reader, schema: ShardSchema): ValidationError[] {
+export function validateSchema(reader: ShardReader, schema: ShardSchema): ValidationError[] {
   const errors: ValidationError[] = [];
   const names = reader.entryNames();
 
@@ -1235,11 +1235,11 @@ export function validateSchema(reader: ShardV2Reader, schema: ShardSchema): Vali
 }
 
 // ============================================================
-// ShardV2Writer
+// ShardWriter
 // ============================================================
 
 // ============================================================
-// ShardV2StreamWriter
+// ShardStreamWriter
 // ============================================================
 
 /**
@@ -1250,14 +1250,14 @@ export function validateSchema(reader: ShardV2Reader, schema: ShardSchema): Vali
  * ``maxEntries`` upfront so the front-matter region can be pre-reserved.
  *
  * Usage:
- *   const sw = new ShardV2StreamWriter('/tmp/out.shard', ROLE_MOSH, 1000);
+ *   const sw = new ShardStreamWriter('/tmp/out.shard', ROLE_MOSH, 1000);
  *   sw.setAlignment(ALIGN_64);  // optional, before beginData()
  *   sw.beginData();
  *   sw.writeEntry('weights', tensorBytes);
  *   sw.writeEntry('config',  jsonBytes);
  *   sw.finalize();
  */
-export class ShardV2StreamWriter {
+export class ShardStreamWriter {
   private fd: number;
   private readonly role: number;
   private alignment: number;
@@ -1460,7 +1460,7 @@ export class ShardV2StreamWriter {
     // Build and write header (seek to 0)
     const headerBuf = Buffer.alloc(HEADER_SIZE, 0);
     headerBuf[0] = 0x53; headerBuf[1] = 0x48; headerBuf[2] = 0x52; headerBuf[3] = 0x44;
-    headerBuf[4] = SHARD_VERSION2;
+    headerBuf[4] = SHARD_VERSION;
     headerBuf[5] = this.role;
     headerBuf.writeUInt16LE(DEFAULT_FLAGS | FLAG_STREAMING, 6);
     headerBuf[8] = this.alignment;
@@ -1517,7 +1517,7 @@ export class ShardV2StreamWriter {
   }
 }
 
-export class ShardV2Writer {
+export class ShardWriter {
   private readonly _role: number;
   private _alignment: number;
   private _compression: number;
@@ -1703,9 +1703,9 @@ export class ShardV2Writer {
       : currentOffset;
 
     // Build header
-    const header: ShardV2Header = {
+    const header: ShardHeader = {
       magic: Buffer.from(SHARD_MAGIC),
-      version: SHARD_VERSION2,
+      version: SHARD_VERSION,
       role: this._role,
       flags: hdrFlags,
       alignment: align,

@@ -63,7 +63,7 @@ with SampleShardReader("train.smpl") as r:
 
 ## Dataset Metadata
 
-SampleShard v2.1 embeds structured metadata alongside data:
+SampleShard embeds structured metadata alongside data:
 
 ```python
 from sampleshard import SampleShardWriter, SampleShardReader
@@ -94,7 +94,7 @@ Per-entry metadata can track codec provenance, shapes, stats, and content hashes
 
 ## File Format
 
-SampleShard uses the `.smpl` extension and the Shard v2 binary format:
+SampleShard uses the `.smpl` extension and the Shard binary format:
 
 - 64-byte header with magic bytes `SHRD`
 - Role byte = 0x02 (Sample)

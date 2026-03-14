@@ -28,8 +28,8 @@ import {
   SHARD_MAGIC,
   SHARD_VERSION_2,
   WSHARD_ROLE,
-  SHARD_V2_HEADER_SIZE,
-  SHARD_V2_INDEX_ENTRY_SIZE,
+  SHARD_HEADER_SIZE,
+  SHARD_INDEX_ENTRY_SIZE,
   DEFAULT_ALIGNMENT,
   BLOCK_FLAG_COMPRESSED,
   BLOCK_META_WSHARD,
@@ -50,7 +50,7 @@ import {
   latentActionBlock,
   latentCodebookBlock,
   multiModalSignalBlock,
-  crc32IEEE,
+  crc32C,
   encodeFloat32,
   encodeFloat32_2D,
   encodeInt32,
@@ -444,8 +444,8 @@ export class WShardWriter {
       pendingBlocks.sort((a, b) => a.name.localeCompare(b.name));
 
       // Calculate offsets
-      const headerSize = SHARD_V2_HEADER_SIZE;
-      const indexSize = pendingBlocks.length * SHARD_V2_INDEX_ENTRY_SIZE;
+      const headerSize = SHARD_HEADER_SIZE;
+      const indexSize = pendingBlocks.length * SHARD_INDEX_ENTRY_SIZE;
       const stringTableOffset = headerSize + indexSize;
       const stringTable = this.buildStringTable(pendingBlocks);
       const dataSectionOffset = align(stringTableOffset + stringTable.length, this.alignment);
@@ -627,7 +627,7 @@ export class WShardWriter {
         data,
         compressed,
         flags,
-        checksum: crc32IEEE(compressed),
+        checksum: crc32C(data),
       });
     }
 
@@ -648,7 +648,7 @@ export class WShardWriter {
     dataSectionOffset: number,
     totalSize: number
   ): Buffer {
-    const header = Buffer.alloc(SHARD_V2_HEADER_SIZE);
+    const header = Buffer.alloc(SHARD_HEADER_SIZE);
 
     // Magic
     SHARD_MAGIC.copy(header, 0);
@@ -669,7 +669,7 @@ export class WShardWriter {
     header.writeUInt8(compressionByte(this.compression), 9);
 
     // Index entry size
-    header.writeUInt16LE(SHARD_V2_INDEX_ENTRY_SIZE, 10);
+    header.writeUInt16LE(SHARD_INDEX_ENTRY_SIZE, 10);
 
     // Entry count
     header.writeUInt32LE(entryCount, 12);
@@ -692,7 +692,7 @@ export class WShardWriter {
   }
 
   private buildIndexEntry(block: PendingBlock, nameOffset: number, dataOffset: number): Buffer {
-    const entry = Buffer.alloc(SHARD_V2_INDEX_ENTRY_SIZE);
+    const entry = Buffer.alloc(SHARD_INDEX_ENTRY_SIZE);
     const nameBytes = Buffer.from(block.name, 'utf-8');
 
     // Name hash

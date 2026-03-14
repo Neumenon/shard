@@ -8,13 +8,13 @@
 //! - empty input
 //!
 //! We exercise the decompressors both directly (to catch codec panics) and
-//! indirectly via ShardV2Reader.read_entry (to cover the full entry path).
+//! indirectly via ShardReader.read_entry (to cover the full entry path).
 #![no_main]
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 use shard_format::{
     COMPRESS_LZ4, COMPRESS_ZSTD, ENTRY_FLAG_COMPRESSED, ENTRY_FLAG_LZ4, ENTRY_FLAG_ZSTD,
-    FLAG_HAS_CHECKSUMS, HEADER_SIZE, INDEX_ENTRY_SIZE, SHARD_MAGIC, SHARD_VERSION2,
+    FLAG_HAS_CHECKSUMS, HEADER_SIZE, INDEX_ENTRY_SIZE, SHARD_MAGIC, SHARD_VERSION,
 };
 
 /// Structured fuzz input so libfuzzer can explore comp_type and orig_size
@@ -45,7 +45,7 @@ fuzz_target!(|input: DecompressInput| {
         _ => {}
     }
 
-    // --- End-to-end path through ShardV2Reader ---
+    // --- End-to-end path through ShardReader ---
     // Build a minimal single-entry shard whose entry data is `input.data` and
     // whose index entry flags request the chosen compression codec.
     //
@@ -64,7 +64,7 @@ fuzz_target!(|input: DecompressInput| {
 
     // Header
     buf[0..4].copy_from_slice(SHARD_MAGIC);
-    buf[4] = SHARD_VERSION2;
+    buf[4] = SHARD_VERSION;
     buf[5] = 1; // ROLE_MOSH
     // Flags: little-endian | checksums (so read_entry verifies CRC)
     buf[6..8].copy_from_slice(&FLAG_HAS_CHECKSUMS.to_le_bytes());
@@ -111,7 +111,7 @@ fuzz_target!(|input: DecompressInput| {
     }
 
     // Open the constructed shard — must never panic.
-    if let Ok(reader) = shard_format::ShardV2Reader::from_bytes(buf) {
+    if let Ok(reader) = shard_format::ShardReader::from_bytes(buf) {
         let _ = reader.read_entry(0);
         let _ = reader.read_entry_by_name("e");
     }

@@ -1,5 +1,5 @@
 /*
- * test_golden.c — Golden-file parity tests for shard_v2.c
+ * test_golden.c — Golden-file parity tests for shard.c
  *
  * Usage: ./test_golden <testdata_dir>
  *
@@ -15,7 +15,7 @@
  *   - CRC32C known values
  */
 
-#include "shard_v2.h"
+#include "shard.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -84,12 +84,12 @@ static void test_file(const char* dir, const char* filename,
     char desc[256];
     snprintf(desc, sizeof(desc), "open(%s)", filename);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, desc);
     if (!r) return;
 
     /* Header checks */
-    const shard_v2_header_t* h = shard_v2_header(r);
+    const shard_header_t* h = shard_header(r);
 
     snprintf(desc, sizeof(desc), "%s: magic == SHRD", filename);
     check(memcmp(h->magic, "SHRD", 4) == 0, desc);
@@ -132,18 +132,18 @@ static void test_file(const char* dir, const char* filename,
     check(h->total_file_size == exp_total_file_size, desc);
 
     snprintf(desc, sizeof(desc), "%s: entry_count() == %u", filename, exp_entry_count);
-    check(shard_v2_entry_count(r) == exp_entry_count, desc);
+    check(shard_entry_count(r) == exp_entry_count, desc);
 
     /* Entry checks */
     for (uint32_t i = 0; i < exp_entry_count; i++) {
         const expected_entry_t* ex = &exp_entries[i];
 
         /* Name */
-        const char* name = shard_v2_entry_name(r, i);
+        const char* name = shard_entry_name(r, i);
         snprintf(desc, sizeof(desc), "%s[%u]: name == \"%s\"", filename, i, ex->name);
         check(name && strcmp(name, ex->name) == 0, desc);
 
-        const shard_v2_index_entry_t* e = shard_v2_get_entry(r, i);
+        const shard_index_entry_t* e = shard_get_entry(r, i);
         if (!e) {
             snprintf(desc, sizeof(desc), "%s[%u]: get_entry != NULL", filename, i);
             check(false, desc);
@@ -157,7 +157,7 @@ static void test_file(const char* dir, const char* filename,
 
         /* content_type */
         snprintf(desc, sizeof(desc), "%s[%u]: content_type == %u", filename, i, ex->content_type);
-        check(shard_v2_content_type(e) == ex->content_type, desc);
+        check(shard_content_type(e) == ex->content_type, desc);
 
         /* orig_size */
         snprintf(desc, sizeof(desc), "%s[%u]: orig_size == %llu", filename, i,
@@ -176,11 +176,11 @@ static void test_file(const char* dir, const char* filename,
         /* compressed flag */
         snprintf(desc, sizeof(desc), "%s[%u]: compressed == %s", filename, i,
                  ex->compressed ? "true" : "false");
-        check(shard_v2_is_compressed(e) == ex->compressed, desc);
+        check(shard_is_compressed(e) == ex->compressed, desc);
 
         /* Read entry and verify CRC32C matches stored checksum */
         size_t out_size = 0;
-        const uint8_t* data = shard_v2_read_entry(r, i, &out_size);
+        const uint8_t* data = shard_read_entry(r, i, &out_size);
         snprintf(desc, sizeof(desc), "%s[%u]: read_entry != NULL (checksum ok)", filename, i);
         check(data != NULL, desc);
 
@@ -189,14 +189,14 @@ static void test_file(const char* dir, const char* filename,
                      (unsigned long long)ex->disk_size);
             check(out_size == (size_t)ex->disk_size, desc);
 
-            uint32_t computed_crc = shard_v2_crc32c(data, out_size);
+            uint32_t computed_crc = shard_crc32c(data, out_size);
             snprintf(desc, sizeof(desc), "%s[%u]: computed CRC32C == stored checksum", filename, i);
             check(computed_crc == ex->checksum, desc);
         }
 
         /* Lookup by name */
         if (name) {
-            int32_t idx = shard_v2_lookup(r, name);
+            int32_t idx = shard_lookup(r, name);
             snprintf(desc, sizeof(desc), "%s[%u]: lookup(\"%s\") == %u", filename, i, name, i);
             check(idx == (int32_t)i, desc);
         }
@@ -205,14 +205,14 @@ static void test_file(const char* dir, const char* filename,
     /* has_entry for a known name */
     if (exp_entry_count > 0) {
         snprintf(desc, sizeof(desc), "%s: has_entry(\"%s\") == true", filename, exp_entries[0].name);
-        check(shard_v2_has_entry(r, exp_entries[0].name), desc);
+        check(shard_has_entry(r, exp_entries[0].name), desc);
     }
 
     /* lookup for a non-existent name */
     snprintf(desc, sizeof(desc), "%s: lookup(\"__nonexistent__\") == -1", filename);
-    check(shard_v2_lookup(r, "__nonexistent__") == -1, desc);
+    check(shard_lookup(r, "__nonexistent__") == -1, desc);
 
-    shard_v2_close(r);
+    shard_close(r);
 }
 
 /* ============================================================
@@ -222,25 +222,25 @@ static void test_file(const char* dir, const char* filename,
 static void test_crc32c(void) {
     /* CRC32C of empty string = 0x00000000 */
     {
-        uint32_t got = shard_v2_crc32c((const uint8_t*)"", 0);
+        uint32_t got = shard_crc32c((const uint8_t*)"", 0);
         check(got == 0x00000000u, "crc32c(\"\", 0) == 0x00000000");
     }
     /* CRC32C("123456789") = 0xE3069283 */
     {
         const uint8_t* s = (const uint8_t*)"123456789";
-        uint32_t got = shard_v2_crc32c(s, 9);
+        uint32_t got = shard_crc32c(s, 9);
         check(got == 0xE3069283u, "crc32c(\"123456789\") == 0xE3069283");
     }
     /* CRC32C of single zero byte */
     {
         const uint8_t b = 0x00;
-        uint32_t got = shard_v2_crc32c(&b, 1);
+        uint32_t got = shard_crc32c(&b, 1);
         check(got == 0x527D5351u, "crc32c({0x00}) == 0x527D5351");
     }
     /* CRC32C of "hello world" == checksum from golden_basic entry 0 */
     {
         const uint8_t* s = (const uint8_t*)"hello world";
-        uint32_t got = shard_v2_crc32c(s, 11);
+        uint32_t got = shard_crc32c(s, 11);
         /* Expected: checksum from golden_manifest entry greeting = 3381945770 */
         check(got == 3381945770u, "crc32c(\"hello world\") == 3381945770");
     }
@@ -274,7 +274,7 @@ static void test_xxhash64(void) {
 
     char desc[256];
     for (size_t i = 0; i < sizeof(cases)/sizeof(cases[0]); i++) {
-        uint64_t got = shard_v2_xxhash64(cases[i].s, strlen(cases[i].s));
+        uint64_t got = shard_xxhash64(cases[i].s, strlen(cases[i].s));
         snprintf(desc, sizeof(desc), "xxhash64(\"%s\") == %llu",
                  cases[i].s, (unsigned long long)cases[i].expected);
         check(got == cases[i].expected, desc);
@@ -289,7 +289,7 @@ int main(int argc, char* argv[]) {
     const char* testdata = (argc > 1) ? argv[1]
                                       : "../ucodec/testdata";
 
-    printf("=== shard_v2 golden tests ===\n\n");
+    printf("=== shard golden tests ===\n\n");
 
     /* --- CRC32C --- */
     printf("[ CRC32C known values ]\n");

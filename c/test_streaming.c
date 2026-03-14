@@ -1,5 +1,5 @@
 /*
- * test_streaming.c — Roundtrip tests for shard_v2 streaming writer.
+ * test_streaming.c — Roundtrip tests for shard streaming writer.
  *
  * Tests:
  *   1.  Basic two-entry roundtrip
@@ -19,7 +19,7 @@
  *  15.  DEFAULT_FLAGS also present alongside FLAG_STREAMING
  */
 
-#include "shard_v2.h"
+#include "shard.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,37 +65,37 @@ static void test_basic_roundtrip(void) {
     char* path = make_tmpfile();
     if (!path) { check(false, "make_tmpfile"); return; }
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 10);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 10);
     check(sw != NULL, "stream_writer_new");
     if (!sw) { free(path); return; }
 
-    check(shard_v2_stream_writer_begin_data(sw) == 0, "begin_data");
-    check(shard_v2_stream_writer_write_entry(sw, "hello", (const uint8_t*)"world", 5) == 0,
+    check(shard_stream_writer_begin_data(sw) == 0, "begin_data");
+    check(shard_stream_writer_write_entry(sw, "hello", (const uint8_t*)"world", 5) == 0,
           "write_entry hello");
-    check(shard_v2_stream_writer_write_entry(sw, "foo", (const uint8_t*)"bar", 3) == 0,
+    check(shard_stream_writer_write_entry(sw, "foo", (const uint8_t*)"bar", 3) == 0,
           "write_entry foo");
-    check(shard_v2_stream_writer_finalize(sw) == 0, "finalize");
-    shard_v2_stream_writer_free(sw);
+    check(shard_stream_writer_finalize(sw) == 0, "finalize");
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open after finalize");
     if (r) {
-        check(shard_v2_entry_count(r) == 2, "entry_count == 2");
+        check(shard_entry_count(r) == 2, "entry_count == 2");
 
-        const char* n0 = shard_v2_entry_name(r, 0);
+        const char* n0 = shard_entry_name(r, 0);
         check(n0 && strcmp(n0, "hello") == 0, "entry[0].name == \"hello\"");
 
-        const char* n1 = shard_v2_entry_name(r, 1);
+        const char* n1 = shard_entry_name(r, 1);
         check(n1 && strcmp(n1, "foo") == 0, "entry[1].name == \"foo\"");
 
         size_t sz;
-        const uint8_t* d0 = shard_v2_read_entry(r, 0, &sz);
+        const uint8_t* d0 = shard_read_entry(r, 0, &sz);
         check(d0 && sz == 5 && memcmp(d0, "world", 5) == 0, "entry[0] data == \"world\"");
 
-        const uint8_t* d1 = shard_v2_read_entry(r, 1, &sz);
+        const uint8_t* d1 = shard_read_entry(r, 1, &sz);
         check(d1 && sz == 3 && memcmp(d1, "bar", 3) == 0, "entry[1] data == \"bar\"");
 
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -111,21 +111,21 @@ static void test_flag_streaming(void) {
     char* path = make_tmpfile();
     if (!path) { check(false, "make_tmpfile"); return; }
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 5);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 5);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
-    shard_v2_stream_writer_begin_data(sw);
-    shard_v2_stream_writer_write_entry(sw, "x", (const uint8_t*)"data", 4);
-    shard_v2_stream_writer_finalize(sw);
-    shard_v2_stream_writer_free(sw);
+    shard_stream_writer_begin_data(sw);
+    shard_stream_writer_write_entry(sw, "x", (const uint8_t*)"data", 4);
+    shard_stream_writer_finalize(sw);
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open after finalize");
     if (r) {
-        const shard_v2_header_t* h = shard_v2_header(r);
+        const shard_header_t* h = shard_header(r);
         check((h->flags & FLAG_STREAMING) != 0, "FLAG_STREAMING is set");
         check((h->flags & DEFAULT_FLAGS) == DEFAULT_FLAGS, "DEFAULT_FLAGS bits also present");
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -141,24 +141,24 @@ static void test_single_entry(void) {
     char* path = make_tmpfile();
     if (!path) { check(false, "make_tmpfile"); return; }
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 5);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 5);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
-    shard_v2_stream_writer_begin_data(sw);
-    shard_v2_stream_writer_write_entry(sw, "only", (const uint8_t*)"payload", 7);
-    shard_v2_stream_writer_finalize(sw);
-    shard_v2_stream_writer_free(sw);
+    shard_stream_writer_begin_data(sw);
+    shard_stream_writer_write_entry(sw, "only", (const uint8_t*)"payload", 7);
+    shard_stream_writer_finalize(sw);
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
-        check(shard_v2_entry_count(r) == 1, "entry_count == 1");
+        check(shard_entry_count(r) == 1, "entry_count == 1");
 
         size_t sz;
-        const uint8_t* d = shard_v2_read_entry(r, 0, &sz);
+        const uint8_t* d = shard_read_entry(r, 0, &sz);
         check(d && sz == 7 && memcmp(d, "payload", 7) == 0, "data == \"payload\"");
 
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -174,20 +174,20 @@ static void test_role(void) {
     char* path = make_tmpfile();
     if (!path) { check(false, "make_tmpfile"); return; }
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_SAMPLE, 5);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_SAMPLE, 5);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
-    shard_v2_stream_writer_begin_data(sw);
-    shard_v2_stream_writer_write_entry(sw, "a", (const uint8_t*)"1", 1);
-    shard_v2_stream_writer_finalize(sw);
-    shard_v2_stream_writer_free(sw);
+    shard_stream_writer_begin_data(sw);
+    shard_stream_writer_write_entry(sw, "a", (const uint8_t*)"1", 1);
+    shard_stream_writer_finalize(sw);
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
-        const shard_v2_header_t* h = shard_v2_header(r);
+        const shard_header_t* h = shard_header(r);
         check(h->role == ROLE_SAMPLE, "header.role == ROLE_SAMPLE");
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -203,13 +203,13 @@ static void test_total_file_size(void) {
     char* path = make_tmpfile();
     if (!path) { check(false, "make_tmpfile"); return; }
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 5);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 5);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
-    shard_v2_stream_writer_begin_data(sw);
-    shard_v2_stream_writer_write_entry(sw, "item", (const uint8_t*)"hello", 5);
-    shard_v2_stream_writer_finalize(sw);
-    shard_v2_stream_writer_free(sw);
+    shard_stream_writer_begin_data(sw);
+    shard_stream_writer_write_entry(sw, "item", (const uint8_t*)"hello", 5);
+    shard_stream_writer_finalize(sw);
+    shard_stream_writer_free(sw);
 
     /* Determine file size by opening and seeking */
     long file_sz = 0;
@@ -222,12 +222,12 @@ static void test_total_file_size(void) {
         }
     }
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
-        const shard_v2_header_t* h = shard_v2_header(r);
+        const shard_header_t* h = shard_header(r);
         check((long)h->total_file_size == file_sz, "header.total_file_size == file size on disk");
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -243,30 +243,30 @@ static void test_alignment_64(void) {
     char* path = make_tmpfile();
     if (!path) { check(false, "make_tmpfile"); return; }
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 10);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 10);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
     /* default alignment is 64 */
-    shard_v2_stream_writer_begin_data(sw);
-    shard_v2_stream_writer_write_entry(sw, "a", (const uint8_t*)"data_a", 6);
-    shard_v2_stream_writer_write_entry(sw, "b", (const uint8_t*)"data_b", 6);
-    shard_v2_stream_writer_finalize(sw);
-    shard_v2_stream_writer_free(sw);
+    shard_stream_writer_begin_data(sw);
+    shard_stream_writer_write_entry(sw, "a", (const uint8_t*)"data_a", 6);
+    shard_stream_writer_write_entry(sw, "b", (const uint8_t*)"data_b", 6);
+    shard_stream_writer_finalize(sw);
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
-        const shard_v2_header_t* h = shard_v2_header(r);
+        const shard_header_t* h = shard_header(r);
         check(h->alignment == ALIGN_64, "header.alignment == 64");
 
-        for (uint32_t i = 0; i < shard_v2_entry_count(r); i++) {
-            const shard_v2_index_entry_t* e = shard_v2_get_entry(r, i);
+        for (uint32_t i = 0; i < shard_entry_count(r); i++) {
+            const shard_index_entry_t* e = shard_get_entry(r, i);
             char desc[64];
             snprintf(desc, sizeof(desc), "entry[%u].data_offset %% 64 == 0", i);
             check(e && (e->data_offset % 64 == 0), desc);
         }
 
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -282,31 +282,31 @@ static void test_alignment_16(void) {
     char* path = make_tmpfile();
     if (!path) { check(false, "make_tmpfile"); return; }
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 10);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 10);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
-    shard_v2_stream_writer_set_alignment(sw, ALIGN_16);
-    shard_v2_stream_writer_begin_data(sw);
-    shard_v2_stream_writer_write_entry(sw, "x", (const uint8_t*)"hello", 5);
-    shard_v2_stream_writer_write_entry(sw, "y", (const uint8_t*)"world_longer", 12);
-    shard_v2_stream_writer_finalize(sw);
-    shard_v2_stream_writer_free(sw);
+    shard_stream_writer_set_alignment(sw, ALIGN_16);
+    shard_stream_writer_begin_data(sw);
+    shard_stream_writer_write_entry(sw, "x", (const uint8_t*)"hello", 5);
+    shard_stream_writer_write_entry(sw, "y", (const uint8_t*)"world_longer", 12);
+    shard_stream_writer_finalize(sw);
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
-        const shard_v2_header_t* h = shard_v2_header(r);
+        const shard_header_t* h = shard_header(r);
         check(h->alignment == ALIGN_16, "header.alignment == 16");
         check(h->data_section_offset % 16 == 0, "data_section_offset 16-aligned");
 
-        for (uint32_t i = 0; i < shard_v2_entry_count(r); i++) {
-            const shard_v2_index_entry_t* e = shard_v2_get_entry(r, i);
+        for (uint32_t i = 0; i < shard_entry_count(r); i++) {
+            const shard_index_entry_t* e = shard_get_entry(r, i);
             char desc[64];
             snprintf(desc, sizeof(desc), "entry[%u].data_offset %% 16 == 0", i);
             check(e && (e->data_offset % 16 == 0), desc);
         }
 
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -322,24 +322,24 @@ static void test_alignment_none(void) {
     char* path = make_tmpfile();
     if (!path) { check(false, "make_tmpfile"); return; }
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 10);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 10);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
-    shard_v2_stream_writer_set_alignment(sw, ALIGN_NONE);
-    shard_v2_stream_writer_begin_data(sw);
-    shard_v2_stream_writer_write_entry(sw, "a", (const uint8_t*)"x", 1);
-    shard_v2_stream_writer_write_entry(sw, "b", (const uint8_t*)"yy", 2);
-    shard_v2_stream_writer_finalize(sw);
-    shard_v2_stream_writer_free(sw);
+    shard_stream_writer_set_alignment(sw, ALIGN_NONE);
+    shard_stream_writer_begin_data(sw);
+    shard_stream_writer_write_entry(sw, "a", (const uint8_t*)"x", 1);
+    shard_stream_writer_write_entry(sw, "b", (const uint8_t*)"yy", 2);
+    shard_stream_writer_finalize(sw);
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
-        const shard_v2_header_t* h = shard_v2_header(r);
+        const shard_header_t* h = shard_header(r);
         check(h->alignment == ALIGN_NONE, "header.alignment == 0");
 
-        const shard_v2_index_entry_t* e0 = shard_v2_get_entry(r, 0);
-        const shard_v2_index_entry_t* e1 = shard_v2_get_entry(r, 1);
+        const shard_index_entry_t* e0 = shard_get_entry(r, 0);
+        const shard_index_entry_t* e1 = shard_get_entry(r, 1);
         check(e0 && e1, "both entries present");
         if (e0 && e1) {
             check(e1->data_offset == e0->data_offset + e0->disk_size,
@@ -347,13 +347,13 @@ static void test_alignment_none(void) {
         }
 
         size_t sz;
-        const uint8_t* d0 = shard_v2_read_entry(r, 0, &sz);
+        const uint8_t* d0 = shard_read_entry(r, 0, &sz);
         check(d0 && sz == 1 && d0[0] == 'x', "entry[0] data correct");
 
-        const uint8_t* d1 = shard_v2_read_entry(r, 1, &sz);
+        const uint8_t* d1 = shard_read_entry(r, 1, &sz);
         check(d1 && sz == 2 && memcmp(d1, "yy", 2) == 0, "entry[1] data correct");
 
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -370,25 +370,25 @@ static void test_many_entries(void) {
     if (!path) { check(false, "make_tmpfile"); return; }
 
     const int N = 100;
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, (uint32_t)N);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, (uint32_t)N);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
-    shard_v2_stream_writer_begin_data(sw);
+    shard_stream_writer_begin_data(sw);
     for (int i = 0; i < N; i++) {
         char name[32], data[32];
         snprintf(name, sizeof(name), "entry_%04d", i);
         snprintf(data, sizeof(data), "data_%d", i);
-        int rc = shard_v2_stream_writer_write_entry(sw, name,
+        int rc = shard_stream_writer_write_entry(sw, name,
                      (const uint8_t*)data, strlen(data));
         if (rc != 0) { check(false, "write_entry failed mid-loop"); break; }
     }
-    check(shard_v2_stream_writer_finalize(sw) == 0, "finalize");
-    shard_v2_stream_writer_free(sw);
+    check(shard_stream_writer_finalize(sw) == 0, "finalize");
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
-        check(shard_v2_entry_count(r) == (uint32_t)N, "entry_count == 100");
+        check(shard_entry_count(r) == (uint32_t)N, "entry_count == 100");
 
         bool all_ok = true;
         for (int i = 0; i < N; i++) {
@@ -396,11 +396,11 @@ static void test_many_entries(void) {
             snprintf(expected_name, sizeof(expected_name), "entry_%04d", i);
             snprintf(expected_data, sizeof(expected_data), "data_%d", i);
 
-            const char* nm = shard_v2_entry_name(r, (uint32_t)i);
+            const char* nm = shard_entry_name(r, (uint32_t)i);
             if (!nm || strcmp(nm, expected_name) != 0) { all_ok = false; break; }
 
             size_t sz;
-            const uint8_t* d = shard_v2_read_entry(r, (uint32_t)i, &sz);
+            const uint8_t* d = shard_read_entry(r, (uint32_t)i, &sz);
             size_t exp_len = strlen(expected_data);
             if (!d || sz != exp_len || memcmp(d, expected_data, exp_len) != 0) {
                 all_ok = false; break;
@@ -408,7 +408,7 @@ static void test_many_entries(void) {
         }
         check(all_ok, "all 100 entries name+data correct");
 
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -433,28 +433,28 @@ static void test_large_data(void) {
         large_data[i] = (uint8_t)(i % 256);
     }
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 5);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 5);
     if (!sw) { check(false, "stream_writer_new"); free(large_data); free(path); return; }
 
-    shard_v2_stream_writer_begin_data(sw);
-    check(shard_v2_stream_writer_write_entry(sw, "big_tensor", large_data, large_sz) == 0,
+    shard_stream_writer_begin_data(sw);
+    check(shard_stream_writer_write_entry(sw, "big_tensor", large_data, large_sz) == 0,
           "write_entry 1MB");
-    check(shard_v2_stream_writer_finalize(sw) == 0, "finalize");
-    shard_v2_stream_writer_free(sw);
+    check(shard_stream_writer_finalize(sw) == 0, "finalize");
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
-        check(shard_v2_entry_count(r) == 1, "entry_count == 1");
+        check(shard_entry_count(r) == 1, "entry_count == 1");
 
         size_t sz;
-        const uint8_t* got = shard_v2_read_entry(r, 0, &sz);
+        const uint8_t* got = shard_read_entry(r, 0, &sz);
         check(got && sz == large_sz, "read 1MB");
         if (got) {
             check(memcmp(got, large_data, large_sz) == 0, "1MB data matches byte-for-byte");
         }
 
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     free(large_data);
@@ -471,36 +471,36 @@ static void test_lookup(void) {
     char* path = make_tmpfile();
     if (!path) { check(false, "make_tmpfile"); return; }
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 10);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 10);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
     const uint8_t d[] = {1};
-    shard_v2_stream_writer_begin_data(sw);
-    shard_v2_stream_writer_write_entry(sw, "alpha", d, 1);
-    shard_v2_stream_writer_write_entry(sw, "beta",  d, 1);
-    shard_v2_stream_writer_write_entry(sw, "gamma", d, 1);
-    shard_v2_stream_writer_finalize(sw);
-    shard_v2_stream_writer_free(sw);
+    shard_stream_writer_begin_data(sw);
+    shard_stream_writer_write_entry(sw, "alpha", d, 1);
+    shard_stream_writer_write_entry(sw, "beta",  d, 1);
+    shard_stream_writer_write_entry(sw, "gamma", d, 1);
+    shard_stream_writer_finalize(sw);
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
-        check(shard_v2_lookup(r, "alpha") == 0,  "lookup alpha == 0");
-        check(shard_v2_lookup(r, "beta")  == 1,  "lookup beta == 1");
-        check(shard_v2_lookup(r, "gamma") == 2,  "lookup gamma == 2");
-        check(shard_v2_lookup(r, "missing") == -1, "lookup missing == -1");
+        check(shard_lookup(r, "alpha") == 0,  "lookup alpha == 0");
+        check(shard_lookup(r, "beta")  == 1,  "lookup beta == 1");
+        check(shard_lookup(r, "gamma") == 2,  "lookup gamma == 2");
+        check(shard_lookup(r, "missing") == -1, "lookup missing == -1");
 
-        check(shard_v2_has_entry(r, "beta"),    "has_entry(beta) == true");
-        check(!shard_v2_has_entry(r, "nope"),   "has_entry(nope) == false");
+        check(shard_has_entry(r, "beta"),    "has_entry(beta) == true");
+        check(!shard_has_entry(r, "nope"),   "has_entry(nope) == false");
 
         size_t sz;
-        const uint8_t* got = shard_v2_read_entry_by_name(r, "gamma", &sz);
+        const uint8_t* got = shard_read_entry_by_name(r, "gamma", &sz);
         check(got && sz == 1 && got[0] == 1, "read_entry_by_name(gamma) correct");
 
-        const uint8_t* miss = shard_v2_read_entry_by_name(r, "nonexistent", &sz);
+        const uint8_t* miss = shard_read_entry_by_name(r, "nonexistent", &sz);
         check(miss == NULL, "read_entry_by_name(nonexistent) == NULL");
 
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -519,21 +519,21 @@ static void test_checksum(void) {
     const uint8_t data[] = "checksum_test_data";
     size_t data_len = sizeof(data) - 1;
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 5);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 5);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
-    shard_v2_stream_writer_begin_data(sw);
-    shard_v2_stream_writer_write_entry(sw, "data", data, data_len);
-    shard_v2_stream_writer_finalize(sw);
-    shard_v2_stream_writer_free(sw);
+    shard_stream_writer_begin_data(sw);
+    shard_stream_writer_write_entry(sw, "data", data, data_len);
+    shard_stream_writer_finalize(sw);
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
-        const shard_v2_index_entry_t* e = shard_v2_get_entry(r, 0);
-        uint32_t expected = shard_v2_crc32c(data, data_len);
+        const shard_index_entry_t* e = shard_get_entry(r, 0);
+        uint32_t expected = shard_crc32c(data, data_len);
         check(e && e->checksum == expected, "stored checksum == computed CRC32C");
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -552,24 +552,24 @@ static void test_binary_allbytes(void) {
     uint8_t all_bytes[256];
     for (int i = 0; i < 256; i++) all_bytes[i] = (uint8_t)i;
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 5);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 5);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
-    shard_v2_stream_writer_begin_data(sw);
-    shard_v2_stream_writer_write_entry(sw, "allbytes", all_bytes, 256);
-    shard_v2_stream_writer_finalize(sw);
-    shard_v2_stream_writer_free(sw);
+    shard_stream_writer_begin_data(sw);
+    shard_stream_writer_write_entry(sw, "allbytes", all_bytes, 256);
+    shard_stream_writer_finalize(sw);
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
         size_t sz;
-        const uint8_t* got = shard_v2_read_entry(r, 0, &sz);
+        const uint8_t* got = shard_read_entry(r, 0, &sz);
         check(got && sz == 256, "read 256 bytes");
         if (got) {
             check(memcmp(got, all_bytes, 256) == 0, "all 256 byte values preserved");
         }
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -585,22 +585,22 @@ static void test_fewer_than_max(void) {
     char* path = make_tmpfile();
     if (!path) { check(false, "make_tmpfile"); return; }
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 1000);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 1000);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
-    shard_v2_stream_writer_begin_data(sw);
-    shard_v2_stream_writer_write_entry(sw, "only_one", (const uint8_t*)"data", 4);
-    shard_v2_stream_writer_finalize(sw);
-    shard_v2_stream_writer_free(sw);
+    shard_stream_writer_begin_data(sw);
+    shard_stream_writer_write_entry(sw, "only_one", (const uint8_t*)"data", 4);
+    shard_stream_writer_finalize(sw);
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
-        check(shard_v2_entry_count(r) == 1, "entry_count == 1");
+        check(shard_entry_count(r) == 1, "entry_count == 1");
         size_t sz;
-        const uint8_t* d = shard_v2_read_entry(r, 0, &sz);
+        const uint8_t* d = shard_read_entry(r, 0, &sz);
         check(d && sz == 4 && memcmp(d, "data", 4) == 0, "data correct");
-        shard_v2_close(r);
+        shard_close(r);
     }
 
     remove(path);
@@ -616,20 +616,20 @@ static void test_empty_shard(void) {
     char* path = make_tmpfile();
     if (!path) { check(false, "make_tmpfile"); return; }
 
-    shard_v2_stream_writer_t* sw = shard_v2_stream_writer_new(path, ROLE_MOSH, 10);
+    shard_stream_writer_t* sw = shard_stream_writer_new(path, ROLE_MOSH, 10);
     if (!sw) { check(false, "stream_writer_new"); free(path); return; }
 
-    shard_v2_stream_writer_begin_data(sw);
+    shard_stream_writer_begin_data(sw);
     /* Write no entries */
-    check(shard_v2_stream_writer_finalize(sw) == 0, "finalize with zero entries");
-    shard_v2_stream_writer_free(sw);
+    check(shard_stream_writer_finalize(sw) == 0, "finalize with zero entries");
+    shard_stream_writer_free(sw);
 
-    shard_v2_reader_t* r = shard_v2_open(path);
+    shard_reader_t* r = shard_open(path);
     check(r != NULL, "open");
     if (r) {
-        check(shard_v2_entry_count(r) == 0, "entry_count == 0");
-        check(shard_v2_lookup(r, "anything") == -1, "lookup == -1");
-        shard_v2_close(r);
+        check(shard_entry_count(r) == 0, "entry_count == 0");
+        check(shard_lookup(r, "anything") == -1, "lookup == -1");
+        shard_close(r);
     }
 
     remove(path);
@@ -641,7 +641,7 @@ static void test_empty_shard(void) {
  * ============================================================ */
 
 int main(void) {
-    printf("=== shard_v2 streaming writer tests ===\n\n");
+    printf("=== shard streaming writer tests ===\n\n");
 
     test_basic_roundtrip();     printf("\n");
     test_flag_streaming();      printf("\n");

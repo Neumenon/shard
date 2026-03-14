@@ -7,7 +7,7 @@
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use shard_format::{ShardV2Reader, ShardV2Writer, ROLE_UNKNOWN};
+use shard_format::{ShardReader, ShardWriter, ROLE_UNKNOWN};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -66,12 +66,12 @@ fn sha256_hex(data: &[u8]) -> String {
     hex::encode(h.finalize())
 }
 
-/// Write entries through ShardV2Writer and return a reader over the result.
+/// Write entries through ShardWriter and return a reader over the result.
 /// Uses a temporary file that lives as long as the returned NamedTempFile.
 fn write_and_read(
     entries: &[(&str, &[u8])],
-) -> (ShardV2Reader, tempfile::NamedTempFile) {
-    let mut writer = ShardV2Writer::new(ROLE_UNKNOWN);
+) -> (ShardReader, tempfile::NamedTempFile) {
+    let mut writer = ShardWriter::new(ROLE_UNKNOWN);
     for (name, data) in entries {
         writer.write_entry(name, data);
     }
@@ -79,7 +79,7 @@ fn write_and_read(
     writer
         .write_to_file(tmp.path())
         .expect("write_to_file failed");
-    let reader = ShardV2Reader::from_file(tmp.path()).expect("from_file failed");
+    let reader = ShardReader::from_file(tmp.path()).expect("from_file failed");
     (reader, tmp)
 }
 
@@ -134,7 +134,7 @@ fn test_valid_from_file_succeeds() {
     let dir = safety_dir();
     for vf in &manifest.valid {
         let path = dir.join(&vf.filename);
-        let result = ShardV2Reader::from_file(&path);
+        let result = ShardReader::from_file(&path);
         assert!(
             result.is_ok(),
             "from_file should succeed for {}: {:?}",
@@ -149,7 +149,7 @@ fn test_valid_entry_count() {
     let manifest = load_safety_manifest();
     let dir = safety_dir();
     for vf in &manifest.valid {
-        let reader = ShardV2Reader::from_file(&dir.join(&vf.filename))
+        let reader = ShardReader::from_file(&dir.join(&vf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", vf.filename, e));
         assert_eq!(
             reader.entry_count(),
@@ -165,7 +165,7 @@ fn test_valid_entry_names() {
     let manifest = load_safety_manifest();
     let dir = safety_dir();
     for vf in &manifest.valid {
-        let reader = ShardV2Reader::from_file(&dir.join(&vf.filename))
+        let reader = ShardReader::from_file(&dir.join(&vf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", vf.filename, e));
         let names = reader.entry_names();
         let expected: Vec<&str> = vf.entries.iter().map(|e| e.name.as_str()).collect();
@@ -182,7 +182,7 @@ fn test_valid_entry_data_sha256() {
     let manifest = load_safety_manifest();
     let dir = safety_dir();
     for vf in &manifest.valid {
-        let reader = ShardV2Reader::from_file(&dir.join(&vf.filename))
+        let reader = ShardReader::from_file(&dir.join(&vf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", vf.filename, e));
         for (i, ve) in vf.entries.iter().enumerate() {
             let data = reader.read_entry(i).unwrap_or_else(|e| {
@@ -211,7 +211,7 @@ fn test_valid_entry_lookup_by_name() {
     let manifest = load_safety_manifest();
     let dir = safety_dir();
     for vf in &manifest.valid {
-        let reader = ShardV2Reader::from_file(&dir.join(&vf.filename))
+        let reader = ShardReader::from_file(&dir.join(&vf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", vf.filename, e));
         for (i, ve) in vf.entries.iter().enumerate() {
             let idx = reader.lookup(&ve.name);
@@ -251,7 +251,7 @@ fn test_valid_entry_data_size_separate() {
     let manifest = load_safety_manifest();
     let dir = safety_dir();
     for vf in &manifest.valid {
-        let reader = ShardV2Reader::from_file(&dir.join(&vf.filename))
+        let reader = ShardReader::from_file(&dir.join(&vf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", vf.filename, e));
         for (i, ve) in vf.entries.iter().enumerate() {
             let data = reader.read_entry(i).unwrap_or_else(|e| {
@@ -285,7 +285,7 @@ fn test_valid_lookup_nonexistent() {
         "null\0byte",
     ];
     for vf in &manifest.valid {
-        let reader = ShardV2Reader::from_file(&dir.join(&vf.filename))
+        let reader = ShardReader::from_file(&dir.join(&vf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", vf.filename, e));
         for name in &nonexistent_names {
             assert_eq!(
@@ -311,7 +311,7 @@ fn test_valid_has_entry() {
     let manifest = load_safety_manifest();
     let dir = safety_dir();
     for vf in &manifest.valid {
-        let reader = ShardV2Reader::from_file(&dir.join(&vf.filename))
+        let reader = ShardReader::from_file(&dir.join(&vf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", vf.filename, e));
         for ve in &vf.entries {
             assert!(
@@ -335,7 +335,7 @@ fn test_valid_read_entry_by_name_error_for_missing() {
     let manifest = load_safety_manifest();
     let dir = safety_dir();
     for vf in &manifest.valid {
-        let reader = ShardV2Reader::from_file(&dir.join(&vf.filename))
+        let reader = ShardReader::from_file(&dir.join(&vf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", vf.filename, e));
         let result = reader.read_entry_by_name("__does_not_exist__");
         assert!(
@@ -354,7 +354,7 @@ fn test_valid_from_bytes_succeeds() {
     for vf in &manifest.valid {
         let raw = std::fs::read(dir.join(&vf.filename))
             .unwrap_or_else(|e| panic!("read {}: {}", vf.filename, e));
-        let reader = ShardV2Reader::from_bytes(raw)
+        let reader = ShardReader::from_bytes(raw)
             .unwrap_or_else(|e| panic!("from_bytes {}: {}", vf.filename, e));
         assert_eq!(
             reader.entry_count(),
@@ -384,7 +384,7 @@ fn test_valid_header_fields() {
     let manifest = load_safety_manifest();
     let dir = safety_dir();
     for vf in &manifest.valid {
-        let reader = ShardV2Reader::from_file(&dir.join(&vf.filename))
+        let reader = ShardReader::from_file(&dir.join(&vf.filename))
             .unwrap_or_else(|e| panic!("open {}: {}", vf.filename, e));
         let hdr = reader.header();
         assert_eq!(
@@ -430,7 +430,7 @@ fn test_corrupt_from_file_returns_err() {
     let dir = safety_dir();
     for cf in &manifest.corrupt {
         let path = dir.join(&cf.filename);
-        let result = ShardV2Reader::from_file(&path);
+        let result = ShardReader::from_file(&path);
 
         // For most corrupt files, from_file itself should fail.
         // For corrupt_crc_mismatch, from_file may succeed but read_entry must fail.
@@ -476,7 +476,7 @@ fn test_corrupt_no_panic() {
         let path = dir.join(&cf.filename);
         let path_clone = path.clone();
         let result = std::panic::catch_unwind(move || {
-            match ShardV2Reader::from_file(&path_clone) {
+            match ShardReader::from_file(&path_clone) {
                 Ok(reader) => {
                     for i in 0..reader.entry_count() {
                         let _ = reader.read_entry(i);
@@ -502,7 +502,7 @@ fn test_corrupt_from_bytes_returns_err() {
     for cf in &manifest.corrupt {
         let raw = std::fs::read(dir.join(&cf.filename))
             .unwrap_or_else(|e| panic!("read {}: {}", cf.filename, e));
-        let result = ShardV2Reader::from_bytes(raw);
+        let result = ShardReader::from_bytes(raw);
         match result {
             Err(_) => { /* expected */ }
             Ok(reader) => {
@@ -530,7 +530,7 @@ fn test_corrupt_error_messages_contain_info() {
     let dir = safety_dir();
     for cf in &manifest.corrupt {
         let path = dir.join(&cf.filename);
-        let result = ShardV2Reader::from_file(&path);
+        let result = ShardReader::from_file(&path);
         match result {
             Err(e) => {
                 let msg = format!("{}", e);
@@ -575,7 +575,7 @@ fn test_corrupt_empty_file() {
     // A zero-byte file must be rejected.
     let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
     std::fs::write(tmp.path(), b"").expect("write empty file");
-    let result = ShardV2Reader::from_file(tmp.path());
+    let result = ShardReader::from_file(tmp.path());
     assert!(
         result.is_err(),
         "empty file should be rejected"
@@ -587,7 +587,7 @@ fn test_corrupt_short_magic() {
     // A file with only 3 bytes (incomplete magic) must be rejected.
     let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
     std::fs::write(tmp.path(), b"SHR").expect("write short magic");
-    let result = ShardV2Reader::from_file(tmp.path());
+    let result = ShardReader::from_file(tmp.path());
     assert!(
         result.is_err(),
         "file with incomplete magic should be rejected"
@@ -601,7 +601,7 @@ fn test_corrupt_wrong_magic() {
     let mut data = vec![0u8; 64];
     data[0..4].copy_from_slice(b"NOPE");
     std::fs::write(tmp.path(), &data).expect("write wrong magic");
-    let result = ShardV2Reader::from_file(tmp.path());
+    let result = ShardReader::from_file(tmp.path());
     assert!(
         result.is_err(),
         "file with wrong magic should be rejected"
@@ -613,7 +613,7 @@ fn test_corrupt_all_zeros() {
     // A file of all zeros must be rejected (magic won't match).
     let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
     std::fs::write(tmp.path(), &vec![0u8; 128]).expect("write zeros");
-    let result = ShardV2Reader::from_file(tmp.path());
+    let result = ShardReader::from_file(tmp.path());
     assert!(
         result.is_err(),
         "all-zeros file should be rejected"
@@ -627,7 +627,7 @@ fn test_corrupt_random_bytes() {
     let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
     std::fs::write(tmp.path(), &data).expect("write random bytes");
     let result = std::panic::catch_unwind(|| {
-        let _ = ShardV2Reader::from_file(tmp.path());
+        let _ = ShardReader::from_file(tmp.path());
     });
     assert!(
         result.is_ok(),
@@ -647,8 +647,8 @@ fn test_cross_write_roundtrip() {
         ("gamma", vec![0u8; 1024]),
     ];
 
-    // Write using ShardV2Writer
-    let mut writer = ShardV2Writer::new(ROLE_UNKNOWN);
+    // Write using ShardWriter
+    let mut writer = ShardWriter::new(ROLE_UNKNOWN);
     for (name, data) in &entries {
         writer.write_entry(name, data);
     }
@@ -660,7 +660,7 @@ fn test_cross_write_roundtrip() {
 
     // Read back
     let reader =
-        ShardV2Reader::from_file(tmp.path()).expect("from_file on roundtrip shard failed");
+        ShardReader::from_file(tmp.path()).expect("from_file on roundtrip shard failed");
 
     assert_eq!(reader.entry_count(), entries.len(), "entry count mismatch");
 
@@ -695,7 +695,7 @@ fn test_cross_write_roundtrip() {
 
 #[test]
 fn test_cross_write_by_name_lookup() {
-    let mut writer = ShardV2Writer::new(ROLE_UNKNOWN);
+    let mut writer = ShardWriter::new(ROLE_UNKNOWN);
     writer.write_entry("foo", b"hello");
     writer.write_entry("bar/baz", b"world");
     writer.write_entry("qux", b"!");
@@ -705,7 +705,7 @@ fn test_cross_write_by_name_lookup() {
         .write_to_file(tmp.path())
         .expect("write_to_file failed");
 
-    let reader = ShardV2Reader::from_file(tmp.path()).expect("from_file failed");
+    let reader = ShardReader::from_file(tmp.path()).expect("from_file failed");
 
     assert_eq!(reader.lookup("foo"), Some(0));
     assert_eq!(reader.lookup("bar/baz"), Some(1));
@@ -778,7 +778,7 @@ fn test_cross_write_large_entry() {
     let large_data: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
     let expected_sha = sha256_hex(&large_data);
 
-    let mut writer = ShardV2Writer::new(ROLE_UNKNOWN);
+    let mut writer = ShardWriter::new(ROLE_UNKNOWN);
     writer.write_entry("large_tensor", &large_data);
 
     let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
@@ -786,7 +786,7 @@ fn test_cross_write_large_entry() {
         .write_to_file(tmp.path())
         .expect("write_to_file failed");
 
-    let reader = ShardV2Reader::from_file(tmp.path()).expect("from_file failed");
+    let reader = ShardReader::from_file(tmp.path()).expect("from_file failed");
     assert_eq!(reader.entry_count(), 1);
     assert_eq!(reader.entry_name(0).unwrap(), "large_tensor");
 
@@ -812,7 +812,7 @@ fn test_cross_write_many_entries() {
         })
         .collect();
 
-    let mut writer = ShardV2Writer::new(ROLE_UNKNOWN);
+    let mut writer = ShardWriter::new(ROLE_UNKNOWN);
     for (name, data) in &entries {
         writer.write_entry(name, data);
     }
@@ -822,7 +822,7 @@ fn test_cross_write_many_entries() {
         .write_to_file(tmp.path())
         .expect("write_to_file failed");
 
-    let reader = ShardV2Reader::from_file(tmp.path()).expect("from_file failed");
+    let reader = ShardReader::from_file(tmp.path()).expect("from_file failed");
     assert_eq!(reader.entry_count(), count, "entry count mismatch for many entries");
 
     for (i, (name, data)) in entries.iter().enumerate() {
@@ -881,7 +881,7 @@ fn test_cross_write_crc_integrity() {
     // byte in the file and verify that the reader detects the corruption.
     let original_data = b"integrity check payload with enough bytes to matter";
 
-    let mut writer = ShardV2Writer::new(ROLE_UNKNOWN);
+    let mut writer = ShardWriter::new(ROLE_UNKNOWN);
     writer.write_entry("crc_test", original_data);
 
     let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
@@ -891,7 +891,7 @@ fn test_cross_write_crc_integrity() {
 
     // First, verify the shard reads cleanly.
     {
-        let reader = ShardV2Reader::from_file(tmp.path()).expect("from_file failed");
+        let reader = ShardReader::from_file(tmp.path()).expect("from_file failed");
         let data = reader.read_entry(0).expect("initial read should succeed");
         assert_eq!(data, original_data, "initial data mismatch");
     }
@@ -907,7 +907,7 @@ fn test_cross_write_crc_integrity() {
     }
 
     // Read the corrupted file — it should either fail to open or fail on read_entry.
-    let result = ShardV2Reader::from_file(tmp.path());
+    let result = ShardReader::from_file(tmp.path());
     match result {
         Err(_) => {
             // Corruption detected at open time — acceptable.
@@ -953,7 +953,7 @@ fn test_cross_write_duplicate_like_names() {
 #[test]
 fn test_cross_write_to_bytes_matches_to_file() {
     // Verify that to_bytes() produces identical output to write_to_file().
-    let mut writer = ShardV2Writer::new(ROLE_UNKNOWN);
+    let mut writer = ShardWriter::new(ROLE_UNKNOWN);
     writer.write_entry("x", b"data_x");
     writer.write_entry("y", b"data_y");
 
@@ -968,7 +968,7 @@ fn test_cross_write_to_bytes_matches_to_file() {
     assert_eq!(in_memory, on_disk, "to_bytes() and write_to_file() should produce identical output");
 
     // Both should be readable.
-    let reader = ShardV2Reader::from_bytes(in_memory).expect("from_bytes");
+    let reader = ShardReader::from_bytes(in_memory).expect("from_bytes");
     assert_eq!(reader.entry_count(), 2);
     assert_eq!(
         reader.read_entry(0).expect("read x"),
@@ -989,7 +989,7 @@ fn test_concurrent_reads() {
     let dir = safety_dir();
     let path = dir.join("valid_basic.shard");
     let reader = Arc::new(
-        ShardV2Reader::from_file(&path).expect("open valid_basic.shard for concurrent test"),
+        ShardReader::from_file(&path).expect("open valid_basic.shard for concurrent test"),
     );
 
     let num_threads = 10;
@@ -1053,7 +1053,7 @@ fn test_concurrent_reads_all_valid() {
     for vf in &manifest.valid {
         let path = dir.join(&vf.filename);
         let reader = Arc::new(
-            ShardV2Reader::from_file(&path)
+            ShardReader::from_file(&path)
                 .unwrap_or_else(|e| panic!("open {}: {}", vf.filename, e)),
         );
 
@@ -1128,7 +1128,7 @@ fn test_concurrent_reads_stress() {
     let dir = safety_dir();
     let path = dir.join("valid_basic.shard");
     let reader = Arc::new(
-        ShardV2Reader::from_file(&path).expect("open valid_basic.shard for stress test"),
+        ShardReader::from_file(&path).expect("open valid_basic.shard for stress test"),
     );
 
     let manifest = load_safety_manifest();
@@ -1205,7 +1205,7 @@ fn test_concurrent_reads_with_lookups() {
     let dir = safety_dir();
     let path = dir.join("valid_basic.shard");
     let reader = Arc::new(
-        ShardV2Reader::from_file(&path).expect("open valid_basic.shard for lookup concurrency"),
+        ShardReader::from_file(&path).expect("open valid_basic.shard for lookup concurrency"),
     );
 
     let num_threads = 20;

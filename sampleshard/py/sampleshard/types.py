@@ -22,10 +22,10 @@ SHARD_MAGIC = b"SHRD"
 SHARD_VERSION_2 = 0x02
 
 # Header size
-SHARD_V2_HEADER_SIZE = 64
+SHARD_HEADER_SIZE = 64
 
 # Index entry size
-SHARD_V2_INDEX_ENTRY_SIZE = 48
+SHARD_INDEX_ENTRY_SIZE = 48
 
 # Alignment values
 ALIGN_NONE = 0
@@ -361,7 +361,7 @@ class ShardHeader:
 
     def to_bytes(self) -> bytes:
         """Serialize header to 64 bytes."""
-        buf = bytearray(SHARD_V2_HEADER_SIZE)
+        buf = bytearray(SHARD_HEADER_SIZE)
 
         # Magic (4 bytes)
         buf[0:4] = self.magic
@@ -382,7 +382,7 @@ class ShardHeader:
         buf[9] = self.compression_default
 
         # Index entry size (2 bytes, little-endian) - MUST be 48
-        struct.pack_into("<H", buf, 10, SHARD_V2_INDEX_ENTRY_SIZE)
+        struct.pack_into("<H", buf, 10, SHARD_INDEX_ENTRY_SIZE)
 
         # Entry count (4 bytes, little-endian)
         struct.pack_into("<I", buf, 12, self.entry_count)
@@ -407,8 +407,8 @@ class ShardHeader:
     @classmethod
     def from_bytes(cls, data: bytes) -> "ShardHeader":
         """Parse header from 64 bytes."""
-        if len(data) < SHARD_V2_HEADER_SIZE:
-            raise ValueError(f"Header too short: {len(data)} < {SHARD_V2_HEADER_SIZE}")
+        if len(data) < SHARD_HEADER_SIZE:
+            raise ValueError(f"Header too short: {len(data)} < {SHARD_HEADER_SIZE}")
 
         magic = data[0:4]
         if magic != SHARD_MAGIC:
@@ -464,7 +464,7 @@ class IndexEntry:
 
     def to_bytes(self) -> bytes:
         """Serialize entry to 48 bytes."""
-        buf = bytearray(SHARD_V2_INDEX_ENTRY_SIZE)
+        buf = bytearray(SHARD_INDEX_ENTRY_SIZE)
 
         struct.pack_into("<Q", buf, 0, self.name_hash)
         struct.pack_into("<I", buf, 8, self.name_offset)
@@ -482,9 +482,9 @@ class IndexEntry:
     @classmethod
     def from_bytes(cls, data: bytes) -> "IndexEntry":
         """Parse entry from 48 bytes."""
-        if len(data) < SHARD_V2_INDEX_ENTRY_SIZE:
+        if len(data) < SHARD_INDEX_ENTRY_SIZE:
             raise ValueError(
-                f"Entry too short: {len(data)} < {SHARD_V2_INDEX_ENTRY_SIZE}"
+                f"Entry too short: {len(data)} < {SHARD_INDEX_ENTRY_SIZE}"
             )
 
         return cls(

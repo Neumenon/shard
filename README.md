@@ -65,7 +65,7 @@ cd c && make
 import "github.com/Neumenon/shard/go/shard"
 
 // Write
-w, _ := shard.NewShardV2StreamWriter("model.mosh", shard.ShardV2Options{
+w, _ := shard.NewShardStreamWriter("model.mosh", shard.ShardOptions{
     Role:        shard.RoleModelShard,
     Alignment:   64,
     Compression: shard.CompressionZstd,
@@ -75,21 +75,21 @@ w.WriteEntry("layer.0.weight", weightBytes, shard.ContentTypeRaw)
 w.Finalize()
 
 // Read
-r, _ := shard.OpenShardV2("model.mosh")
+r, _ := shard.OpenShard("model.mosh")
 data, _ := r.ReadEntry("layer.0.weight")
 ```
 
 ## Quick Start (Python)
 
 ```python
-from shard_v2 import ShardV2Writer, ShardV2Reader
+from shard_v2 import ShardWriter, ShardReader
 
 # Write
-with ShardV2Writer("model.mosh", role=0x01, alignment=64) as w:
+with ShardWriter("model.mosh", role=0x01, alignment=64) as w:
     w.write_entry("layer.0.weight", weight_bytes, compression="zstd")
 
 # Read
-reader = ShardV2Reader("model.mosh")
+reader = ShardReader("model.mosh")
 data = reader.read_entry("layer.0.weight")
 ```
 
@@ -207,7 +207,7 @@ Multi-file coordination. References to other shard files with range keys. Used f
 - Split model weights across multiple `.mosh` files
 - Dataset indices spanning many `.smpl` files
 
-**Implementation:** All 5 languages (part of core Shard v2).
+**Implementation:** All 5 languages (part of core Shard).
 
 ---
 

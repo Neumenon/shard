@@ -175,7 +175,7 @@ func (w *ChunkedEpisodeWriter) FinalizeManifest() (string, error) {
 		return "", fmt.Errorf("wshard chunked: marshal manifest: %w", err)
 	}
 
-	mw, err := NewShardV2Writer(manifestPath, ShardRoleManifest)
+	mw, err := NewShardWriter(manifestPath, ShardRoleManifest)
 	if err != nil {
 		return "", fmt.Errorf("wshard chunked: create manifest writer: %w", err)
 	}
@@ -208,7 +208,7 @@ func NewChunkedEpisodeReader(manifestPath string) *ChunkedEpisodeReader {
 
 // LoadManifest reads and parses the manifest shard.
 func (r *ChunkedEpisodeReader) LoadManifest() (*ChunkManifest, error) {
-	reader, err := OpenShardV2(r.manifestPath)
+	reader, err := OpenShard(r.manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("wshard chunked: open manifest: %w", err)
 	}

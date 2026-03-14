@@ -10,13 +10,13 @@ import {
   SHARD_MAGIC,
   SHARD_VERSION_2,
   WSHARD_ROLE,
-  SHARD_V2_HEADER_SIZE,
-  SHARD_V2_INDEX_ENTRY_SIZE,
+  SHARD_HEADER_SIZE,
+  SHARD_INDEX_ENTRY_SIZE,
   DEFAULT_ALIGNMENT,
   BLOCK_FLAG_COMPRESSED,
   compressionByte,
   simpleHash64,
-  crc32IEEE,
+  crc32C,
   encodeFloat32,
   encodeInt32,
   type CompressionType,
@@ -47,6 +47,7 @@ interface BlockPosition {
   totalWritten: number;
   origSize?: number;
   flags?: number;
+  checksum?: number;
 }
 
 /**
@@ -109,20 +110,20 @@ export class WShardStreamWriter {
 
     // Estimate max blocks
     const maxBlocks = 4 + 1 + 1 + 1 + this.channelDefs.size * 2;
-    const reservedIndexSize = maxBlocks * SHARD_V2_INDEX_ENTRY_SIZE;
+    const reservedIndexSize = maxBlocks * SHARD_INDEX_ENTRY_SIZE;
     let stringEstimate = 200;
     for (const name of this.channelDefs.keys()) {
       stringEstimate += `signal/${name}`.length + `action/${name}`.length;
     }
 
     this.reservedSize = align(
-      SHARD_V2_HEADER_SIZE + reservedIndexSize + stringEstimate,
+      SHARD_HEADER_SIZE + reservedIndexSize + stringEstimate,
       DEFAULT_ALIGNMENT,
     );
 
     // Validate reserved space can fit expected index
     const minBlocks = 4 + 1 + 1 + 1 + this.channelDefs.size * 2;
-    const minHeaderSpace = SHARD_V2_HEADER_SIZE + minBlocks * SHARD_V2_INDEX_ENTRY_SIZE;
+    const minHeaderSpace = SHARD_HEADER_SIZE + minBlocks * SHARD_INDEX_ENTRY_SIZE;
     if (this.reservedSize < minHeaderSpace) {
       throw new Error(
         `Reserved space ${this.reservedSize} too small for ${minBlocks} blocks (need ${minHeaderSpace})`
@@ -293,6 +294,7 @@ export class WShardStreamWriter {
         totalWritten: diskData.length,
         origSize: blockData.length,
         flags,
+        checksum: crc32C(blockData),
       });
     }
 
@@ -316,8 +318,8 @@ export class WShardStreamWriter {
     const stringTable = Buffer.concat(stringParts);
 
     const entryCount = allBlocks.length;
-    const indexSize = entryCount * SHARD_V2_INDEX_ENTRY_SIZE;
-    const stringTableOffset = SHARD_V2_HEADER_SIZE + indexSize;
+    const indexSize = entryCount * SHARD_INDEX_ENTRY_SIZE;
+    const stringTableOffset = SHARD_HEADER_SIZE + indexSize;
     const dataSectionOffset = align(stringTableOffset + stringTable.length, DEFAULT_ALIGNMENT);
 
     if (dataSectionOffset > this.reservedSize) {
@@ -325,14 +327,14 @@ export class WShardStreamWriter {
     }
 
     // Build header
-    const header = Buffer.alloc(SHARD_V2_HEADER_SIZE);
+    const header = Buffer.alloc(SHARD_HEADER_SIZE);
     SHARD_MAGIC.copy(header, 0);
     header.writeUInt8(SHARD_VERSION_2, 4);
     header.writeUInt8(WSHARD_ROLE, 5);
     header.writeUInt16LE(0, 6); // clear streaming flag
     header.writeUInt8(DEFAULT_ALIGNMENT, 8);
     header.writeUInt8(compressionByte(this.compression), 9);
-    header.writeUInt16LE(SHARD_V2_INDEX_ENTRY_SIZE, 10);
+    header.writeUInt16LE(SHARD_INDEX_ENTRY_SIZE, 10);
     header.writeUInt32LE(entryCount, 12);
     header.writeBigUInt64LE(BigInt(stringTableOffset), 16);
     header.writeBigUInt64LE(BigInt(dataSectionOffset), 24);
@@ -344,12 +346,15 @@ export class WShardStreamWriter {
     for (let i = 0; i < allBlocks.length; i++) {
       const name = allBlocks[i];
       const bp = this.blockPositions.get(name)!;
-      const offset = i * SHARD_V2_INDEX_ENTRY_SIZE;
+      const offset = i * SHARD_INDEX_ENTRY_SIZE;
 
-      // Read disk data for checksum
-      const diskData = Buffer.alloc(bp.totalWritten);
-      fs.readSync(this.fd!, diskData, 0, bp.totalWritten, bp.startOffset);
-      const checksum = crc32IEEE(diskData);
+      let checksum = bp.checksum;
+      if (checksum === undefined) {
+        // Streaming data blocks are written uncompressed, so disk bytes equal logical bytes.
+        const diskData = Buffer.alloc(bp.totalWritten);
+        fs.readSync(this.fd!, diskData, 0, bp.totalWritten, bp.startOffset);
+        checksum = crc32C(diskData);
+      }
 
       const nameHash = simpleHash64(name);
       const nameBytes = Buffer.from(name, 'utf-8');
@@ -366,7 +371,7 @@ export class WShardStreamWriter {
 
     // Seek to start and write
     fs.writeSync(this.fd!, header, 0, header.length, 0);
-    fs.writeSync(this.fd!, indexBuf, 0, indexBuf.length, SHARD_V2_HEADER_SIZE);
+    fs.writeSync(this.fd!, indexBuf, 0, indexBuf.length, SHARD_HEADER_SIZE);
     fs.writeSync(this.fd!, stringTable, 0, stringTable.length, stringTableOffset);
 
     // Pad between string table and data section

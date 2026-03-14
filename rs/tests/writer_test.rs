@@ -1,11 +1,11 @@
-//! Roundtrip and writer correctness tests for Shard v2.
+//! Roundtrip and writer correctness tests for Shard.
 
 use shard_format::{
-    compute_crc32c, compute_xxhash64, ShardV2Reader, ShardV2Writer, ShardError,
+    compute_crc32c, compute_xxhash64, ShardReader, ShardWriter, ShardError,
     ALIGN_16, ALIGN_64, ALIGN_NONE, CONTENT_TYPE_BLOB, CONTENT_TYPE_JSON,
     CONTENT_TYPE_TENSOR, CONTENT_TYPE_TEXT,
     ENTRY_FLAG_COMPRESSED, FLAG_HAS_CHECKSUMS, FLAG_HAS_CONTENT_TYPES, FLAG_LITTLE_ENDIAN,
-    HEADER_SIZE, INDEX_ENTRY_SIZE, ROLE_MOSH, ROLE_SAMPLE, SHARD_MAGIC, SHARD_VERSION2,
+    HEADER_SIZE, INDEX_ENTRY_SIZE, ROLE_MOSH, ROLE_SAMPLE, SHARD_MAGIC, SHARD_VERSION,
 };
 
 // ============================================================
@@ -13,9 +13,9 @@ use shard_format::{
 // ============================================================
 
 /// Build a shard in memory and immediately read it back.
-fn roundtrip(writer: ShardV2Writer) -> ShardV2Reader {
+fn roundtrip(writer: ShardWriter) -> ShardReader {
     let bytes = writer.to_bytes();
-    ShardV2Reader::from_bytes(bytes).expect("roundtrip: from_bytes failed")
+    ShardReader::from_bytes(bytes).expect("roundtrip: from_bytes failed")
 }
 
 // ============================================================
@@ -24,7 +24,7 @@ fn roundtrip(writer: ShardV2Writer) -> ShardV2Reader {
 
 #[test]
 fn test_single_entry_roundtrip() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("hello", b"world");
     let r = roundtrip(w);
 
@@ -40,7 +40,7 @@ fn test_single_entry_roundtrip() {
 
 #[test]
 fn test_multiple_entries_roundtrip() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("alpha", b"data_alpha");
     w.write_entry("beta", b"data_beta");
     w.write_entry("gamma", b"data_gamma_longer");
@@ -58,7 +58,7 @@ fn test_multiple_entries_roundtrip() {
 
 #[test]
 fn test_typed_entries_roundtrip() {
-    let mut w = ShardV2Writer::new(ROLE_SAMPLE);
+    let mut w = ShardWriter::new(ROLE_SAMPLE);
     w.write_entry_typed("weights", &[0u8; 256], CONTENT_TYPE_TENSOR);
     w.write_entry_typed("config", b"{\"layers\":8}", CONTENT_TYPE_JSON);
     w.write_entry_typed("readme", b"hello", CONTENT_TYPE_TEXT);
@@ -80,7 +80,7 @@ fn test_typed_entries_roundtrip() {
 
 #[test]
 fn test_empty_shard() {
-    let w = ShardV2Writer::new(ROLE_MOSH);
+    let w = ShardWriter::new(ROLE_MOSH);
     let r = roundtrip(w);
 
     assert_eq!(r.entry_count(), 0);
@@ -97,7 +97,7 @@ fn test_empty_shard() {
 fn test_large_entry_roundtrip() {
     let big: Vec<u8> = (0..65536).map(|i: usize| (i % 256) as u8).collect();
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("bigdata", &big);
     let r = roundtrip(w);
 
@@ -111,12 +111,12 @@ fn test_large_entry_roundtrip() {
 
 #[test]
 fn test_alignment_none() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_alignment(ALIGN_NONE);
     w.write_entry("a", b"12345");
     w.write_entry("b", b"678");
     let bytes = w.to_bytes();
-    let r = ShardV2Reader::from_bytes(bytes.clone()).expect("from_bytes");
+    let r = ShardReader::from_bytes(bytes.clone()).expect("from_bytes");
 
     assert_eq!(r.header().alignment, ALIGN_NONE);
 
@@ -143,12 +143,12 @@ fn test_alignment_none() {
 
 #[test]
 fn test_alignment_16() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_alignment(ALIGN_16);
     w.write_entry("x", b"data");
     w.write_entry("y", b"more_data_here");
     let bytes = w.to_bytes();
-    let r = ShardV2Reader::from_bytes(bytes).expect("from_bytes");
+    let r = ShardReader::from_bytes(bytes).expect("from_bytes");
 
     assert_eq!(r.header().alignment, ALIGN_16);
 
@@ -178,12 +178,12 @@ fn test_alignment_16() {
 
 #[test]
 fn test_alignment_64() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_alignment(ALIGN_64);
     w.write_entry("tensor", &[0xAAu8; 512]);
     w.write_entry("bias", &[0xBBu8; 32]);
     let bytes = w.to_bytes();
-    let r = ShardV2Reader::from_bytes(bytes).expect("from_bytes");
+    let r = ShardReader::from_bytes(bytes).expect("from_bytes");
 
     assert_eq!(r.header().alignment, ALIGN_64);
 
@@ -211,7 +211,7 @@ fn test_alignment_64() {
 
 #[test]
 fn test_checksum_verification() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("data", b"hello world");
     let r = roundtrip(w);
 
@@ -226,17 +226,17 @@ fn test_checksum_verification() {
 
 #[test]
 fn test_checksum_mismatch_detected() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("data", b"hello world");
     let mut bytes = w.to_bytes();
 
     // Corrupt the data byte — entry data starts at data_section_offset.
     // Parse the header to find the offset.
-    let r_original = ShardV2Reader::from_bytes(bytes.clone()).unwrap();
+    let r_original = ShardReader::from_bytes(bytes.clone()).unwrap();
     let data_off = r_original.get_entry_info(0).unwrap().data_offset as usize;
     bytes[data_off] ^= 0xFF; // flip bits to corrupt
 
-    let r_corrupt = ShardV2Reader::from_bytes(bytes).expect("parse should succeed with corrupt data");
+    let r_corrupt = ShardReader::from_bytes(bytes).expect("parse should succeed with corrupt data");
     let result = r_corrupt.read_entry(0);
     assert!(
         matches!(result, Err(ShardError::ChecksumMismatch { .. })),
@@ -251,7 +251,7 @@ fn test_checksum_mismatch_detected() {
 
 #[test]
 fn test_name_hash_is_xxhash64() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("greeting", b"hello");
     w.write_entry("pattern/1k", &[0u8; 1024]);
     let r = roundtrip(w);
@@ -274,7 +274,7 @@ fn test_name_hash_is_xxhash64() {
 
 #[test]
 fn test_lookup() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("foo", b"foo_data");
     w.write_entry("bar", b"bar_data");
     w.write_entry("baz/qux", b"nested");
@@ -296,7 +296,7 @@ fn test_lookup() {
 fn test_binary_all_byte_values() {
     let all_bytes: Vec<u8> = (0u16..=255).map(|b| b as u8).collect();
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("all_bytes", &all_bytes);
     let r = roundtrip(w);
 
@@ -309,36 +309,36 @@ fn test_binary_all_byte_values() {
 
 #[test]
 fn test_header_magic_and_version() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("x", b"y");
     let bytes = w.to_bytes();
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
 
     assert_eq!(&r.header().magic, SHARD_MAGIC);
-    assert_eq!(r.header().version, SHARD_VERSION2);
+    assert_eq!(r.header().version, SHARD_VERSION);
     assert_eq!(r.header().index_entry_size, INDEX_ENTRY_SIZE as u16);
 }
 
 #[test]
 fn test_header_role() {
-    let w = ShardV2Writer::new(ROLE_SAMPLE);
+    let w = ShardWriter::new(ROLE_SAMPLE);
     let r = roundtrip(w);
     assert_eq!(r.header().role, ROLE_SAMPLE);
 }
 
 #[test]
 fn test_header_total_file_size() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("item", b"content");
     let bytes = w.to_bytes();
     let len = bytes.len() as u64;
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     assert_eq!(r.header().total_file_size, len);
 }
 
 #[test]
 fn test_header_flags_with_content_types() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry_typed("t", b"data", CONTENT_TYPE_TENSOR);
     let r = roundtrip(w);
 
@@ -351,7 +351,7 @@ fn test_header_flags_with_content_types() {
 #[test]
 fn test_header_flags_without_content_types() {
     // When all entries use CONTENT_TYPE_UNKNOWN, FLAG_HAS_CONTENT_TYPES should not be set.
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("plain", b"data");
     let r = roundtrip(w);
 
@@ -372,7 +372,7 @@ fn test_header_flags_without_content_types() {
 #[test]
 fn test_entry_sizes() {
     let data = b"twelve bytes";
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("item", data);
     let r = roundtrip(w);
 
@@ -383,7 +383,7 @@ fn test_entry_sizes() {
 
 #[test]
 fn test_entry_not_compressed() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("plain", b"uncompressed data");
     let r = roundtrip(w);
 
@@ -398,7 +398,7 @@ fn test_entry_not_compressed() {
 
 #[test]
 fn test_list_prefix_basic() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("layer/a", b"");
     w.write_entry("layer/b", b"");
     w.write_entry("other/c", b"");
@@ -419,7 +419,7 @@ fn test_list_prefix_basic() {
 
 #[test]
 fn test_list_prefix_with_trailing_slash() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("a/x", b"");
     w.write_entry("a/y", b"");
     w.write_entry("ab/z", b""); // should NOT match prefix "a/"
@@ -439,7 +439,7 @@ fn test_list_prefix_with_trailing_slash() {
 
 #[test]
 fn test_read_entry_by_name() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("key1", b"value1");
     w.write_entry("key2", b"value2");
     let r = roundtrip(w);
@@ -460,12 +460,12 @@ fn test_read_entry_by_name() {
 
 #[test]
 fn test_invalid_magic_error() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("x", b"y");
     let mut bytes = w.to_bytes();
     bytes[0] = 0xFF; // corrupt magic
 
-    let result = ShardV2Reader::from_bytes(bytes);
+    let result = ShardReader::from_bytes(bytes);
     assert!(
         matches!(result, Err(ShardError::InvalidMagic)),
         "expected InvalidMagic"
@@ -474,12 +474,12 @@ fn test_invalid_magic_error() {
 
 #[test]
 fn test_unsupported_version_error() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("x", b"y");
     let mut bytes = w.to_bytes();
     bytes[4] = 0x01; // corrupt version byte
 
-    let result = ShardV2Reader::from_bytes(bytes);
+    let result = ShardReader::from_bytes(bytes);
     assert!(
         matches!(result, Err(ShardError::UnsupportedVersion(0x01))),
         "expected UnsupportedVersion(1)"
@@ -492,7 +492,7 @@ fn test_unsupported_version_error() {
 
 #[test]
 fn test_hierarchical_paths() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("layer.0/attention/q_proj/weight", &[1u8; 64]);
     w.write_entry("layer.0/attention/k_proj/weight", &[2u8; 64]);
     w.write_entry("layer.0/ffn/gate/weight", &[3u8; 128]);
@@ -519,7 +519,7 @@ fn test_hierarchical_paths() {
 
 #[test]
 fn test_empty_entry_data() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("empty", b"");
     let r = roundtrip(w);
 
@@ -538,7 +538,7 @@ fn test_empty_entry_data() {
 
 #[test]
 fn test_blob_content_type() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry_typed("raw", &[0u8; 100], CONTENT_TYPE_BLOB);
     let r = roundtrip(w);
 
@@ -551,7 +551,7 @@ fn test_blob_content_type() {
 
 #[test]
 fn test_string_table_offset_is_after_index() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("a", b"1");
     w.write_entry("bb", b"22");
     w.write_entry("ccc", b"333");
@@ -564,12 +564,12 @@ fn test_string_table_offset_is_after_index() {
 
 #[test]
 fn test_data_offsets_within_file() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("x", &[0u8; 100]);
     w.write_entry("y", &[0u8; 200]);
     let bytes = w.to_bytes();
     let file_size = bytes.len() as u64;
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
 
     for i in 0..r.entry_count() {
         let info = r.get_entry_info(i).unwrap();

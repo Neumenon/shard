@@ -5,33 +5,33 @@ TESTDATA = ../ucodec/testdata
 
 .PHONY: all test clean
 
-all: libshard_v2.a test_golden test_writer test_metadata test_mmap test_streaming test_compression test_safety
+all: libshard.a test_golden test_writer test_metadata test_mmap test_streaming test_compression test_safety
 
-libshard_v2.a: shard_v2.o
+libshard.a: shard.o
 	ar rcs $@ $^
 
-shard_v2.o: shard_v2.c shard_v2.h
+shard.o: shard.c shard.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-test_golden: test_golden.c shard_v2.o
+test_golden: test_golden.c shard.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-test_writer: test_writer.c shard_v2.o
+test_writer: test_writer.c shard.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-test_metadata: test_metadata.c shard_v2.o
+test_metadata: test_metadata.c shard.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-test_mmap: test_mmap.c shard_v2.o
+test_mmap: test_mmap.c shard.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-test_streaming: test_streaming.c shard_v2.o
+test_streaming: test_streaming.c shard.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-test_compression: test_compression.c shard_v2.o
+test_compression: test_compression.c shard.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-test_safety: test_safety.c shard_v2.o
+test_safety: test_safety.c shard.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS) -lpthread
 
 test: test_golden test_writer test_metadata test_mmap test_streaming test_compression test_safety

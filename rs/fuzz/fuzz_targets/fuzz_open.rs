@@ -1,6 +1,6 @@
-//! Fuzz target: full ShardV2Reader::from_bytes with arbitrary crafted files.
+//! Fuzz target: full ShardReader::from_bytes with arbitrary crafted files.
 //!
-//! Matches Go's FuzzOpenShardV2 coverage:
+//! Matches Go's FuzzOpenShard coverage:
 //! - inverted offsets (string_table_offset > data_section_offset)
 //! - max entry counts
 //! - huge string table
@@ -9,12 +9,12 @@
 //! - all byte patterns that pass magic + version checks
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use shard_format::ShardV2Reader;
+use shard_format::ShardReader;
 
 fuzz_target!(|data: &[u8]| {
     // Try to open arbitrary bytes as a shard.
     // Must never panic — the reader must return Ok or a well-typed Err.
-    if let Ok(reader) = ShardV2Reader::from_bytes(data.to_vec()) {
+    if let Ok(reader) = ShardReader::from_bytes(data.to_vec()) {
         // If it opened successfully, exercise all reader methods.
         let count = reader.entry_count();
         let _ = reader.header();

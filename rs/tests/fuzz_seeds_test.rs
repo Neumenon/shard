@@ -7,15 +7,15 @@
 //!      (paste the minimised input as a new test case here).
 //!
 //! Matches Go fuzz seeds for:
-//!   FuzzReadShardV2Header, FuzzParseIndexEntryV2, FuzzOpenShardV2,
+//!   FuzzReadShardHeader, FuzzParseIndexEntry, FuzzOpenShard,
 //!   FuzzDecompressData, FuzzReadEntryByName.
 
 use shard_format::{
-    ShardV2Header, ShardV2Reader, ShardV2Writer,
+    ShardHeader, ShardReader, ShardWriter,
     ENTRY_FLAG_COMPRESSED, ENTRY_FLAG_LZ4, ENTRY_FLAG_ZSTD,
     FLAG_HAS_CHECKSUMS,
     HEADER_SIZE, INDEX_ENTRY_SIZE, ROLE_MOSH,
-    SHARD_MAGIC, SHARD_VERSION2,
+    SHARD_MAGIC, SHARD_VERSION,
 };
 
 // ============================================================
@@ -28,7 +28,7 @@ use shard_format::{
 fn make_valid_header_buf() -> [u8; 64] {
     let mut buf = [0u8; 64];
     buf[0..4].copy_from_slice(SHARD_MAGIC);
-    buf[4] = SHARD_VERSION2;
+    buf[4] = SHARD_VERSION;
     buf[5] = ROLE_MOSH;
     buf[6..8].copy_from_slice(&0x00A2u16.to_le_bytes()); // DEFAULT_FLAGS
     buf[8] = 0;  // ALIGN_NONE
@@ -43,12 +43,12 @@ fn make_valid_header_buf() -> [u8; 64] {
 }
 
 // ============================================================
-// FuzzReadShardV2Header seeds
+// FuzzReadShardHeader seeds
 // ============================================================
 
 #[test]
 fn test_fuzz_header_empty() {
-    assert!(ShardV2Header::from_bytes(&[]).is_err());
+    assert!(ShardHeader::from_bytes(&[]).is_err());
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn test_fuzz_header_too_short() {
     for len in [1usize, 4, 10, 32, 63] {
         let buf = vec![0u8; len];
         assert!(
-            ShardV2Header::from_bytes(&buf).is_err(),
+            ShardHeader::from_bytes(&buf).is_err(),
             "expected error for len={len}"
         );
     }
@@ -65,13 +65,13 @@ fn test_fuzz_header_too_short() {
 #[test]
 fn test_fuzz_header_bad_magic_all_zeros() {
     let buf = [0u8; 64];
-    assert!(ShardV2Header::from_bytes(&buf).is_err());
+    assert!(ShardHeader::from_bytes(&buf).is_err());
 }
 
 #[test]
 fn test_fuzz_header_all_0xff() {
     let buf = [0xFFu8; 64];
-    assert!(ShardV2Header::from_bytes(&buf).is_err());
+    assert!(ShardHeader::from_bytes(&buf).is_err());
 }
 
 #[test]
@@ -80,21 +80,21 @@ fn test_fuzz_header_valid_magic_wrong_version() {
     buf[0..4].copy_from_slice(b"SHRD");
     buf[4] = 0xFF; // unsupported version
     buf[10..12].copy_from_slice(&(INDEX_ENTRY_SIZE as u16).to_le_bytes());
-    assert!(ShardV2Header::from_bytes(&buf).is_err());
+    assert!(ShardHeader::from_bytes(&buf).is_err());
 }
 
 #[test]
 fn test_fuzz_header_wrong_index_entry_size() {
     let mut buf = make_valid_header_buf();
     buf[10..12].copy_from_slice(&0xFFFFu16.to_le_bytes()); // wrong index_entry_size
-    assert!(ShardV2Header::from_bytes(&buf).is_err());
+    assert!(ShardHeader::from_bytes(&buf).is_err());
 }
 
 #[test]
 fn test_fuzz_header_zero_index_entry_size() {
     let mut buf = make_valid_header_buf();
     buf[10..12].copy_from_slice(&0u16.to_le_bytes());
-    assert!(ShardV2Header::from_bytes(&buf).is_err());
+    assert!(ShardHeader::from_bytes(&buf).is_err());
 }
 
 #[test]
@@ -103,25 +103,25 @@ fn test_fuzz_header_max_entry_count() {
     let mut buf = make_valid_header_buf();
     buf[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
     // from_bytes on just 64 bytes succeeds — entry_count is not validated here
-    // (that happens in ShardV2Reader::from_bytes)
-    let _ = ShardV2Header::from_bytes(&buf);
+    // (that happens in ShardReader::from_bytes)
+    let _ = ShardHeader::from_bytes(&buf);
 }
 
 #[test]
 fn test_fuzz_header_valid_parses_ok() {
     let buf = make_valid_header_buf();
-    let hdr = ShardV2Header::from_bytes(&buf).expect("valid header should parse");
+    let hdr = ShardHeader::from_bytes(&buf).expect("valid header should parse");
     assert_eq!(&hdr.magic, SHARD_MAGIC);
-    assert_eq!(hdr.version, SHARD_VERSION2);
+    assert_eq!(hdr.version, SHARD_VERSION);
     assert_eq!(hdr.index_entry_size as usize, INDEX_ENTRY_SIZE);
 }
 
 // ============================================================
-// FuzzParseIndexEntryV2 seeds
+// FuzzParseIndexEntry seeds
 // ============================================================
 //
-// The internal IndexEntryV2::from_bytes is private, so we exercise it through
-// the ShardV2Reader path (same strategy as fuzz_index_entry.rs).
+// The internal IndexEntry::from_bytes is private, so we exercise it through
+// the ShardReader path (same strategy as fuzz_index_entry.rs).
 
 /// Build a minimal shard whose single index entry is the given 48-byte slice.
 fn shard_with_raw_entry(entry_bytes: &[u8; 48]) -> Vec<u8> {
@@ -130,7 +130,7 @@ fn shard_with_raw_entry(entry_bytes: &[u8; 48]) -> Vec<u8> {
 
     // Header
     buf[0..4].copy_from_slice(SHARD_MAGIC);
-    buf[4] = SHARD_VERSION2;
+    buf[4] = SHARD_VERSION;
     buf[5] = ROLE_MOSH;
     buf[6..8].copy_from_slice(&FLAG_HAS_CHECKSUMS.to_le_bytes());
     buf[10..12].copy_from_slice(&(INDEX_ENTRY_SIZE as u16).to_le_bytes());
@@ -150,7 +150,7 @@ fn test_fuzz_index_entry_all_zeros() {
     let buf = shard_with_raw_entry(&entry);
     // The entry has data_offset=0 which is < data_section_offset (112), so
     // the reader should reject it with EntryOffsetOutOfRange.
-    let _ = ShardV2Reader::from_bytes(buf);
+    let _ = ShardReader::from_bytes(buf);
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn test_fuzz_index_entry_all_0xff() {
     let entry = [0xFFu8; 48];
     let buf = shard_with_raw_entry(&entry);
     // Extremely large data_offset / disk_size — reader must not panic.
-    let _ = ShardV2Reader::from_bytes(buf);
+    let _ = ShardReader::from_bytes(buf);
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn test_fuzz_index_entry_compressed_flags() {
     entry[16..24].copy_from_slice(&st.to_le_bytes()); // data_offset
     // disk_size=0, orig_size=0
     let buf = shard_with_raw_entry(&entry);
-    if let Ok(reader) = ShardV2Reader::from_bytes(buf) {
+    if let Ok(reader) = ShardReader::from_bytes(buf) {
         let info = reader.get_entry_info(0).unwrap();
         assert!(info.compressed());
         // Attempt read — decompression of empty bytes will fail gracefully.
@@ -190,7 +190,7 @@ fn test_fuzz_index_entry_chunked_flag() {
     entry[16..24].copy_from_slice(&st.to_le_bytes());
     let buf = shard_with_raw_entry(&entry);
     // Reader should accept this (chunked flag doesn't block reads in current impl).
-    let _ = ShardV2Reader::from_bytes(buf);
+    let _ = ShardReader::from_bytes(buf);
 }
 
 #[test]
@@ -203,23 +203,23 @@ fn test_fuzz_index_entry_max_name_offset() {
     let st: u64 = (HEADER_SIZE + INDEX_ENTRY_SIZE) as u64;
     entry[16..24].copy_from_slice(&st.to_le_bytes()); // data_offset=112
     let buf = shard_with_raw_entry(&entry);
-    let _ = ShardV2Reader::from_bytes(buf);
+    let _ = ShardReader::from_bytes(buf);
 }
 
 // ============================================================
-// FuzzOpenShardV2 seeds
+// FuzzOpenShard seeds
 // ============================================================
 
 #[test]
 fn test_fuzz_open_empty_bytes() {
-    assert!(ShardV2Reader::from_bytes(vec![]).is_err());
+    assert!(ShardReader::from_bytes(vec![]).is_err());
 }
 
 #[test]
 fn test_fuzz_open_only_header_zero_entries() {
     let buf = make_valid_header_buf().to_vec();
     // total_file_size=64, entry_count=0 → should open successfully.
-    let r = ShardV2Reader::from_bytes(buf).expect("empty shard with 0 entries should open");
+    let r = ShardReader::from_bytes(buf).expect("empty shard with 0 entries should open");
     assert_eq!(r.entry_count(), 0);
     assert!(r.entry_names().is_empty());
     assert_eq!(r.lookup("x"), None);
@@ -236,7 +236,7 @@ fn test_fuzz_open_inverted_offsets() {
     buf[16..24].copy_from_slice(&200u64.to_le_bytes());
     buf[24..32].copy_from_slice(&100u64.to_le_bytes());
     buf[40..48].copy_from_slice(&200u64.to_le_bytes()); // total_file_size=200 (still mismatch with vec len)
-    let _ = ShardV2Reader::from_bytes(buf);
+    let _ = ShardReader::from_bytes(buf);
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn test_fuzz_open_file_size_mismatch() {
     let mut buf = make_valid_header_buf().to_vec();
     // total_file_size claims 9999 but actual bytes = 64
     buf[40..48].copy_from_slice(&9999u64.to_le_bytes());
-    assert!(ShardV2Reader::from_bytes(buf).is_err());
+    assert!(ShardReader::from_bytes(buf).is_err());
 }
 
 #[test]
@@ -253,13 +253,13 @@ fn test_fuzz_open_max_entry_count_exceeds_security_limit() {
     // entry_count = 10_000_001 (> MAX_ENTRY_COUNT=10_000_000)
     buf[12..16].copy_from_slice(&10_000_001u32.to_le_bytes());
     buf[40..48].copy_from_slice(&64u64.to_le_bytes()); // total_file_size matches vec
-    assert!(ShardV2Reader::from_bytes(buf).is_err());
+    assert!(ShardReader::from_bytes(buf).is_err());
 }
 
 #[test]
 fn test_fuzz_open_all_zeros() {
     // 64 bytes of zeros — bad magic.
-    assert!(ShardV2Reader::from_bytes(vec![0u8; 64]).is_err());
+    assert!(ShardReader::from_bytes(vec![0u8; 64]).is_err());
 }
 
 #[test]
@@ -270,7 +270,7 @@ fn test_fuzz_open_truncated_mid_index() {
     // total_file_size must match actual len=64
     buf[40..48].copy_from_slice(&64u64.to_le_bytes());
     // Reader should reject: file too small for index.
-    assert!(ShardV2Reader::from_bytes(buf).is_err());
+    assert!(ShardReader::from_bytes(buf).is_err());
 }
 
 // ============================================================
@@ -307,7 +307,7 @@ fn test_fuzz_decompress_lz4_garbage() {
 #[test]
 fn test_fuzz_decompress_via_reader_zstd_garbage() {
     // Build a shard with ZSTD-flagged entry containing garbage data.
-    // ShardV2Reader::read_entry should return Err, not panic.
+    // ShardReader::read_entry should return Err, not panic.
     let garbage = b"\x00\x01\x02\x03\x04\x05\x06\x07";
     let st_offset: usize = HEADER_SIZE + INDEX_ENTRY_SIZE; // 112
     let data_offset: usize = st_offset + 4; // 116
@@ -316,7 +316,7 @@ fn test_fuzz_decompress_via_reader_zstd_garbage() {
 
     // Header
     buf[0..4].copy_from_slice(SHARD_MAGIC);
-    buf[4] = SHARD_VERSION2;
+    buf[4] = SHARD_VERSION;
     buf[5] = ROLE_MOSH;
     buf[6..8].copy_from_slice(&FLAG_HAS_CHECKSUMS.to_le_bytes());
     buf[10..12].copy_from_slice(&(INDEX_ENTRY_SIZE as u16).to_le_bytes());
@@ -341,7 +341,7 @@ fn test_fuzz_decompress_via_reader_zstd_garbage() {
     // Data
     buf[data_offset..data_offset + garbage.len()].copy_from_slice(garbage);
 
-    if let Ok(reader) = ShardV2Reader::from_bytes(buf) {
+    if let Ok(reader) = ShardReader::from_bytes(buf) {
         assert!(reader.read_entry(0).is_err(), "should fail decompression");
     }
 }
@@ -355,7 +355,7 @@ fn test_fuzz_decompress_via_reader_lz4_garbage() {
     let mut buf = vec![0u8; total];
 
     buf[0..4].copy_from_slice(SHARD_MAGIC);
-    buf[4] = SHARD_VERSION2;
+    buf[4] = SHARD_VERSION;
     buf[5] = ROLE_MOSH;
     buf[6..8].copy_from_slice(&FLAG_HAS_CHECKSUMS.to_le_bytes());
     buf[10..12].copy_from_slice(&(INDEX_ENTRY_SIZE as u16).to_le_bytes());
@@ -377,7 +377,7 @@ fn test_fuzz_decompress_via_reader_lz4_garbage() {
 
     buf[data_offset..data_offset + garbage.len()].copy_from_slice(garbage);
 
-    if let Ok(reader) = ShardV2Reader::from_bytes(buf) {
+    if let Ok(reader) = ShardReader::from_bytes(buf) {
         assert!(reader.read_entry(0).is_err(), "should fail lz4 decompression");
     }
 }
@@ -392,7 +392,7 @@ fn test_fuzz_decompress_huge_orig_size_triggers_limit() {
     let mut buf = vec![0u8; total];
 
     buf[0..4].copy_from_slice(SHARD_MAGIC);
-    buf[4] = SHARD_VERSION2;
+    buf[4] = SHARD_VERSION;
     buf[10..12].copy_from_slice(&(INDEX_ENTRY_SIZE as u16).to_le_bytes());
     buf[12..16].copy_from_slice(&1u32.to_le_bytes());
     buf[16..24].copy_from_slice(&(st_offset as u64).to_le_bytes());
@@ -413,7 +413,7 @@ fn test_fuzz_decompress_huge_orig_size_triggers_limit() {
     buf[HEADER_SIZE + 12..HEADER_SIZE + 14].copy_from_slice(&1u16.to_le_bytes());
     buf[data_offset..data_offset + garbage.len()].copy_from_slice(garbage);
 
-    if let Ok(reader) = ShardV2Reader::from_bytes(buf) {
+    if let Ok(reader) = ShardReader::from_bytes(buf) {
         let err = reader.read_entry(0).unwrap_err();
         assert!(
             matches!(err, shard_format::ShardError::DecompressTooLarge(_)),
@@ -433,7 +433,7 @@ fn test_fuzz_decompress_zstd_declared_orig_size_mismatch_is_bounded() {
     let mut buf = vec![0u8; total];
 
     buf[0..4].copy_from_slice(SHARD_MAGIC);
-    buf[4] = SHARD_VERSION2;
+    buf[4] = SHARD_VERSION;
     buf[5] = ROLE_MOSH;
     buf[6..8].copy_from_slice(&FLAG_HAS_CHECKSUMS.to_le_bytes());
     buf[10..12].copy_from_slice(&(INDEX_ENTRY_SIZE as u16).to_le_bytes());
@@ -454,7 +454,7 @@ fn test_fuzz_decompress_zstd_declared_orig_size_mismatch_is_bounded() {
     buf[HEADER_SIZE + 12..HEADER_SIZE + 14].copy_from_slice(&1u16.to_le_bytes());
     buf[data_offset..data_offset + compressed.len()].copy_from_slice(&compressed);
 
-    let reader = ShardV2Reader::from_bytes(buf).expect("reader");
+    let reader = ShardReader::from_bytes(buf).expect("reader");
     let err = reader.read_entry(0).unwrap_err();
     match err {
         shard_format::ShardError::DecompressTooLarge(size) => assert_eq!(size, 33),
@@ -468,10 +468,10 @@ fn test_fuzz_decompress_zstd_declared_orig_size_mismatch_is_bounded() {
 
 #[test]
 fn test_fuzz_lookup_empty_name() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("normal", b"data");
     let bytes = w.to_bytes();
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     assert_eq!(r.lookup(""), None);
     assert!(!r.has_entry(""));
     assert!(r.read_entry_by_name("").is_err());
@@ -479,10 +479,10 @@ fn test_fuzz_lookup_empty_name() {
 
 #[test]
 fn test_fuzz_lookup_null_byte_name() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("normal", b"data");
     let bytes = w.to_bytes();
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     assert_eq!(r.lookup("\x00"), None);
     assert!(r.read_entry_by_name("\x00").is_err());
 }
@@ -490,21 +490,21 @@ fn test_fuzz_lookup_null_byte_name() {
 #[test]
 fn test_fuzz_lookup_very_long_name() {
     let long_name = "x".repeat(4096);
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("normal", b"data");
     let bytes = w.to_bytes();
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     assert_eq!(r.lookup(&long_name), None);
 }
 
 #[test]
 fn test_fuzz_lookup_unicode_names() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("unicode-café", b"data1");
     w.write_entry("日本語/テスト", b"data2");
     w.write_entry("emoji-\u{1F600}", b"data3");
     let bytes = w.to_bytes();
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
 
     assert!(r.lookup("unicode-café").is_some());
     assert!(r.lookup("日本語/テスト").is_some());
@@ -515,12 +515,12 @@ fn test_fuzz_lookup_unicode_names() {
 
 #[test]
 fn test_fuzz_lookup_deep_path() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("a/b/c/d/e/f/g", b"deep");
     w.write_entry("a/b/c/d/e/f/h", b"deep2");
     w.write_entry("a/b/x", b"shallow");
     let bytes = w.to_bytes();
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
 
     assert!(r.lookup("a/b/c/d/e/f/g").is_some());
     assert!(r.lookup("a/b/c/d/e/f/h").is_some());
@@ -539,13 +539,13 @@ fn test_fuzz_lookup_deep_path() {
 #[test]
 fn test_fuzz_lookup_prefix_is_also_entry() {
     // "layer.0" is both an exact entry AND a prefix of "layer.0/weight".
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("layer.0", b"direct");
     w.write_entry("layer.0/weight", b"weight");
     w.write_entry("layer.0/bias", b"bias");
     w.write_entry("layer.1/weight", b"w2");
     let bytes = w.to_bytes();
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
 
     assert!(r.lookup("layer.0").is_some());
     assert!(r.lookup("layer.0/weight").is_some());
@@ -564,11 +564,11 @@ fn test_fuzz_lookup_prefix_is_also_entry() {
 
 #[test]
 fn test_fuzz_lookup_adversarial_names_no_panic() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry("normal", b"data");
     w.write_entry("with/slashes/deep", b"data2");
     let bytes = w.to_bytes();
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
 
     // None of these should panic.
     let _ = r.lookup("");
@@ -586,13 +586,13 @@ fn test_fuzz_lookup_adversarial_names_no_panic() {
 #[test]
 fn test_fuzz_lookup_many_entries_writer_reader_roundtrip() {
     // Build a shard with 50 entries using various path patterns.
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     for i in 0..50 {
         let name = format!("layer.{}/weight", i);
         w.write_entry(&name, format!("data_{}", i).as_bytes());
     }
     let bytes = w.to_bytes();
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
 
     assert_eq!(r.entry_count(), 50);
 

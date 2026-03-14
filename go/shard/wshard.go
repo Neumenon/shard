@@ -188,7 +188,7 @@ func (tb *wshardTimebaseJ) toPublic() WShardTimebase {
 
 // CreateWShard writes a WShardEpisode to a new shard file at path.
 func CreateWShard(path string, ep *WShardEpisode) error {
-	w, err := NewShardV2Writer(path, ShardRoleWShard)
+	w, err := NewShardWriter(path, ShardRoleWShard)
 	if err != nil {
 		return fmt.Errorf("wshard: create writer: %w", err)
 	}
@@ -346,7 +346,7 @@ func CreateWShard(path string, ep *WShardEpisode) error {
 
 // OpenWShard reads a WShard file and returns the decoded episode.
 func OpenWShard(path string) (*WShardEpisode, error) {
-	r, err := OpenShardV2(path)
+	r, err := OpenShard(path)
 	if err != nil {
 		return nil, fmt.Errorf("wshard: open: %w", err)
 	}
@@ -555,7 +555,7 @@ func resolvedEpisodeTimebase(meta *wshardMetaBlock, episode *wshardEpisodeMeta) 
 }
 
 func readWShardChannel(
-	r *ShardV2Reader,
+	r *ShardReader,
 	fullName string,
 	def wshardChannelDef,
 	observations map[string]*WShardChannel,

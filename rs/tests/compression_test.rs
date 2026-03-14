@@ -1,19 +1,19 @@
-//! Compression roundtrip and edge-case tests for Shard v2.
+//! Compression roundtrip and edge-case tests for Shard.
 
 use shard_format::{
-    compute_crc32c, ShardError, ShardV2Reader, ShardV2Writer,
+    compute_crc32c, ShardError, ShardReader, ShardWriter,
     COMPRESS_LZ4, COMPRESS_NONE, COMPRESS_ZSTD, HEADER_SIZE, ROLE_MOSH,
 };
 
 #[test]
 fn test_zstd_roundtrip() {
     let data: Vec<u8> = (0..10000).map(|i| (i % 256) as u8).collect();
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_compression(COMPRESS_ZSTD);
     w.write_entry_compressed("big", &data);
     let bytes = w.to_bytes();
 
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     assert_eq!(r.read_entry(0).unwrap(), data);
     let info = r.get_entry_info(0).unwrap();
     assert!(info.compressed(), "entry should be marked compressed");
@@ -29,12 +29,12 @@ fn test_zstd_roundtrip() {
 #[test]
 fn test_lz4_roundtrip() {
     let data: Vec<u8> = (0..10000).map(|i| (i % 256) as u8).collect();
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_compression(COMPRESS_LZ4);
     w.write_entry_compressed("big", &data);
     let bytes = w.to_bytes();
 
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     assert_eq!(r.read_entry(0).unwrap(), data);
     let info = r.get_entry_info(0).unwrap();
     assert!(info.compressed(), "entry should be marked compressed");
@@ -43,12 +43,12 @@ fn test_lz4_roundtrip() {
 
 #[test]
 fn test_small_data_not_compressed() {
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_compression(COMPRESS_ZSTD);
     w.write_entry_compressed("tiny", b"hello");
     let bytes = w.to_bytes();
 
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     assert_eq!(r.read_entry(0).unwrap(), b"hello");
     assert!(
         !r.get_entry_info(0).unwrap().compressed(),
@@ -59,12 +59,12 @@ fn test_small_data_not_compressed() {
 #[test]
 fn test_checksum_on_uncompressed_data() {
     let data: Vec<u8> = (0..256).cycle().take(2560).map(|x: usize| x as u8).collect();
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_compression(COMPRESS_ZSTD);
     w.write_entry_compressed("data", &data);
     let bytes = w.to_bytes();
 
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     // Checksum in the index must be over the ORIGINAL (uncompressed) data.
     assert_eq!(
         r.get_entry_info(0).unwrap().checksum,
@@ -78,13 +78,13 @@ fn test_mixed_compressed_and_plain() {
     let big: Vec<u8> = (0..5000).map(|i| (i % 256) as u8).collect();
     let small = b"tiny";
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_compression(COMPRESS_ZSTD);
     w.write_entry_compressed("compressed", &big);
     w.write_entry("plain", small);
     let bytes = w.to_bytes();
 
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     assert_eq!(r.read_entry(0).unwrap(), big);
     assert_eq!(r.read_entry(1).unwrap(), small.as_ref());
     assert!(r.get_entry_info(0).unwrap().compressed(), "first entry should be compressed");
@@ -94,12 +94,12 @@ fn test_mixed_compressed_and_plain() {
 #[test]
 fn test_write_entry_with_options() {
     let data: Vec<u8> = (0..5000).map(|i| (i % 256) as u8).collect();
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry_with_options("zstd", &data, true, COMPRESS_ZSTD);
     w.write_entry_with_options("none", &data, false, COMPRESS_NONE);
     let bytes = w.to_bytes();
 
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     assert_eq!(r.read_entry(0).unwrap(), data);
     assert_eq!(r.read_entry(1).unwrap(), data);
     assert!(r.get_entry_info(0).unwrap().compressed(), "zstd entry should be compressed");
@@ -109,11 +109,11 @@ fn test_write_entry_with_options() {
 #[test]
 fn test_lz4_write_entry_with_options() {
     let data: Vec<u8> = (0..5000).map(|i| (i % 256) as u8).collect();
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.write_entry_with_options("lz4", &data, true, COMPRESS_LZ4);
     let bytes = w.to_bytes();
 
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     assert_eq!(r.read_entry(0).unwrap(), data);
     assert!(r.get_entry_info(0).unwrap().compressed());
 }
@@ -121,12 +121,12 @@ fn test_lz4_write_entry_with_options() {
 #[test]
 fn test_compression_read_by_name() {
     let data: Vec<u8> = (0..5000).map(|i| (i % 256) as u8).collect();
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_compression(COMPRESS_ZSTD);
     w.write_entry_compressed("mykey", &data);
     let bytes = w.to_bytes();
 
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     let by_name = r.read_entry_by_name("mykey").unwrap();
     let by_index = r.read_entry(0).unwrap();
     assert_eq!(by_name, by_index);
@@ -147,12 +147,12 @@ fn test_incompressible_data_stored_uncompressed() {
         *b = state as u8;
     }
 
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_compression(COMPRESS_ZSTD);
     w.write_entry_compressed("random", &data);
     let bytes = w.to_bytes();
 
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     // Whether compressed or not, the decompressed data must round-trip correctly.
     assert_eq!(r.read_entry(0).unwrap(), data);
 }
@@ -160,19 +160,19 @@ fn test_incompressible_data_stored_uncompressed() {
 #[test]
 fn test_zstd_declared_orig_size_is_enforced() {
     let payload = vec![0xABu8; 4096];
-    let mut w = ShardV2Writer::new(ROLE_MOSH);
+    let mut w = ShardWriter::new(ROLE_MOSH);
     w.set_compression(COMPRESS_ZSTD);
     w.write_entry_compressed("bomb", &payload);
     let mut bytes = w.to_bytes();
 
-    let info = ShardV2Reader::from_bytes(bytes.clone()).unwrap().get_entry_info(0).unwrap().clone();
+    let info = ShardReader::from_bytes(bytes.clone()).unwrap().get_entry_info(0).unwrap().clone();
     assert!(info.compressed(), "payload should be stored compressed for this test");
 
     let declared_size = 64u64;
     let orig_size_off = HEADER_SIZE + 32;
     bytes[orig_size_off..orig_size_off + 8].copy_from_slice(&declared_size.to_le_bytes());
 
-    let r = ShardV2Reader::from_bytes(bytes).unwrap();
+    let r = ShardReader::from_bytes(bytes).unwrap();
     let err = r.read_entry(0).unwrap_err();
     assert!(
         matches!(err, ShardError::DecompressTooLarge(size) if size > declared_size),

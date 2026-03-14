@@ -1,5 +1,5 @@
 /**
- * Streaming writer roundtrip tests — ShardV2StreamWriter.
+ * Streaming writer roundtrip tests — ShardStreamWriter.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -7,8 +7,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
-  ShardV2StreamWriter,
-  ShardV2Reader,
+  ShardStreamWriter,
+  ShardReader,
   initXxhash,
   initCompression,
   computeCrc32c,
@@ -40,16 +40,16 @@ function tmpFile(): string {
 // Basic roundtrip
 // ============================================================
 
-describe('ShardV2StreamWriter basic roundtrip', () => {
+describe('ShardStreamWriter basic roundtrip', () => {
   it('two entries — names and data preserved', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 10);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 10);
     sw.beginData();
     sw.writeEntry('hello', Buffer.from('world'));
     sw.writeEntry('foo', Buffer.from('bar'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.entryCount()).toBe(2);
     expect(r.readEntry(0).toString()).toBe('world');
     expect(r.readEntry(1).toString()).toBe('bar');
@@ -60,24 +60,24 @@ describe('ShardV2StreamWriter basic roundtrip', () => {
 
   it('FLAG_STREAMING is set in header flags', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.beginData();
     sw.writeEntry('x', Buffer.from('data'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.header().flags & FLAG_STREAMING).toBeTruthy();
     fs.unlinkSync(p);
   });
 
   it('DEFAULT_FLAGS also present alongside FLAG_STREAMING', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.beginData();
     sw.writeEntry('x', Buffer.from('data'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     // DEFAULT_FLAGS bits must all be present
     expect(r.header().flags & DEFAULT_FLAGS).toBe(DEFAULT_FLAGS);
     fs.unlinkSync(p);
@@ -85,12 +85,12 @@ describe('ShardV2StreamWriter basic roundtrip', () => {
 
   it('single entry roundtrip', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.beginData();
     sw.writeEntry('only', Buffer.from('payload'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.entryCount()).toBe(1);
     expect(r.readEntry(0).toString()).toBe('payload');
     fs.unlinkSync(p);
@@ -98,25 +98,25 @@ describe('ShardV2StreamWriter basic roundtrip', () => {
 
   it('role is propagated to header', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_SAMPLE, 5);
+    const sw = new ShardStreamWriter(p, ROLE_SAMPLE, 5);
     sw.beginData();
     sw.writeEntry('a', Buffer.from('1'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.header().role).toBe(ROLE_SAMPLE);
     fs.unlinkSync(p);
   });
 
   it('total_file_size matches file length on disk', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.beginData();
     sw.writeEntry('item', Buffer.from('hello'));
     sw.finalize();
 
     const buf = fs.readFileSync(p);
-    const r = new ShardV2Reader(buf);
+    const r = new ShardReader(buf);
     expect(Number(r.header().totalFileSize)).toBe(buf.length);
     fs.unlinkSync(p);
   });
@@ -124,12 +124,12 @@ describe('ShardV2StreamWriter basic roundtrip', () => {
   it('checksum stored correctly', () => {
     const p = tmpFile();
     const data = Buffer.from('checksum_test_data');
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.beginData();
     sw.writeEntry('data', data);
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     const info = r.getEntryInfo(0);
     expect(info.checksum).toBe(computeCrc32c(data));
     fs.unlinkSync(p);
@@ -138,12 +138,12 @@ describe('ShardV2StreamWriter basic roundtrip', () => {
   it('binary data — all 256 byte values', () => {
     const p = tmpFile();
     const allBytes = Buffer.from(Array.from({ length: 256 }, (_, i) => i));
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.beginData();
     sw.writeEntry('allbytes', allBytes);
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.readEntry(0)).toEqual(allBytes);
     fs.unlinkSync(p);
   });
@@ -153,16 +153,16 @@ describe('ShardV2StreamWriter basic roundtrip', () => {
 // Alignment
 // ============================================================
 
-describe('ShardV2StreamWriter alignment', () => {
+describe('ShardStreamWriter alignment', () => {
   it('default alignment is ALIGN_64', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 10);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 10);
     sw.beginData();
     sw.writeEntry('a', Buffer.from('data_a'));
     sw.writeEntry('b', Buffer.from('data_b'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.header().alignment).toBe(ALIGN_64);
     for (let i = 0; i < r.entryCount(); i++) {
       const offset = Number(r.getEntryInfo(i).dataOffset);
@@ -173,14 +173,14 @@ describe('ShardV2StreamWriter alignment', () => {
 
   it('alignment 64 explicit', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 10);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 10);
     sw.setAlignment(ALIGN_64);
     sw.beginData();
     sw.writeEntry('x', Buffer.from('hello'));
     sw.writeEntry('y', Buffer.from('world'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.header().alignment).toBe(ALIGN_64);
     for (let i = 0; i < r.entryCount(); i++) {
       expect(Number(r.getEntryInfo(i).dataOffset) % 64).toBe(0);
@@ -190,14 +190,14 @@ describe('ShardV2StreamWriter alignment', () => {
 
   it('alignment 16', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 10);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 10);
     sw.setAlignment(ALIGN_16);
     sw.beginData();
     sw.writeEntry('x', Buffer.from('hello'));
     sw.writeEntry('y', Buffer.from('world_longer'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.header().alignment).toBe(ALIGN_16);
     for (let i = 0; i < r.entryCount(); i++) {
       const offset = Number(r.getEntryInfo(i).dataOffset);
@@ -208,14 +208,14 @@ describe('ShardV2StreamWriter alignment', () => {
 
   it('alignment 32', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 10);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 10);
     sw.setAlignment(ALIGN_32);
     sw.beginData();
     sw.writeEntry('p', Buffer.from('payload_data'));
     sw.writeEntry('q', Buffer.from('more_payload'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.header().alignment).toBe(ALIGN_32);
     for (let i = 0; i < r.entryCount(); i++) {
       expect(Number(r.getEntryInfo(i).dataOffset) % 32).toBe(0);
@@ -225,14 +225,14 @@ describe('ShardV2StreamWriter alignment', () => {
 
   it('alignment none — entries packed tightly', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 10);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 10);
     sw.setAlignment(ALIGN_NONE);
     sw.beginData();
     sw.writeEntry('a', Buffer.from('x'));
     sw.writeEntry('b', Buffer.from('yy'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.header().alignment).toBe(ALIGN_NONE);
     expect(r.readEntry(0).toString()).toBe('x');
     expect(r.readEntry(1).toString()).toBe('yy');
@@ -244,7 +244,7 @@ describe('ShardV2StreamWriter alignment', () => {
 
   it('setAlignment after beginData throws', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.beginData();
     expect(() => sw.setAlignment(ALIGN_16)).toThrow('cannot set alignment after begin_data()');
     sw.finalize();
@@ -253,7 +253,7 @@ describe('ShardV2StreamWriter alignment', () => {
 
   it('invalid alignment value throws', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     expect(() => sw.setAlignment(7)).toThrow(/invalid alignment/);
     sw.close();
     try { fs.unlinkSync(p); } catch (_) { /* may not exist */ }
@@ -264,18 +264,18 @@ describe('ShardV2StreamWriter alignment', () => {
 // Many entries / large data
 // ============================================================
 
-describe('ShardV2StreamWriter many entries and large data', () => {
+describe('ShardStreamWriter many entries and large data', () => {
   it('100 entries roundtrip', () => {
     const p = tmpFile();
     const n = 100;
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, n);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, n);
     sw.beginData();
     for (let i = 0; i < n; i++) {
       sw.writeEntry(`entry_${String(i).padStart(4, '0')}`, Buffer.from(`data_${i}`));
     }
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.entryCount()).toBe(n);
     for (let i = 0; i < n; i++) {
       expect(r.entryName(i)).toBe(`entry_${String(i).padStart(4, '0')}`);
@@ -286,12 +286,12 @@ describe('ShardV2StreamWriter many entries and large data', () => {
 
   it('fewer entries than maxEntries is fine', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 1000);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 1000);
     sw.beginData();
     sw.writeEntry('only_one', Buffer.from('data'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.entryCount()).toBe(1);
     expect(r.readEntry(0).toString()).toBe('data');
     fs.unlinkSync(p);
@@ -300,12 +300,12 @@ describe('ShardV2StreamWriter many entries and large data', () => {
   it('large data (100KB)', () => {
     const p = tmpFile();
     const big = Buffer.from(Array.from({ length: 100_000 }, (_, i) => i % 256));
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.beginData();
     sw.writeEntry('big', big);
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.readEntry(0)).toEqual(big);
     fs.unlinkSync(p);
   });
@@ -315,17 +315,17 @@ describe('ShardV2StreamWriter many entries and large data', () => {
 // Lookup
 // ============================================================
 
-describe('ShardV2StreamWriter lookup', () => {
+describe('ShardStreamWriter lookup', () => {
   it('lookup by name returns correct index', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 10);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 10);
     sw.beginData();
     sw.writeEntry('alpha', Buffer.from('a'));
     sw.writeEntry('beta', Buffer.from('b'));
     sw.writeEntry('gamma', Buffer.from('c'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.lookup('alpha')).toBe(0);
     expect(r.lookup('beta')).toBe(1);
     expect(r.lookup('gamma')).toBe(2);
@@ -335,13 +335,13 @@ describe('ShardV2StreamWriter lookup', () => {
 
   it('readEntryByName works', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 10);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 10);
     sw.beginData();
     sw.writeEntry('key1', Buffer.from('value1'));
     sw.writeEntry('key2', Buffer.from('value2'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.readEntryByName('key1').toString()).toBe('value1');
     expect(r.readEntryByName('key2').toString()).toBe('value2');
     expect(() => r.readEntryByName('nonexistent')).toThrow();
@@ -353,17 +353,17 @@ describe('ShardV2StreamWriter lookup', () => {
 // Compression
 // ============================================================
 
-describe('ShardV2StreamWriter compression', () => {
+describe('ShardStreamWriter compression', () => {
   it('zstd compressed entry roundtrip', () => {
     const p = tmpFile();
     const data = Buffer.from(Array.from({ length: 10_000 }, (_, i) => i % 256));
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.setCompression(COMPRESS_ZSTD);
     sw.beginData();
     sw.writeEntryCompressed('data', data);
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.readEntry(0)).toEqual(data);
     const info = r.getEntryInfo(0);
     expect(info.compressed).toBe(true);
@@ -374,13 +374,13 @@ describe('ShardV2StreamWriter compression', () => {
   it('lz4 compressed entry roundtrip', () => {
     const p = tmpFile();
     const data = Buffer.from(Array.from({ length: 10_000 }, (_, i) => i % 256));
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.setCompression(COMPRESS_LZ4);
     sw.beginData();
     sw.writeEntryCompressed('data', data);
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.readEntry(0)).toEqual(data);
     const info = r.getEntryInfo(0);
     expect(info.compressed).toBe(true);
@@ -390,13 +390,13 @@ describe('ShardV2StreamWriter compression', () => {
 
   it('small data below MIN_COMPRESS_SIZE stored uncompressed', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.setCompression(COMPRESS_ZSTD);
     sw.beginData();
     sw.writeEntryCompressed('tiny', Buffer.from('hello'));
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.readEntry(0).toString()).toBe('hello');
     expect(r.getEntryInfo(0).compressed).toBe(false);
     fs.unlinkSync(p);
@@ -406,14 +406,14 @@ describe('ShardV2StreamWriter compression', () => {
     const p = tmpFile();
     const big = Buffer.from(Array.from({ length: 10_000 }, (_, i) => i % 256));
     const small = Buffer.from('tiny');
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 10);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 10);
     sw.setCompression(COMPRESS_ZSTD);
     sw.beginData();
     sw.writeEntryCompressed('big', big);
     sw.writeEntry('small', small);
     sw.finalize();
 
-    const r = new ShardV2Reader(fs.readFileSync(p));
+    const r = new ShardReader(fs.readFileSync(p));
     expect(r.readEntry(0)).toEqual(big);
     expect(r.readEntry(1)).toEqual(small);
     expect(r.getEntryInfo(0).compressed).toBe(true);
@@ -426,10 +426,10 @@ describe('ShardV2StreamWriter compression', () => {
 // State errors
 // ============================================================
 
-describe('ShardV2StreamWriter state errors', () => {
+describe('ShardStreamWriter state errors', () => {
   it('writeEntry before beginData throws', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     expect(() => sw.writeEntry('x', Buffer.from('data'))).toThrow('call begin_data() first');
     sw.close();
     try { fs.unlinkSync(p); } catch (_) { /* may not exist */ }
@@ -437,7 +437,7 @@ describe('ShardV2StreamWriter state errors', () => {
 
   it('beginData called twice throws', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.beginData();
     expect(() => sw.beginData()).toThrow('already called');
     sw.finalize();
@@ -446,7 +446,7 @@ describe('ShardV2StreamWriter state errors', () => {
 
   it('finalize called twice throws', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.beginData();
     sw.finalize();
     expect(() => sw.finalize()).toThrow('already finalized');
@@ -455,7 +455,7 @@ describe('ShardV2StreamWriter state errors', () => {
 
   it('writeEntry after finalize throws', () => {
     const p = tmpFile();
-    const sw = new ShardV2StreamWriter(p, ROLE_MOSH, 5);
+    const sw = new ShardStreamWriter(p, ROLE_MOSH, 5);
     sw.beginData();
     sw.finalize();
     expect(() => sw.writeEntry('x', Buffer.from('data'))).toThrow('already finalized');

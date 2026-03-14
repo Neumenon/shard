@@ -5,8 +5,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 
 import {
-  ShardV2Reader,
-  ShardV2Writer,
+  ShardReader,
+  ShardWriter,
   initXxhash,
   createSchema,
   addSpec,
@@ -25,10 +25,10 @@ beforeAll(async () => {
 // Helpers
 // ============================================================
 
-function makeReader(write: (w: ShardV2Writer) => void): ShardV2Reader {
-  const w = new ShardV2Writer();
+function makeReader(write: (w: ShardWriter) => void): ShardReader {
+  const w = new ShardWriter();
   write(w);
-  return new ShardV2Reader(w.toBuffer());
+  return new ShardReader(w.toBuffer());
 }
 
 // ============================================================

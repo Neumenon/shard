@@ -7,7 +7,11 @@ LZ4 bounds, streaming .partial files, and chunk continuity validation.
 
 import io
 import json
+import os
+import shutil
 import struct
+import subprocess
+import textwrap
 from pathlib import Path
 
 import numpy as np
@@ -210,7 +214,7 @@ def _build_wshard_with_per_block_zstd(signal_data: bytes) -> bytes:
     for name in sorted_names:
         dd = block_disk_data[name]
         h = xxhash.xxh64(name.encode("utf-8")).intdigest()
-        checksum = compute_crc32(dd)
+        checksum = compute_crc32(signal_data if name == "signal/x" else blocks_meta[name])
         entry = bytearray(INDEX_ENTRY_SIZE)
         struct.pack_into("<Q", entry, 0, h)
         struct.pack_into("<I", entry, 8, string_offsets[name])
@@ -601,6 +605,13 @@ def test_index_entry_orig_size_max_uint64(tmp_path):
 
 
 _GOLDEN_DIR = Path(__file__).resolve().parent.parent.parent / "golden"
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+
+def _go_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.setdefault("GOCACHE", "/tmp/go-build-cache")
+    return env
 
 
 def _load_golden_hashes():
@@ -703,3 +714,166 @@ def test_golden_compressed_loads():
     assert ep.length == 100
     assert "obs" in ep.observations
     assert ep.observations["obs"].data.shape == (100, 8)
+
+
+# ============================================================
+# 14. Cross-language package interop (Go package <-> Python package)
+# ============================================================
+
+
+def test_go_package_interop_roundtrip(tmp_path):
+    """Cross-language parity: the real Go package must read/write the same
+    canonical W-SHARD metadata shape as the Python package."""
+    if shutil.which("go") is None:
+        pytest.skip("go toolchain not available")
+
+    go_module_dir = _REPO_ROOT / "shard" / "go"
+    go_out_path = tmp_path / "go_package_writer.wshard"
+    go_writer = tmp_path / "go_writer_probe.go"
+    go_out_literal = json.dumps(go_out_path.as_posix())
+    go_writer.write_text(
+        textwrap.dedent(
+            f"""
+            package main
+
+            import (
+                "log"
+                shard "github.com/Neumenon/shard/go/shard"
+            )
+
+            func main() {{
+                ep := &shard.WShardEpisode{{
+                    ID:      "go-probe",
+                    EnvID:   "GoEnv-v0",
+                    LengthT: 3,
+                    Timebase: shard.WShardTimebase{{Type: "ticks", TickHz: 25}},
+                    Observations: map[string]*shard.WShardChannel{{
+                        "state/pos": {{
+                            Name:  "state/pos",
+                            DType: "float32",
+                            Shape: []int{{2}},
+                            Data:  make([]byte, 3*2*4),
+                        }},
+                    }},
+                    Actions: map[string]*shard.WShardChannel{{
+                        "ctrl": {{
+                            Name:  "ctrl",
+                            DType: "int32",
+                            Shape: []int{{1}},
+                            Data:  make([]byte, 3*4),
+                        }},
+                    }},
+                    Rewards:      []float32{{0, 1, 2}},
+                    Terminations: []bool{{false, false, true}},
+                }}
+                if err := shard.CreateWShard({go_out_literal}, ep); err != nil {{
+                    log.Fatal(err)
+                }}
+            }}
+            """
+        ),
+        encoding="utf-8",
+    )
+    subprocess.run(
+        ["go", "run", str(go_writer)],
+        cwd=go_module_dir,
+        check=True,
+        env=_go_env(),
+    )
+
+    loaded = load_wshard(go_out_path)
+    assert loaded.id == "go-probe"
+    assert loaded.env_id == "GoEnv-v0"
+    assert loaded.length == 3
+    assert "state/pos" in loaded.observations
+    assert loaded.observations["state/pos"].dtype == DType.FLOAT32
+    assert loaded.observations["state/pos"].data.shape == (3, 2)
+    assert "ctrl" in loaded.actions
+    assert loaded.actions["ctrl"].dtype == DType.INT32
+    assert loaded.actions["ctrl"].data.shape == (3, 1)
+
+    py_path = tmp_path / "python_package_writer.wshard"
+    py_path_literal = json.dumps(py_path.as_posix())
+    py_ep = Episode(id="py-probe", length=4)
+    py_ep.env_id = "PyEnv-v0"
+    py_ep.observations["state/pos"] = Channel(
+        name="state/pos",
+        dtype=DType.FLOAT32,
+        shape=[2],
+        data=np.zeros((4, 2), dtype=np.float32),
+    )
+    py_ep.actions["ctrl"] = Channel(
+        name="ctrl",
+        dtype=DType.FLOAT32,
+        shape=[1],
+        data=np.zeros((4, 1), dtype=np.float32),
+    )
+    py_ep.rewards = Channel(
+        name="reward",
+        dtype=DType.FLOAT32,
+        shape=[],
+        data=np.arange(4, dtype=np.float32),
+    )
+    py_ep.terminations = Channel(
+        name="done",
+        dtype=DType.BOOL,
+        shape=[],
+        data=np.array([False, False, False, True], dtype=np.bool_),
+    )
+    save_wshard(py_ep, py_path)
+
+    go_reader = tmp_path / "go_reader_probe.go"
+    go_reader.write_text(
+        textwrap.dedent(
+            f"""
+            package main
+
+            import (
+                "encoding/json"
+                "log"
+                "os"
+                shard "github.com/Neumenon/shard/go/shard"
+            )
+
+            func main() {{
+                ep, err := shard.OpenWShard({py_path_literal})
+                if err != nil {{
+                    log.Fatal(err)
+                }}
+                summary := map[string]any{{
+                    "id": ep.ID,
+                    "env_id": ep.EnvID,
+                    "length_t": ep.LengthT,
+                    "obs_count": len(ep.Observations),
+                    "action_count": len(ep.Actions),
+                    "has_state_pos": ep.Observations["state/pos"] != nil,
+                    "has_ctrl": ep.Actions["ctrl"] != nil,
+                }}
+                if ch := ep.Observations["state/pos"]; ch != nil {{
+                    summary["state_pos_dtype"] = ch.DType
+                }}
+                if err := json.NewEncoder(os.Stdout).Encode(summary); err != nil {{
+                    log.Fatal(err)
+                }}
+            }}
+            """
+        ),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        ["go", "run", str(go_reader)],
+        cwd=go_module_dir,
+        check=True,
+        capture_output=True,
+        env=_go_env(),
+        text=True,
+    )
+    summary = json.loads(proc.stdout)
+    assert summary["id"] == "py-probe"
+    assert summary["env_id"] == "PyEnv-v0"
+    assert summary["length_t"] == 4
+    assert summary["obs_count"] == 1
+    assert summary["action_count"] == 1
+    assert summary["has_state_pos"] is True
+    assert summary["has_ctrl"] is True
+    assert summary["state_pos_dtype"] == "f32"

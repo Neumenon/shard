@@ -21,8 +21,8 @@ import {
   SampleShardProfile,
   ManifestProfile,
   ShardRole,
-  SHARD_V2_HEADER_SIZE,
-  SHARD_V2_INDEX_ENTRY_SIZE,
+  SHARD_HEADER_SIZE,
+  SHARD_INDEX_ENTRY_SIZE,
   ALIGN_64,
   COMPRESS_NONE,
   SHARD_FLAG_HAS_SCHEMA,
@@ -333,7 +333,7 @@ export class SampleShardWriter {
     const fd = this.fd!;
     const tempFd = this.tempFd!;
     const entryCount = this.entries.length;
-    const indexSize = entryCount * SHARD_V2_INDEX_ENTRY_SIZE;
+    const indexSize = entryCount * SHARD_INDEX_ENTRY_SIZE;
 
     // Build string table
     const stringTableParts: Buffer[] = [];
@@ -350,7 +350,7 @@ export class SampleShardWriter {
     const stringTable = Buffer.concat(stringTableParts);
 
     // Calculate offsets
-    const stringTableOffset = SHARD_V2_HEADER_SIZE + indexSize;
+    const stringTableOffset = SHARD_HEADER_SIZE + indexSize;
     let dataSectionOffset = stringTableOffset + stringTable.length;
 
     // Align data section

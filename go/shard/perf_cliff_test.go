@@ -19,9 +19,9 @@ func TestPerfCliff_ManyEntries(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "test.shard")
 
-			w, err := NewShardV2Writer(path, ShardRoleMoSH)
+			w, err := NewShardWriter(path, ShardRoleMoSH)
 			if err != nil {
-				t.Fatalf("NewShardV2Writer failed: %v", err)
+				t.Fatalf("NewShardWriter failed: %v", err)
 			}
 
 			for i := 0; i < size; i++ {
@@ -37,9 +37,9 @@ func TestPerfCliff_ManyEntries(t *testing.T) {
 				t.Fatalf("Close failed: %v", err)
 			}
 
-			r, err := OpenShardV2(path)
+			r, err := OpenShard(path)
 			if err != nil {
-				t.Fatalf("OpenShardV2 failed: %v", err)
+				t.Fatalf("OpenShard failed: %v", err)
 			}
 			defer r.Close()
 
@@ -72,9 +72,9 @@ func TestPerfCliff_LargeEntry(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "test.shard")
 
-			w, err := NewShardV2Writer(path, ShardRoleMoSH)
+			w, err := NewShardWriter(path, ShardRoleMoSH)
 			if err != nil {
-				t.Fatalf("NewShardV2Writer failed: %v", err)
+				t.Fatalf("NewShardWriter failed: %v", err)
 			}
 
 			data := make([]byte, size)
@@ -90,9 +90,9 @@ func TestPerfCliff_LargeEntry(t *testing.T) {
 				t.Fatalf("Close failed: %v", err)
 			}
 
-			r, err := OpenShardV2(path)
+			r, err := OpenShard(path)
 			if err != nil {
-				t.Fatalf("OpenShardV2 failed: %v", err)
+				t.Fatalf("OpenShard failed: %v", err)
 			}
 			defer r.Close()
 
