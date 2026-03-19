@@ -11,6 +11,8 @@ target/
 *.a
 *.so
 *.dylib
+c/test_*
+!c/test_*.c
 
 # IDE
 .vscode/

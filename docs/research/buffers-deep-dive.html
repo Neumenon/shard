@@ -1,0 +1,1618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buffers: A Systems Deep-Dive</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #1a1815;
+    --bg-card: #222019;
+    --bg-code: #1e1c18;
+    --border: #3a3630;
+    --text: #d4cfc6;
+    --text-dim: #8a8478;
+    --accent: #e6a756;
+    --accent-dim: #c08a3a;
+    --blue: #4A90D9;
+    --cyan: #4ECDC4;
+    --pink: #FF6B9D;
+    --green: #7dba6a;
+    --red: #e05252;
+    --yellow: #FFD93D;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* === NAV === */
+  nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: rgba(26,24,21,0.95);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.6rem 2rem;
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s;
+  }
+  nav a:hover, nav a.active { color: var(--accent); }
+  nav .nav-title { color: var(--accent); font-weight: 600; margin-right: 1rem; }
+
+  /* === LAYOUT === */
+  .content {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  /* === HERO === */
+  .hero {
+    text-align: center;
+    padding: 3rem 0 4rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+  }
+  .hero h1 {
+    font-size: 3rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  /* === SECTIONS === */
+  section { margin-bottom: 4rem; }
+  h2 {
+    font-size: 1.8rem;
+    color: var(--accent);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-size: 1.3rem;
+    color: var(--text);
+    margin: 2rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-size: 1rem;
+    color: var(--accent-dim);
+    font-family: 'JetBrains Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 1.5rem 0 0.8rem;
+  }
+
+  p { margin-bottom: 1rem; }
+  a { color: var(--blue); }
+
+  /* === DROP CAP === */
+  .drop-cap::first-letter {
+    float: left;
+    font-size: 4.2rem;
+    line-height: 0.8;
+    padding: 0.1em 0.12em 0 0;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* === CODE === */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    background: var(--bg-code);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  pre .comment { color: var(--text-dim); }
+  pre .keyword { color: var(--pink); }
+  pre .type { color: var(--cyan); }
+  pre .string { color: var(--green); }
+  pre .number { color: var(--yellow); }
+  pre .fn { color: var(--blue); }
+  pre .label {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.8rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    opacity: 0.6;
+  }
+
+  /* === DIAGRAM === */
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 2rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 1rem;
+    display: block;
+  }
+
+  /* === CONCEPT MAP === */
+  .concept-map {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .concept-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+    transition: border-color 0.2s, transform 0.2s;
+    cursor: default;
+  }
+  .concept-card:hover {
+    border-color: var(--accent-dim);
+    transform: translateY(-2px);
+  }
+  .concept-card .concept-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.4rem;
+  }
+  .concept-card .concept-desc {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .concept-card.full { grid-column: 1 / -1; }
+
+  /* === INSIGHT BOX === */
+  .insight {
+    background: var(--bg-card);
+    border-left: 3px solid var(--accent);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+  }
+  .insight-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+  .insight p { margin-bottom: 0; font-size: 0.95rem; }
+
+  .insight.danger { border-left-color: var(--red); }
+  .insight.danger .insight-label { color: var(--red); }
+  .insight.cool { border-left-color: var(--cyan); }
+  .insight.cool .insight-label { color: var(--cyan); }
+  .insight.perf { border-left-color: var(--green); }
+  .insight.perf .insight-label { color: var(--green); }
+
+  /* === TABLE === */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.9rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(230,167,86,0.04); }
+
+  /* === EXPANDABLE === */
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(230,167,86,0.06); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .details-content { padding: 1.2rem; }
+  details pre { margin: 0.8rem 0; }
+
+  /* === COMPARISON === */
+  .comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .compare-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+  }
+  .compare-col h4 { margin-top: 0; }
+  .compare-col.good { border-color: var(--green); }
+  .compare-col.bad { border-color: var(--red); }
+
+  /* === MEMORY VIS === */
+  .mem-block {
+    display: flex;
+    gap: 2px;
+    margin: 0.8rem 0;
+    flex-wrap: wrap;
+  }
+  .mem-cell {
+    width: 36px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    border-radius: 3px;
+    color: var(--bg);
+    font-weight: 600;
+  }
+  .mem-cell.data { background: var(--blue); }
+  .mem-cell.pad { background: var(--text-dim); opacity: 0.3; }
+  .mem-cell.header { background: var(--accent); }
+  .mem-cell.meta { background: var(--cyan); }
+  .mem-cell.free { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mem-cell.hot { background: var(--pink); }
+
+  /* === FLOW ARROW === */
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 1rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+  }
+  .flow-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    white-space: nowrap;
+  }
+  .flow-arrow { color: var(--accent); font-size: 18px; }
+
+  /* === TABS === */
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 0;
+  }
+  .tab-btn {
+    padding: 0.6rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; padding: 1.2rem 0; }
+  .tab-panel.active { display: block; }
+
+  /* === RESPONSIVE === */
+  @media (max-width: 700px) {
+    .concept-map, .comparison { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2.2rem; }
+    .content { padding: 4rem 1.2rem 4rem; }
+    nav { font-size: 11px; gap: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">Buffers</span>
+  <a href="#ch1">Memory Layout</a>
+  <a href="#ch2">[]byte</a>
+  <a href="#ch3">bytes.Buffer</a>
+  <a href="#ch4">binary encoding</a>
+  <a href="#ch5">Alignment</a>
+  <a href="#ch6">Pooling</a>
+  <a href="#ch7">mmap</a>
+  <a href="#ch8">Zero-Copy</a>
+  <a href="#ch9">Ring Buffers</a>
+  <a href="#ch10">Buffered I/O</a>
+  <a href="#ch11">Arena</a>
+  <a href="#ch12">Patterns</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1>Buffers</h1>
+  <div class="subtitle">A systems deep-dive for binary format builders</div>
+</div>
+
+<!-- ============================================================ -->
+<section id="ch1">
+<h2>1. Memory Layout</h2>
+
+<p class="drop-cap">Every buffer lives somewhere in memory, and <em>where</em> it lives determines everything: how fast you can access it, whether it survives the function call, and whether the garbage collector even knows about it. Understanding the stack-heap-mmap trinity is the foundation for everything that follows.</p>
+
+<h3>The Three Kingdoms</h3>
+
+<div class="diagram">
+<span class="diagram-label">Process Virtual Memory</span>
+<pre><code>  High Address
+  ┌──────────────────────────────────┐
+  │           KERNEL SPACE           │  ← You can't touch this
+  ├──────────────────────────────────┤
+  │                                  │
+  │    ┌─────────────────────┐       │
+  │    │   STACK (goroutine) │ ↓     │  ← Grows down, ~1GB limit
+  │    │   local vars, args  │       │     Contiguous, fast
+  │    └─────────────────────┘       │
+  │                                  │
+  │    ┌─────────────────────┐       │
+  │    │   MMAP REGION       │       │  ← File-backed or anonymous
+  │    │   (your shard file) │       │     OS manages paging
+  │    └─────────────────────┘       │
+  │                                  │
+  │    ┌─────────────────────┐       │
+  │    │   HEAP              │ ↑     │  ← Grows up, GC-managed
+  │    │   make(), new()     │       │     Scattered, flexible
+  │    └─────────────────────┘       │
+  │                                  │
+  │    ┌─────────────────────┐       │
+  │    │   BSS + DATA        │       │  ← Globals, constants
+  │    ├─────────────────────┤       │
+  │    │   TEXT (code)       │       │  ← Your compiled functions
+  │    └─────────────────────┘       │
+  └──────────────────────────────────┘
+  Low Address</code></pre>
+</div>
+
+<h3>Stack vs Heap: The Escape Analysis Game</h3>
+
+<p>Go's compiler decides where to put your buffer. If a value "escapes" the function &mdash; gets returned, stored in a struct, passed to an interface &mdash; it goes on the heap. Otherwise, stack.</p>
+
+<pre><code><span class="comment">// STACK: compiler sees this stays local. Zero GC cost.</span>
+<span class="keyword">func</span> <span class="fn">encodeHeader</span>() []<span class="type">byte</span> {
+    <span class="keyword">var</span> buf [<span class="number">64</span>]<span class="type">byte</span>  <span class="comment">// Fixed-size array → stack-allocated</span>
+    binary.LittleEndian.<span class="fn">PutUint32</span>(buf[:], magic)
+    <span class="keyword">return</span> buf[:]  <span class="comment">// ⚠ Escapes! Compiler moves to heap.</span>
+}
+
+<span class="comment">// STACK: stays local, never escapes</span>
+<span class="keyword">func</span> <span class="fn">readMagic</span>(r io.Reader) (<span class="type">uint32</span>, <span class="type">error</span>) {
+    <span class="keyword">var</span> buf [<span class="number">4</span>]<span class="type">byte</span>  <span class="comment">// 4 bytes on the stack</span>
+    _, err := io.<span class="fn">ReadFull</span>(r, buf[:])
+    <span class="keyword">return</span> binary.LittleEndian.<span class="fn">Uint32</span>(buf[:]), err
+}
+
+<span class="comment">// HEAP: make() with runtime-determined size → always heap</span>
+<span class="keyword">func</span> <span class="fn">readEntry</span>(size <span class="type">int</span>) []<span class="type">byte</span> {
+    data := <span class="fn">make</span>([]<span class="type">byte</span>, size)  <span class="comment">// Heap allocation</span>
+    <span class="keyword">return</span> data
+}</code></pre>
+
+<div class="insight perf">
+<div class="insight-label">Performance Rule</div>
+<p>Use <code>var buf [N]byte</code> (fixed array) for small, known-size buffers. Use <code>make([]byte, n)</code> for dynamic sizes. The compiler's escape analysis is your friend &mdash; check it with <code>go build -gcflags='-m'</code>.</p>
+</div>
+
+<p>Here's what your shard codebase does &mdash; and it's the right call:</p>
+
+<pre><code><span class="comment">// shard_format.go:223 — 64-byte header, known size → make (escapes via Write)</span>
+buf := <span class="fn">make</span>([]<span class="type">byte</span>, ShardHeaderSize)
+binary.LittleEndian.<span class="fn">PutUint32</span>(buf[<span class="number">0</span>:<span class="number">4</span>], ShardMagic)
+binary.LittleEndian.<span class="fn">PutUint16</span>(buf[<span class="number">4</span>:<span class="number">6</span>], h.VersionMajor)
+<span class="comment">// ... fill all 64 bytes ...</span>
+_, err := w.<span class="fn">Write</span>(buf)
+<span class="label">shard_format.go</span></code></pre>
+
+<h3>Contiguous vs Scattered Memory</h3>
+
+<div class="concept-map">
+  <div class="concept-card">
+    <div class="concept-name">Contiguous</div>
+    <div class="concept-desc">All bytes adjacent in memory. CPU cache loves this. Arrays, slices, mmap regions. One pointer + length = full access.</div>
+  </div>
+  <div class="concept-card">
+    <div class="concept-name">Scattered</div>
+    <div class="concept-desc">Bytes spread across heap. Linked lists, maps of slices, interface boxing. Cache misses on every hop.</div>
+  </div>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Contiguous: A 64-byte shard header in L1 cache</span>
+<pre><code>  Cache line 0 (64 bytes)          Cache line 1 (64 bytes)
+  ┌────────────────────────────┐   ┌────────────────────────────┐
+  │ magic│ver│role│flags│align │   │     (next data...)         │
+  │ 4B   │4B │1B  │2B   │1B   │   │                            │
+  └────────────────────────────┘   └────────────────────────────┘
+  ↑ ONE cache fetch = entire header loaded. Zero waste.</code></pre>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Scattered: Map of tensor names → byte slices</span>
+<pre><code>  map bucket 0          heap object A         heap object B
+  ┌──────────┐          ┌──────────┐          ┌──────────┐
+  │ ptr ─────│─────────→│ "layer1" │    ┌────→│ [32 KB]  │
+  │ ptr ─────│──┐       └──────────┘    │     └──────────┘
+  └──────────┘  │                       │
+                │       heap object C   │
+                └──────→┌──────────┐    │
+                        │ ptr ─────│────┘
+                        └──────────┘
+  ↑ THREE cache misses to reach the tensor data.</code></pre>
+</div>
+
+<div class="insight">
+<div class="insight-label">Why This Matters For Shard</div>
+<p>The entire shard v2 format is designed for contiguous access: fixed header (64B, one cache line) → packed index entries (48B each) → contiguous string table → aligned data blobs. When mmap'd, the OS pages in exactly what you touch. Scattered alternatives (like JSON files with embedded base64) force random heap access.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch2">
+<h2>2. The []byte Slice</h2>
+
+<p class="drop-cap">Go's <code>[]byte</code> is the fundamental buffer. It's a 3-word (24 bytes on amd64) struct internally: a pointer, a length, and a capacity. Understanding this trinity unlocks everything from zero-copy slicing to pre-allocation tricks.</p>
+
+<div class="diagram">
+<span class="diagram-label">Slice Header (reflect.SliceHeader)</span>
+<pre><code>  []byte variable (24 bytes on stack)
+  ┌──────────────┬──────────────┬──────────────┐
+  │  Data (ptr)  │  Len (int)   │  Cap (int)   │
+  │  8 bytes     │  8 bytes     │  8 bytes     │
+  └──────┬───────┴──────────────┴──────────────┘
+         │
+         ▼
+  ┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+  │0F│A0│B1│C2│D3│E4│F5│06│17│28│39│4A│5B│6C│  │  │
+  └──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+  ├────── Len = 14 ───────────────────┤              │
+  ├────── Cap = 16 ──────────────────────────────────┤</code></pre>
+</div>
+
+<h3>Sub-slicing Is Free (But Dangerous)</h3>
+
+<pre><code><span class="comment">// Zero-copy sub-slice — no data copied, shares backing array</span>
+header := buf[<span class="number">0</span>:<span class="number">64</span>]          <span class="comment">// Points into same memory</span>
+index  := buf[<span class="number">64</span>:<span class="number">64</span>+indexLen]  <span class="comment">// Still same memory</span>
+data   := buf[dataOff:]         <span class="comment">// Same memory again</span>
+
+<span class="comment">// This is EXACTLY how mmap.Slice() works in your codebase:</span>
+<span class="keyword">func</span> (m *MappedFile) <span class="fn">Slice</span>(offset, size <span class="type">int64</span>) []<span class="type">byte</span> {
+    <span class="keyword">return</span> m.data[offset : offset+size]  <span class="comment">// Zero copy!</span>
+}
+<span class="label">mmap.go:62</span></code></pre>
+
+<div class="insight danger">
+<div class="insight-label">The Trap</div>
+<p>Sub-slices hold the entire backing array alive. If you read a 100MB file into <code>buf</code>, then keep <code>name := buf[0:10]</code>, the GC cannot free the other 99.99MB. Fix: <code>name := append([]byte{}, buf[0:10]...)</code> to copy.</p>
+</div>
+
+<h3>Pre-allocation: The make([]byte, 0, cap) Pattern</h3>
+
+<pre><code><span class="comment">// BAD: grows 10 times, each time copies everything</span>
+<span class="keyword">var</span> buf []<span class="type">byte</span>
+<span class="keyword">for</span> i := <span class="number">0</span>; i < <span class="number">10</span>; i++ {
+    buf = <span class="fn">append</span>(buf, chunk...)  <span class="comment">// May reallocate each time</span>
+}
+
+<span class="comment">// GOOD: one allocation, ten appends, zero copies</span>
+buf := <span class="fn">make</span>([]<span class="type">byte</span>, <span class="number">0</span>, estimatedSize)
+<span class="keyword">for</span> i := <span class="number">0</span>; i < <span class="number">10</span>; i++ {
+    buf = <span class="fn">append</span>(buf, chunk...)  <span class="comment">// Uses existing capacity</span>
+}
+
+<span class="comment">// BEST for known-size: direct indexing, no append overhead</span>
+buf := <span class="fn">make</span>([]<span class="type">byte</span>, totalSize)
+<span class="fn">copy</span>(buf[<span class="number">0</span>:], header)
+<span class="fn">copy</span>(buf[headerLen:], payload)</code></pre>
+
+<h3>Slice Tricks Cheatsheet</h3>
+
+<table>
+<tr><th>Operation</th><th>Code</th><th>Copies?</th></tr>
+<tr><td>Sub-slice</td><td><code>b[i:j]</code></td><td>No</td></tr>
+<tr><td>Clone</td><td><code>append([]byte{}, b...)</code></td><td>Yes</td></tr>
+<tr><td>Grow</td><td><code>append(b, make([]byte, n)...)</code></td><td>Maybe</td></tr>
+<tr><td>Truncate</td><td><code>b[:n]</code></td><td>No</td></tr>
+<tr><td>Reset (keep cap)</td><td><code>b = b[:0]</code></td><td>No</td></tr>
+<tr><td>Insert at i</td><td><code>append(b[:i], append(x, b[i:]...)...)</code></td><td>Yes</td></tr>
+<tr><td>Delete [i:j]</td><td><code>append(b[:i], b[j:]...)</code></td><td>Partial</td></tr>
+</table>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch3">
+<h2>3. bytes.Buffer</h2>
+
+<p class="drop-cap">A <code>bytes.Buffer</code> is a growable byte slice with built-in <code>io.Reader</code> and <code>io.Writer</code> interfaces. It's the Swiss Army knife for in-memory serialization &mdash; and the workhorse of your test suite.</p>
+
+<div class="diagram">
+<span class="diagram-label">bytes.Buffer Internals</span>
+<pre><code>  bytes.Buffer struct
+  ┌──────────────────────────────────┐
+  │  buf      []byte (backing store) │
+  │  off      int    (read cursor)   │
+  │  lastRead readOp                 │
+  └──────────────────────────────────┘
+
+  Write("hello"):
+  ┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+  │ h│ e│ l│ l│ o│  │  │  │  │  │
+  └──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+  off=0          len=5       cap=10
+
+  Read(buf[:3]):   reads "hel", advances off
+  ┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+  │ h│ e│ l│ l│ o│  │  │  │  │  │
+  └──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+        off=3    len=5       cap=10</code></pre>
+</div>
+
+<h3>Key Behaviors</h3>
+
+<pre><code><span class="keyword">var</span> buf bytes.Buffer
+
+<span class="comment">// Writing (implements io.Writer)</span>
+buf.<span class="fn">WriteByte</span>(<span class="number">0x42</span>)              <span class="comment">// Single byte, no allocation if cap allows</span>
+buf.<span class="fn">Write</span>([]<span class="type">byte</span>{<span class="number">1</span>,<span class="number">2</span>,<span class="number">3</span>})         <span class="comment">// Append bytes</span>
+buf.<span class="fn">WriteString</span>(<span class="string">"hello"</span>)         <span class="comment">// String without []byte conversion</span>
+binary.<span class="fn">Write</span>(&buf, binary.LE, v) <span class="comment">// Serialize any fixed-size type</span>
+
+<span class="comment">// Reading (implements io.Reader)</span>
+b, _ := buf.<span class="fn">ReadByte</span>()           <span class="comment">// Single byte, advances cursor</span>
+n, _ := buf.<span class="fn">Read</span>(dst)             <span class="comment">// Read into dst</span>
+line, _ := buf.<span class="fn">ReadBytes</span>(<span class="string">'\n'</span>)   <span class="comment">// Read until delimiter</span>
+
+<span class="comment">// Inspection (no copy)</span>
+raw := buf.<span class="fn">Bytes</span>()               <span class="comment">// Direct access to unread bytes (ZERO COPY)</span>
+buf.<span class="fn">Len</span>()                        <span class="comment">// Unread bytes remaining</span>
+buf.<span class="fn">Cap</span>()                        <span class="comment">// Total capacity</span>
+buf.<span class="fn">Reset</span>()                      <span class="comment">// Reuse: len=0, off=0, keeps capacity</span></code></pre>
+
+<div class="insight perf">
+<div class="insight-label">The Reset() Pattern</div>
+<p><code>buf.Reset()</code> keeps the allocated memory but zeroes the logical length. This means you can reuse the same buffer across iterations without allocating. Your shard tests could benefit: instead of <code>var buf bytes.Buffer</code> in each subtest, declare once and <code>buf.Reset()</code> between iterations.</p>
+</div>
+
+<h3>bytes.Buffer vs bytes.Reader</h3>
+
+<div class="comparison">
+<div class="compare-col">
+<h4>bytes.Buffer</h4>
+<p>Read <em>and</em> write. Grows dynamically. Good for building data incrementally.</p>
+<pre><code><span class="keyword">var</span> buf bytes.Buffer
+buf.<span class="fn">Write</span>(header)
+buf.<span class="fn">Write</span>(payload)
+<span class="comment">// Now read back</span>
+h, _ := <span class="fn">ReadShardHeader</span>(&buf)</code></pre>
+</div>
+<div class="compare-col">
+<h4>bytes.Reader</h4>
+<p>Read-only. Supports <code>io.Seeker</code>. No allocations. Better for parsing existing data.</p>
+<pre><code>r := bytes.<span class="fn">NewReader</span>(data)
+r.<span class="fn">Seek</span>(<span class="number">64</span>, io.SeekStart) <span class="comment">// Jump!</span>
+<span class="comment">// Implements io.ReaderAt too</span>
+r.<span class="fn">ReadAt</span>(buf, offset)</code></pre>
+</div>
+</div>
+
+<div class="insight cool">
+<div class="insight-label">When To Use Which</div>
+<p><code>bytes.Buffer</code> &mdash; building data (encoder output, test roundtrips). <code>bytes.Reader</code> &mdash; parsing existing data (decoder input, random access). <code>[]byte</code> directly &mdash; known-size, performance-critical (header encoding).</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch4">
+<h2>4. Binary Encoding</h2>
+
+<p class="drop-cap">There are two ways to serialize structs to bytes in Go: the safe way (<code>binary.Write</code>) and the fast way (direct <code>LittleEndian.Put*</code> into slices). Your shard codebase chose the fast way &mdash; and it's 2-3x faster because it avoids reflection entirely.</p>
+
+<h3>The Slow Path: binary.Write</h3>
+
+<pre><code><span class="comment">// binary.Write uses reflection to walk struct fields</span>
+<span class="comment">// ~180ns per call, allocates temporary buffer internally</span>
+<span class="keyword">type</span> Header <span class="keyword">struct</span> {
+    Magic   <span class="type">uint32</span>
+    Version <span class="type">uint16</span>
+    Flags   <span class="type">uint16</span>
+}
+h := Header{Magic: <span class="number">0xSHRD</span>, Version: <span class="number">2</span>, Flags: <span class="number">0</span>}
+err := binary.<span class="fn">Write</span>(w, binary.LittleEndian, &h)  <span class="comment">// Reflection!</span>
+<span class="label">slow path</span></code></pre>
+
+<h3>The Fast Path: Direct Put</h3>
+
+<pre><code><span class="comment">// Direct encoding: ~60ns, zero allocations beyond the buffer</span>
+buf := <span class="fn">make</span>([]<span class="type">byte</span>, <span class="number">8</span>)
+binary.LittleEndian.<span class="fn">PutUint32</span>(buf[<span class="number">0</span>:<span class="number">4</span>], <span class="number">0xSHRD</span>)  <span class="comment">// 4 bytes at offset 0</span>
+binary.LittleEndian.<span class="fn">PutUint16</span>(buf[<span class="number">4</span>:<span class="number">6</span>], <span class="number">2</span>)       <span class="comment">// 2 bytes at offset 4</span>
+binary.LittleEndian.<span class="fn">PutUint16</span>(buf[<span class="number">6</span>:<span class="number">8</span>], <span class="number">0</span>)       <span class="comment">// 2 bytes at offset 6</span>
+w.<span class="fn">Write</span>(buf)
+<span class="label">fast path — your shard code does this</span></code></pre>
+
+<div class="diagram">
+<span class="diagram-label">TensorV1 Wire Format — Your Actual Encoding</span>
+<pre><code>  Offset  Size   Field           Encoding
+  ┌───────┬──────┬───────────────┬──────────────────┐
+  │  0    │ 1B   │ dtype         │ uint8            │
+  │  1    │ 1B   │ ndim          │ uint8            │
+  │  2    │ 2B   │ flags         │ uint16 LE        │
+  │  4    │ N×8B │ dims[ndim]    │ uint64 LE each   │
+  │ 4+N×8 │ var  │ raw data      │ row-major, LE    │
+  └───────┴──────┴───────────────┴──────────────────┘
+
+  Example: float32 tensor, shape [2, 3]
+  ┌────┬────┬─────┬──────────┬──────────┬──────────────────────────┐
+  │0x01│0x02│00 00│02 000000 │03 000000 │ 6 × float32 = 24 bytes  │
+  │    │    │     │ 00000000 │ 00000000 │                          │
+  └────┴────┴─────┴──────────┴──────────┴──────────────────────────┘
+   dty  ndim flags  dim[0]=2   dim[1]=3   data (row-major LE)</code></pre>
+</div>
+
+<details>
+<summary>How EncodeTensorV1 actually does it</summary>
+<div class="details-content">
+<pre><code><span class="keyword">func</span> <span class="fn">EncodeTensorV1</span>(t *TensorV1) ([]<span class="type">byte</span>, <span class="type">error</span>) {
+    headerSize := <span class="number">4</span> + len(t.Dims)*<span class="number">8</span>
+    total := headerSize + len(t.Data)
+    buf := <span class="fn">make</span>([]<span class="type">byte</span>, total)  <span class="comment">// Single allocation for everything</span>
+
+    <span class="comment">// Pack header directly into buffer</span>
+    buf[<span class="number">0</span>] = <span class="fn">byte</span>(t.DType)              <span class="comment">// 1 byte</span>
+    buf[<span class="number">1</span>] = <span class="fn">byte</span>(len(t.Dims))           <span class="comment">// 1 byte</span>
+    binary.LittleEndian.<span class="fn">PutUint16</span>(buf[<span class="number">2</span>:<span class="number">4</span>], <span class="number">0</span>)  <span class="comment">// flags reserved</span>
+
+    <span class="keyword">for</span> i, d := <span class="keyword">range</span> t.Dims {
+        off := <span class="number">4</span> + i*<span class="number">8</span>
+        binary.LittleEndian.<span class="fn">PutUint64</span>(buf[off:off+<span class="number">8</span>], d)
+    }
+
+    <span class="fn">copy</span>(buf[headerSize:], t.Data)     <span class="comment">// Bulk copy raw tensor data</span>
+    <span class="keyword">return</span> buf, <span class="keyword">nil</span>
+}</code></pre>
+<p>One <code>make</code>, direct indexing, one <code>copy</code>. No bytes.Buffer, no binary.Write, no reflection. This is how you build fast codecs.</p>
+</div>
+</details>
+
+<h3>Decoding: The io.ReadFull Pattern</h3>
+
+<pre><code><span class="comment">// The standard pattern for reading exact-sized chunks from a stream</span>
+buf := <span class="fn">make</span>([]<span class="type">byte</span>, ShardHeaderSize)
+_, err := io.<span class="fn">ReadFull</span>(r, buf)   <span class="comment">// Blocks until ALL 64 bytes arrive</span>
+<span class="keyword">if</span> err != <span class="keyword">nil</span> {
+    <span class="keyword">return</span> <span class="keyword">nil</span>, fmt.<span class="fn">Errorf</span>(<span class="string">"%w: %v"</span>, ErrHeaderTooShort, err)
+}
+<span class="comment">// Now decode from the buffer</span>
+magic := binary.LittleEndian.<span class="fn">Uint32</span>(buf[<span class="number">0</span>:<span class="number">4</span>])
+<span class="label">shard_format.go:246</span></code></pre>
+
+<div class="insight">
+<div class="insight-label">Why io.ReadFull and Not r.Read</div>
+<p><code>r.Read(buf)</code> may return fewer bytes than requested (short read). Network sockets, pipes, and compressed streams routinely do this. <code>io.ReadFull</code> loops internally until the buffer is completely filled or an error occurs. Always use it when you need exactly N bytes.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>5. Alignment & Padding</h2>
+
+<p class="drop-cap">Alignment is the art of placing data at memory addresses that are multiples of some power of two. CPUs are faster when data falls on natural boundaries &mdash; and SIMD instructions like AVX-512 <em>require</em> 64-byte alignment. Your shard format bakes this in.</p>
+
+<h3>Why Alignment Matters</h3>
+
+<div class="diagram">
+<span class="diagram-label">Unaligned vs Aligned Access</span>
+<pre><code>  UNALIGNED float32 at address 0x03:
+  Cache line 0               Cache line 1
+  ┌──┬──┬──┬──┬──┬──┬──┬──┐  ┌──┬──┬──┬──┬──┬──┬──┬──┐
+  │  │  │  │F0│F1│F2│F3│  │  │  │  │  │  │  │  │  │  │
+  └──┴──┴──┴──┴──┴──┴──┴──┘  └──┴──┴──┴──┴──┴──┴──┴──┘
+              ↑ CPU must mask and shift — 2-3 cycle penalty
+
+  ALIGNED float32 at address 0x04:
+  ┌──┬──┬──┬──┬──┬──┬──┬──┐
+  │  │  │  │  │F0│F1│F2│F3│
+  └──┴──┴──┴──┴──┴──┴──┴──┘
+                  ↑ Clean load — 1 cycle
+
+  SIMD (AVX-512) requires 64-byte alignment:
+  Address 0x00  0x40  0x80  0xC0  ← Valid start addresses
+  ┌─────────────────────────────────────────────────────────┐
+  │  16 × float32 loaded in ONE instruction (512 bits)      │
+  └─────────────────────────────────────────────────────────┘</code></pre>
+</div>
+
+<h3>The Bitwise Alignment Trick</h3>
+
+<pre><code><span class="comment">// AlignUp: round x up to next multiple of align (must be power of 2)</span>
+<span class="keyword">func</span> <span class="fn">AlignUp</span>(x, align <span class="type">uint64</span>) <span class="type">uint64</span> {
+    <span class="keyword">return</span> (x + align - <span class="number">1</span>) &^ (align - <span class="number">1</span>)
+}
+<span class="label">shard_sections.go:601</span></code></pre>
+
+<p>Let's trace through it. Say <code>x = 70</code>, <code>align = 64</code>:</p>
+
+<pre><code>  x            = 70     = 0b 0100_0110
+  align - 1    = 63     = 0b 0011_1111
+  x + align -1 = 133    = 0b 1000_0101
+  ^(align - 1) =        = 0b 1100_0000  (mask: clears low 6 bits)
+  result       = 128    = 0b 1000_0000  ✓ Next multiple of 64</code></pre>
+
+<h3>Padding In Practice</h3>
+
+<p>Here's how your ShardStreamWriter inserts padding bytes before each entry to maintain alignment:</p>
+
+<pre><code><span class="keyword">if</span> sw.header.Alignment > <span class="number">0</span> {
+    align := <span class="fn">int64</span>(sw.header.Alignment)
+    alignedPos := (sw.currentOffset + align - <span class="number">1</span>) &^ (align - <span class="number">1</span>)
+    <span class="keyword">if</span> alignedPos > sw.currentOffset {
+        padding := <span class="fn">make</span>([]<span class="type">byte</span>, alignedPos-sw.currentOffset)  <span class="comment">// Zero bytes</span>
+        sw.file.<span class="fn">Write</span>(padding)
+        sw.currentOffset = alignedPos
+    }
+}
+<span class="label">shard_format.go:959</span></code></pre>
+
+<div class="diagram">
+<span class="diagram-label">Shard File With 64-Byte Alignment</span>
+<pre><code>  Offset  Contents
+  0x0000  ┌────────────────────────────┐
+          │  Header (64 bytes)         │ ← Exactly one cache line
+  0x0040  ├────────────────────────────┤
+          │  Index entries (48B each)  │
+          │  String table              │
+  0x0100  ├───── PADDING ─────────────┤ ← Zero bytes to reach 0x0140
+  0x0140  ├────────────────────────────┤
+          │  Entry 0 data (tensor)     │ ← Starts on 64-byte boundary
+          │  ...                       │
+  0x4EC0  ├───── PADDING ─────────────┤
+  0x4F00  ├────────────────────────────┤
+          │  Entry 1 data (tensor)     │ ← Also 64-byte aligned
+          └────────────────────────────┘</code></pre>
+</div>
+
+<h4>Alignment Memory Visualization</h4>
+<div style="margin: 1rem 0;">
+<div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); margin-bottom: 0.5rem;">64-byte aligned tensor data (each cell = 4 bytes)</div>
+<div class="mem-block">
+  <div class="mem-cell header">HDR</div>
+  <div class="mem-cell header">HDR</div>
+  <div class="mem-cell meta">dim</div>
+  <div class="mem-cell meta">dim</div>
+  <div class="mem-cell meta">dim</div>
+  <div class="mem-cell meta">dim</div>
+  <div class="mem-cell pad">pad</div>
+  <div class="mem-cell pad">pad</div>
+  <div class="mem-cell pad">pad</div>
+  <div class="mem-cell pad">pad</div>
+  <div class="mem-cell pad">pad</div>
+  <div class="mem-cell pad">pad</div>
+  <div class="mem-cell pad">pad</div>
+  <div class="mem-cell pad">pad</div>
+  <div class="mem-cell pad">pad</div>
+  <div class="mem-cell pad">pad</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+  <div class="mem-cell data">f32</div>
+</div>
+<div style="display: flex; gap: 1rem; font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-top: 0.5rem;">
+  <span><span class="mem-cell header" style="display: inline-block; width: 14px; height: 14px; vertical-align: middle;"></span> Header</span>
+  <span><span class="mem-cell meta" style="display: inline-block; width: 14px; height: 14px; vertical-align: middle;"></span> Dims</span>
+  <span><span class="mem-cell pad" style="display: inline-block; width: 14px; height: 14px; vertical-align: middle;"></span> Padding</span>
+  <span><span class="mem-cell data" style="display: inline-block; width: 14px; height: 14px; vertical-align: middle;"></span> Data (AVX-512 ready)</span>
+</div>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>6. Buffer Pooling with sync.Pool</h2>
+
+<p class="drop-cap">When you're encoding thousands of tensors in a hot loop, allocating and freeing buffers becomes the bottleneck &mdash; not the encoding itself. <code>sync.Pool</code> is Go's answer: a concurrent-safe free list that the GC can drain when memory is tight.</p>
+
+<pre><code><span class="keyword">var</span> bufferPool = sync.Pool{
+    New: <span class="keyword">func</span>() <span class="type">any</span> {
+        b := <span class="fn">make</span>([]<span class="type">byte</span>, <span class="number">0</span>, <span class="number">4096</span>)  <span class="comment">// 4KB default cap</span>
+        <span class="keyword">return</span> &b
+    },
+}
+
+<span class="keyword">func</span> <span class="fn">EncodeTensorPooled</span>(t *TensorV1) ([]<span class="type">byte</span>, <span class="type">error</span>) {
+    bp := bufferPool.<span class="fn">Get</span>().(*[]<span class="type">byte</span>)
+    buf := (*bp)[:<span class="number">0</span>]  <span class="comment">// Reset length, keep capacity</span>
+
+    <span class="comment">// Encode into pooled buffer</span>
+    buf = <span class="fn">appendTensorHeader</span>(buf, t)
+    buf = <span class="fn">append</span>(buf, t.Data...)
+
+    <span class="comment">// Copy result out (caller owns this)</span>
+    result := <span class="fn">make</span>([]<span class="type">byte</span>, len(buf))
+    <span class="fn">copy</span>(result, buf)
+
+    <span class="comment">// Return buffer to pool</span>
+    *bp = buf
+    bufferPool.<span class="fn">Put</span>(bp)
+
+    <span class="keyword">return</span> result, <span class="keyword">nil</span>
+}</code></pre>
+
+<div class="diagram">
+<span class="diagram-label">sync.Pool Lifecycle</span>
+<pre><code>  goroutine 1          goroutine 2          Pool
+  ───────────          ───────────          ────
+       │                    │               ┌──────┐
+       │── Get() ──────────────────────────→│ buf1 │ (or New())
+       │                    │               │ buf2 │
+       │  [use buf1]        │               └──────┘
+       │                    │
+       │── Put(buf1) ──────────────────────→┌──────┐
+       │                    │               │ buf1 │
+       │                    │── Get() ─────→│ buf2 │ gets buf2
+       │                    │               └──────┘
+       │                    │
+       │              GC runs...
+       │                    │               ┌──────┐
+       │                    │               │(empty)│ Pool drained!
+       │                    │               └──────┘
+       │── Get() ────────────────────────→  New() called
+       │   (fresh allocation)</code></pre>
+</div>
+
+<div class="insight danger">
+<div class="insight-label">Pool Pitfalls</div>
+<p><strong>1.</strong> Never store pointers into pooled buffers &mdash; they'll be reused by other goroutines. <strong>2.</strong> The GC can drain the pool at any time &mdash; don't rely on it for caching. <strong>3.</strong> Pool objects should be roughly the same size &mdash; a pool that holds 64B and 64MB buffers wastes memory. <strong>4.</strong> Always reset before returning: <code>buf = buf[:0]</code>.</p>
+</div>
+
+<h3>The bytes.Buffer Pool</h3>
+
+<pre><code><span class="comment">// More ergonomic: pool bytes.Buffer directly</span>
+<span class="keyword">var</span> bufPool = sync.Pool{
+    New: <span class="keyword">func</span>() <span class="type">any</span> { <span class="keyword">return</span> <span class="keyword">new</span>(bytes.Buffer) },
+}
+
+<span class="keyword">func</span> <span class="fn">EncodeWithPool</span>(v <span class="type">any</span>) ([]<span class="type">byte</span>, <span class="type">error</span>) {
+    buf := bufPool.<span class="fn">Get</span>().(*bytes.Buffer)
+    buf.<span class="fn">Reset</span>()  <span class="comment">// CRITICAL: reset before use</span>
+    <span class="keyword">defer</span> bufPool.<span class="fn">Put</span>(buf)
+
+    <span class="comment">// ... encode into buf ...</span>
+    json.<span class="fn">NewEncoder</span>(buf).<span class="fn">Encode</span>(v)
+
+    <span class="comment">// Must copy out — buffer returns to pool after defer</span>
+    result := <span class="fn">make</span>([]<span class="type">byte</span>, buf.<span class="fn">Len</span>())
+    <span class="fn">copy</span>(result, buf.<span class="fn">Bytes</span>())
+    <span class="keyword">return</span> result, <span class="keyword">nil</span>
+}</code></pre>
+
+<h3>When To Pool</h3>
+
+<table>
+<tr><th>Scenario</th><th>Pool?</th><th>Why</th></tr>
+<tr><td>Encoding 1 tensor at startup</td><td>No</td><td>One allocation, not worth the complexity</td></tr>
+<tr><td>HTTP handler encoding responses</td><td>Yes</td><td>Thousands per second, each needs a buffer</td></tr>
+<tr><td>Batch-writing 10K tensors to shard</td><td>Yes</td><td>Same-size encode buffer reused 10K times</td></tr>
+<tr><td>Fixed-size header buffer (64B)</td><td>No</td><td>Stack-allocated <code>[64]byte</code> is faster</td></tr>
+</table>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch7">
+<h2>7. mmap: The OS As Your Buffer Manager</h2>
+
+<p class="drop-cap">Memory-mapped files let you treat a file on disk as if it were a byte array in memory. The OS handles paging: when you access a byte, the OS loads the surrounding 4KB page from disk into RAM. When memory pressure rises, it evicts pages you haven't touched. You never call <code>read()</code> or <code>write()</code> &mdash; you just index into a slice.</p>
+
+<div class="diagram">
+<span class="diagram-label">mmap: Virtual Memory → Physical Pages → Disk</span>
+<pre><code>  Your code                Virtual Memory              Physical RAM        Disk
+  ─────────                ──────────────              ────────────        ────
+  data[0:4096]  ─────→   ┌────────────┐   page in    ┌──────────┐      ┌──────┐
+                          │  Page 0    │ ◄═══════════ │  Frame X │ ◄──  │ 0-4K │
+                          ├────────────┤              └──────────┘      ├──────┤
+  data[4096:8192] ───→    │  Page 1    │  NOT LOADED  │          │      │ 4-8K │
+                          ├────────────┤  (page fault  └──────────┘      ├──────┤
+  data[8192:12288] ──→    │  Page 2    │   on access)                   │8-12K │
+                          └────────────┘                                └──────┘
+
+  First access to Page 1:
+  1. CPU raises page fault (trap to kernel)
+  2. Kernel reads 4KB from disk offset 4096
+  3. Kernel maps physical frame to virtual page
+  4. CPU retries the instruction — now it works
+  5. Total latency: ~100μs (SSD) vs ~0.5ns (RAM)</code></pre>
+</div>
+
+<h3>Your Shard mmap Code</h3>
+
+<pre><code><span class="comment">// mmap.go — MappedFile wraps mmap for zero-copy tensor access</span>
+<span class="keyword">type</span> MappedFile <span class="keyword">struct</span> {
+    data mmap.MMap   <span class="comment">// The mmap'd region ([]byte-compatible)</span>
+    file *os.File    <span class="comment">// Keep file open while mapped</span>
+}
+
+<span class="keyword">func</span> <span class="fn">MmapFile</span>(path <span class="type">string</span>) (*MappedFile, <span class="type">error</span>) {
+    f, _ := os.<span class="fn">Open</span>(path)
+    data, _ := mmap.<span class="fn">Map</span>(f, mmap.RDONLY, <span class="number">0</span>)  <span class="comment">// Map entire file</span>
+    <span class="keyword">return</span> &MappedFile{data: data, file: f}, <span class="keyword">nil</span>
+}
+
+<span class="comment">// Zero-copy slice into mmap region</span>
+<span class="keyword">func</span> (m *MappedFile) <span class="fn">Slice</span>(offset, size <span class="type">int64</span>) []<span class="type">byte</span> {
+    <span class="keyword">return</span> m.data[offset : offset+size]  <span class="comment">// No copy! Points into kernel page cache</span>
+}
+<span class="label">mmap.go</span></code></pre>
+
+<h3>mmap vs read() Comparison</h3>
+
+<div class="comparison">
+<div class="compare-col good">
+<h4>mmap (your approach)</h4>
+<p>Map file → access tensor data directly via slice indexing. OS loads only the pages you touch.</p>
+<pre><code>m := <span class="fn">MmapFile</span>(<span class="string">"model.mosh"</span>)
+<span class="comment">// Access tensor at offset 0x4F00</span>
+data := m.<span class="fn">Slice</span>(<span class="number">0x4F00</span>, size)
+<span class="comment">// data points DIRECTLY into</span>
+<span class="comment">// kernel page cache. Zero copy.</span></code></pre>
+</div>
+<div class="compare-col bad">
+<h4>Traditional read()</h4>
+<p>Seek → allocate buffer → syscall read → kernel copies to userspace. Double the memory.</p>
+<pre><code>f.<span class="fn">Seek</span>(<span class="number">0x4F00</span>, io.SeekStart)
+data := <span class="fn">make</span>([]<span class="type">byte</span>, size)
+io.<span class="fn">ReadFull</span>(f, data)
+<span class="comment">// data is a COPY.</span>
+<span class="comment">// File data also in page cache.</span>
+<span class="comment">// 2× the memory usage.</span></code></pre>
+</div>
+</div>
+
+<h3>When mmap Wins (and Loses)</h3>
+
+<table>
+<tr><th>Scenario</th><th>mmap</th><th>read()</th></tr>
+<tr><td>Random access (load tensor by name)</td><td style="color: var(--green);">Wins big</td><td>Seek + read each time</td></tr>
+<tr><td>Sequential scan of all tensors</td><td>Slight win</td><td>Comparable with bufio</td></tr>
+<tr><td>Multiple processes reading same file</td><td style="color: var(--green);">Shares pages</td><td>Each gets its own copy</td></tr>
+<tr><td>Small files (&lt;4KB)</td><td>Overhead &gt; benefit</td><td style="color: var(--green);">Just read it</td></tr>
+<tr><td>Compressed data</td><td style="color: var(--red);">Must decompress anyway</td><td style="color: var(--green);">Read + decompress</td></tr>
+<tr><td>Writing (concurrent)</td><td style="color: var(--red);">Complex, unsafe</td><td style="color: var(--green);">Normal file I/O</td></tr>
+</table>
+
+<div class="insight cool">
+<div class="insight-label">MoSH + mmap = Instant Model Loading</div>
+<p>Your <code>InstantLoader</code> builds a weight layout by scanning only tensor headers (a few bytes per tensor). When the runtime actually needs tensor data, <code>LoadTensorMapped</code> returns a zero-copy slice pointing directly into the mmap'd file. The OS pages in just the tensors you use. A 7B parameter model with 200 tensors &mdash; you load 200 headers (~1KB total), then page-fault in only the layers the inference engine touches. This is why safetensors, GGUF, and your MoSH format all use mmap.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch8">
+<h2>8. Zero-Copy Techniques</h2>
+
+<p class="drop-cap">Every <code>copy()</code> is wasted CPU cycles and wasted memory bandwidth. In a tensor codec, you might handle billions of bytes per second &mdash; copying them even once can halve your throughput. Zero-copy means arranging your data flow so the bytes stay in one place and only pointers move.</p>
+
+<h3>Technique 1: Sub-slice (Safe)</h3>
+
+<pre><code><span class="comment">// The most common zero-copy in Go: sub-slicing</span>
+fullFile := mmap.<span class="fn">Data</span>()               <span class="comment">// Entire file as []byte</span>
+header := fullFile[<span class="number">0</span>:<span class="number">64</span>]              <span class="comment">// No copy</span>
+entry0 := fullFile[dataOff:dataOff+sz] <span class="comment">// No copy</span>
+
+<span class="comment">// Your MappedTensor does exactly this:</span>
+<span class="keyword">type</span> MappedTensor <span class="keyword">struct</span> {
+    DType DType
+    Dims  []<span class="type">uint64</span>
+    Data  []<span class="type">byte</span>   <span class="comment">// ← Points into mmap region</span>
+}
+<span class="label">mmap.go:83</span></code></pre>
+
+<h3>Technique 2: unsafe.Slice (Dangerous, Fast)</h3>
+
+<pre><code><span class="keyword">import</span> <span class="string">"unsafe"</span>
+
+<span class="comment">// Reinterpret []byte as []float32 without copying</span>
+<span class="keyword">func</span> <span class="fn">bytesToFloat32</span>(b []<span class="type">byte</span>) []<span class="type">float32</span> {
+    <span class="keyword">if</span> len(b)%<span class="number">4</span> != <span class="number">0</span> {
+        <span class="fn">panic</span>(<span class="string">"buffer size not multiple of 4"</span>)
+    }
+    <span class="keyword">return</span> unsafe.<span class="fn">Slice</span>(
+        (*<span class="type">float32</span>)(unsafe.<span class="fn">Pointer</span>(&b[<span class="number">0</span>])),
+        len(b)/<span class="number">4</span>,
+    )
+}
+
+<span class="comment">// Usage: direct float32 access into mmap'd tensor data</span>
+mapped, _ := loader.<span class="fn">LoadTensorMapped</span>(<span class="string">"layer.weight"</span>)
+floats := <span class="fn">bytesToFloat32</span>(mapped.Data)  <span class="comment">// ZERO COPY</span>
+fmt.<span class="fn">Println</span>(floats[<span class="number">0</span>])  <span class="comment">// Read float directly from disk-backed memory</span></code></pre>
+
+<div class="insight danger">
+<div class="insight-label">unsafe.Slice Rules</div>
+<p><strong>1.</strong> Alignment must be correct (float32 needs 4-byte alignment &mdash; your 64-byte shard alignment guarantees this). <strong>2.</strong> Endianness must match (your format is LE, x86 is LE &mdash; works). <strong>3.</strong> The backing memory must outlive the slice. <strong>4.</strong> The GC doesn't track unsafe pointers &mdash; if the source is GC'd, you get a dangling pointer. With mmap, this is fine because you control the lifetime via <code>Close()</code>.</p>
+</div>
+
+<h3>Technique 3: io.WriterTo / io.ReaderFrom</h3>
+
+<pre><code><span class="comment">// When bytes.Buffer writes to an os.File, Go checks if the</span>
+<span class="comment">// writer implements io.ReaderFrom. If so, it avoids a copy.</span>
+
+<span class="comment">// os.File implements io.ReaderFrom via sendfile(2) or splice(2)</span>
+buf := bytes.NewReader(tensorData)
+n, _ := io.<span class="fn">Copy</span>(outFile, buf)
+<span class="comment">// Under the hood on Linux:</span>
+<span class="comment">//   splice(buf_fd, NULL, out_fd, NULL, count, 0)</span>
+<span class="comment">//   Data moves kernel→kernel, never enters userspace</span></code></pre>
+
+<h3>The Zero-Copy Spectrum</h3>
+
+<div class="diagram">
+<span class="diagram-label">Copies Required For Different Approaches</span>
+<pre><code>  Approach                              Copies    Throughput
+  ──────────────────────────────────    ──────    ──────────
+  mmap + unsafe.Slice                     0       ~12 GB/s
+  mmap + sub-slice (your MappedTensor)    0       ~12 GB/s
+  read() + sub-slice                      1       ~6 GB/s
+  read() + copy to output                 2       ~3 GB/s
+  read() + json.Marshal + write           3+      ~500 MB/s</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch9">
+<h2>9. Ring Buffers</h2>
+
+<p class="drop-cap">A ring buffer (circular buffer) is a fixed-size buffer that wraps around. When you reach the end, you continue from the beginning. No allocations, no copying, constant memory &mdash; perfect for streaming data, log buffers, and producer-consumer queues.</p>
+
+<div class="diagram">
+<span class="diagram-label">Ring Buffer State Machine</span>
+<pre><code>  Initial (empty):        After Write("ABCD"):     After Read(2):
+  ┌──┬──┬──┬──┬──┬──┐    ┌──┬──┬──┬──┬──┬──┐     ┌──┬──┬──┬──┬──┬──┐
+  │  │  │  │  │  │  │    │A │B │C │D │  │  │     │  │  │C │D │  │  │
+  └──┴──┴──┴──┴──┴──┘    └──┴──┴──┴──┴──┴──┘     └──┴──┴──┴──┴──┴──┘
+   ↑W                      ↑R          ↑W              ↑R    ↑W
+   ↑R
+
+  After Write("EFG"):     Wrap-around Write("HI"):
+  ┌──┬──┬──┬──┬──┬──┐    ┌──┬──┬──┬──┬──┬──┐
+  │  │  │C │D │E │F │    │I │  │C │D │E │F │
+  └──┴──┴──┴──┴──┴──┘    └──┴──┴──┴──┴──┴──┘
+       ↑R          ↑W      ↑W ↑R
+                           G was at [0], H replaced... wait.
+
+  Actually: Write wraps around:
+  ┌──┬──┬──┬──┬──┬──┐
+  │H │I │C │D │E │F │    W=2, R=2, full!
+  └──┴──┴──┴──┴──┴──┘
+      ↑W
+      ↑R</code></pre>
+</div>
+
+<pre><code><span class="comment">// A simple ring buffer for streaming tensor chunks</span>
+<span class="keyword">type</span> Ring <span class="keyword">struct</span> {
+    buf  []<span class="type">byte</span>
+    size <span class="type">int</span>
+    r, w <span class="type">int</span>  <span class="comment">// read and write cursors</span>
+    full <span class="type">bool</span>
+}
+
+<span class="keyword">func</span> <span class="fn">NewRing</span>(size <span class="type">int</span>) *Ring {
+    <span class="keyword">return</span> &Ring{buf: <span class="fn">make</span>([]<span class="type">byte</span>, size), size: size}
+}
+
+<span class="keyword">func</span> (r *Ring) <span class="fn">Write</span>(p []<span class="type">byte</span>) (<span class="type">int</span>, <span class="type">error</span>) {
+    n := <span class="number">0</span>
+    <span class="keyword">for</span> _, b := <span class="keyword">range</span> p {
+        <span class="keyword">if</span> r.full {
+            <span class="keyword">return</span> n, io.ErrShortWrite
+        }
+        r.buf[r.w] = b
+        r.w = (r.w + <span class="number">1</span>) % r.size  <span class="comment">// Wrap around!</span>
+        r.full = r.w == r.r
+        n++
+    }
+    <span class="keyword">return</span> n, <span class="keyword">nil</span>
+}
+
+<span class="keyword">func</span> (r *Ring) <span class="fn">Read</span>(p []<span class="type">byte</span>) (<span class="type">int</span>, <span class="type">error</span>) {
+    n := <span class="number">0</span>
+    <span class="keyword">for</span> i := <span class="keyword">range</span> p {
+        <span class="keyword">if</span> r.r == r.w && !r.full {
+            <span class="keyword">if</span> n == <span class="number">0</span> { <span class="keyword">return</span> <span class="number">0</span>, io.EOF }
+            <span class="keyword">return</span> n, <span class="keyword">nil</span>
+        }
+        p[i] = r.buf[r.r]
+        r.r = (r.r + <span class="number">1</span>) % r.size  <span class="comment">// Wrap around!</span>
+        r.full = <span class="keyword">false</span>
+        n++
+    }
+    <span class="keyword">return</span> n, <span class="keyword">nil</span>
+}</code></pre>
+
+<h3>Lock-Free Ring Buffer (SPSC)</h3>
+
+<p>For single-producer single-consumer scenarios (like feeding tensor data to a GPU), you can avoid locks entirely using atomic operations:</p>
+
+<pre><code><span class="keyword">type</span> SPSCRing <span class="keyword">struct</span> {
+    buf  []<span class="type">byte</span>
+    cap  <span class="type">uint64</span>
+    _pad1 [<span class="number">56</span>]<span class="type">byte</span>  <span class="comment">// Prevent false sharing (64B cache line)</span>
+    head <span class="type">atomic.Uint64</span>  <span class="comment">// Writer increments</span>
+    _pad2 [<span class="number">56</span>]<span class="type">byte</span>
+    tail <span class="type">atomic.Uint64</span>  <span class="comment">// Reader increments</span>
+}
+
+<span class="comment">// Writer (producer goroutine)</span>
+<span class="keyword">func</span> (r *SPSCRing) <span class="fn">TryWrite</span>(b <span class="type">byte</span>) <span class="type">bool</span> {
+    head := r.head.<span class="fn">Load</span>()
+    next := (head + <span class="number">1</span>) % r.cap
+    <span class="keyword">if</span> next == r.tail.<span class="fn">Load</span>() {
+        <span class="keyword">return</span> <span class="keyword">false</span>  <span class="comment">// Full</span>
+    }
+    r.buf[head] = b
+    r.head.<span class="fn">Store</span>(next)  <span class="comment">// Release semantics</span>
+    <span class="keyword">return</span> <span class="keyword">true</span>
+}</code></pre>
+
+<div class="insight cool">
+<div class="insight-label">Where Ring Buffers Shine</div>
+<p><strong>Streaming decompression:</strong> zstd decompressor writes into ring, consumer reads tensors out. Fixed memory regardless of file size. <strong>GPU feeding:</strong> CPU fills ring with weight data, GPU DMA reads from the other end. <strong>WAL buffers:</strong> your DeepData WAL could use a ring for the in-memory write buffer before flushing to disk.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch10">
+<h2>10. Buffered I/O</h2>
+
+<p class="drop-cap">Every <code>Write()</code> syscall costs ~200ns of kernel overhead. If you write one byte at a time to a file, you're spending 200ns per byte &mdash; that's 5MB/s on a system capable of 5GB/s. <code>bufio</code> batches your writes into larger chunks, amortizing the syscall cost.</p>
+
+<div class="diagram">
+<span class="diagram-label">Unbuffered vs Buffered Writes</span>
+<pre><code>  UNBUFFERED (writing 8 bytes, one at a time):
+  Write(1B)──→syscall──→kernel──→disk    200ns
+  Write(1B)──→syscall──→kernel──→disk    200ns
+  Write(1B)──→syscall──→kernel──→disk    200ns
+  Write(1B)──→syscall──→kernel──→disk    200ns
+  Write(1B)──→syscall──→kernel──→disk    200ns
+  Write(1B)──→syscall──→kernel──→disk    200ns
+  Write(1B)──→syscall──→kernel──→disk    200ns
+  Write(1B)──→syscall──→kernel──→disk    200ns
+  Total: 8 × 200ns = 1600ns
+
+  BUFFERED (bufio.Writer with 4KB buffer):
+  Write(1B)──→buffer                      5ns
+  Write(1B)──→buffer                      5ns
+  ...×4096
+  Flush()───→syscall──→kernel──→disk     200ns
+  Total: 4096×5ns + 200ns ≈ 20μs for 4KB = ~200MB/s
+                                vs ~5MB/s unbuffered</code></pre>
+</div>
+
+<pre><code><span class="comment">// bufio.Writer wraps any io.Writer with a buffer</span>
+f, _ := os.<span class="fn">Create</span>(<span class="string">"model.mosh"</span>)
+bw := bufio.<span class="fn">NewWriterSize</span>(f, <span class="number">64</span>*<span class="number">1024</span>)  <span class="comment">// 64KB buffer</span>
+
+<span class="comment">// These don't hit disk — they fill the internal buffer</span>
+bw.<span class="fn">Write</span>(header)
+bw.<span class="fn">Write</span>(indexEntries)
+bw.<span class="fn">Write</span>(tensorData)
+
+<span class="comment">// CRITICAL: flush remaining data to disk</span>
+bw.<span class="fn">Flush</span>()  <span class="comment">// Don't forget this! Data loss if you skip it.</span>
+f.<span class="fn">Close</span>()</code></pre>
+
+<h3>bufio.Reader: Read-Ahead</h3>
+
+<pre><code><span class="comment">// bufio.Reader pre-reads 4KB chunks, serves small reads from buffer</span>
+f, _ := os.<span class="fn">Open</span>(<span class="string">"model.mosh"</span>)
+br := bufio.<span class="fn">NewReaderSize</span>(f, <span class="number">64</span>*<span class="number">1024</span>)
+
+<span class="comment">// This triggers ONE 64KB read from disk</span>
+magic, _ := br.<span class="fn">Peek</span>(<span class="number">4</span>)  <span class="comment">// Look without consuming</span>
+
+<span class="comment">// These all come from the buffer — no syscalls</span>
+header := <span class="fn">make</span>([]<span class="type">byte</span>, <span class="number">64</span>)
+io.<span class="fn">ReadFull</span>(br, header)   <span class="comment">// Served from buffer</span>
+
+<span class="comment">// Peek is powerful: inspect data without advancing</span>
+<span class="keyword">if</span> magic[<span class="number">0</span>] != <span class="number">0x53</span> {
+    <span class="keyword">return</span> ErrBadMagic
+}</code></pre>
+
+<h3>Writer Chains</h3>
+
+<div class="flow">
+  <div class="flow-box">Encoder</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-box">bufio.Writer</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-box">zstd.Writer</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-box">os.File</div>
+</div>
+
+<pre><code><span class="comment">// Composable writer chain — each layer adds capability</span>
+f, _ := os.<span class="fn">Create</span>(<span class="string">"output.mosh"</span>)
+zw := zstd.<span class="fn">NewWriter</span>(f)       <span class="comment">// Compression layer</span>
+bw := bufio.<span class="fn">NewWriter</span>(zw)      <span class="comment">// Buffering layer</span>
+
+bw.<span class="fn">Write</span>(tensorData)            <span class="comment">// Flows: buf → zstd → file</span>
+
+bw.<span class="fn">Flush</span>()                      <span class="comment">// Flush buffer → zstd</span>
+zw.<span class="fn">Close</span>()                      <span class="comment">// Flush zstd → file</span>
+f.<span class="fn">Close</span>()                       <span class="comment">// Flush file → disk</span></code></pre>
+
+<div class="insight">
+<div class="insight-label">Why Your Shard Writer Doesn't Use bufio</div>
+<p>Your <code>ShardWriter</code> writes large chunks at a time (entire tensor blobs, full headers), so the per-syscall overhead is already amortized. <code>bufio</code> shines when you have many tiny writes &mdash; like writing individual bytes of a protocol header. For bulk data, direct <code>os.File.Write()</code> with large buffers is optimal.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch11">
+<h2>11. Arena Allocation</h2>
+
+<p class="drop-cap">Arena allocation (also called bump allocation or linear allocation) is the fastest allocator possible: maintain a pointer, increment it by the requested size, done. No free list, no GC, no fragmentation. When you're done with the arena, free everything at once.</p>
+
+<div class="diagram">
+<span class="diagram-label">Arena vs Heap Allocation</span>
+<pre><code>  HEAP (Go runtime):
+  ┌──┬────┬──┬──────┬──┬────┬──┬──────────────────┐
+  │H1│free│H2│ free │H3│free│H4│     free         │
+  └──┴────┴──┴──────┴──┴────┴──┴──────────────────┘
+  ↑ Fragmented. GC must scan all objects. Free is complex.
+
+  ARENA (bump allocator):
+  ┌──┬──┬──┬──┬────────────────────────────────────┐
+  │H1│H2│H3│H4│          unused                    │
+  └──┴──┴──┴──┴────────────────────────────────────┘
+               ↑ ptr
+  Alloc: ptr += size. That's it.
+  Free: ptr = start. All at once.</code></pre>
+</div>
+
+<pre><code><span class="comment">// Simple arena for batch tensor processing</span>
+<span class="keyword">type</span> Arena <span class="keyword">struct</span> {
+    buf []<span class="type">byte</span>
+    pos <span class="type">int</span>
+}
+
+<span class="keyword">func</span> <span class="fn">NewArena</span>(size <span class="type">int</span>) *Arena {
+    <span class="keyword">return</span> &Arena{buf: <span class="fn">make</span>([]<span class="type">byte</span>, size)}
+}
+
+<span class="comment">// Alloc returns a sub-slice. O(1), no GC pressure.</span>
+<span class="keyword">func</span> (a *Arena) <span class="fn">Alloc</span>(n <span class="type">int</span>) []<span class="type">byte</span> {
+    <span class="keyword">if</span> a.pos+n > len(a.buf) {
+        <span class="fn">panic</span>(<span class="string">"arena exhausted"</span>)
+    }
+    s := a.buf[a.pos : a.pos+n]
+    a.pos += n
+    <span class="keyword">return</span> s
+}
+
+<span class="comment">// AllocAligned returns aligned memory</span>
+<span class="keyword">func</span> (a *Arena) <span class="fn">AllocAligned</span>(n, align <span class="type">int</span>) []<span class="type">byte</span> {
+    aligned := (a.pos + align - <span class="number">1</span>) &^ (align - <span class="number">1</span>)
+    <span class="keyword">if</span> aligned+n > len(a.buf) {
+        <span class="fn">panic</span>(<span class="string">"arena exhausted"</span>)
+    }
+    s := a.buf[aligned : aligned+n]
+    a.pos = aligned + n
+    <span class="keyword">return</span> s
+}
+
+<span class="comment">// Reset frees everything at once. Zero GC cost.</span>
+<span class="keyword">func</span> (a *Arena) <span class="fn">Reset</span>() { a.pos = <span class="number">0</span> }
+
+<span class="comment">// Usage: batch-encode 1000 tensors</span>
+arena := <span class="fn">NewArena</span>(<span class="number">64</span> * <span class="number">1024</span> * <span class="number">1024</span>)  <span class="comment">// 64MB arena</span>
+<span class="keyword">for</span> _, tensor := <span class="keyword">range</span> tensors {
+    buf := arena.<span class="fn">AllocAligned</span>(<span class="fn">TensorV1Size</span>(tensor), <span class="number">64</span>)
+    <span class="fn">encodeTensorInto</span>(buf, tensor)  <span class="comment">// Encode directly into arena</span>
+    writer.<span class="fn">Write</span>(buf)
+}
+arena.<span class="fn">Reset</span>()  <span class="comment">// Free everything. One operation.</span></code></pre>
+
+<div class="insight perf">
+<div class="insight-label">When To Use Arenas</div>
+<p><strong>Batch processing:</strong> Encoding 10K tensors &mdash; allocate from arena, write to disk, reset. Zero GC pauses. <strong>Request handling:</strong> Each HTTP request gets an arena, freed when the response is sent. <strong>Parsing:</strong> Allocate AST nodes from an arena, free when done. <strong>Not for:</strong> Long-lived data, objects with different lifetimes, anything that needs individual deallocation.</p>
+</div>
+
+<h3>Go 1.22+ Arena (Experimental)</h3>
+
+<pre><code><span class="comment">// Go has an experimental arena package (GOEXPERIMENT=arenas)</span>
+<span class="keyword">import</span> <span class="string">"arena"</span>
+
+a := arena.<span class="fn">NewArena</span>()
+<span class="keyword">defer</span> a.<span class="fn">Free</span>()  <span class="comment">// Frees ALL allocations at once</span>
+
+<span class="comment">// Allocate a slice from the arena</span>
+s := arena.<span class="fn">MakeSlice</span>[<span class="type">float32</span>](a, <span class="number">1000</span>, <span class="number">1000</span>)
+<span class="comment">// s is []float32 backed by arena memory, not GC-tracked</span></code></pre>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch12">
+<h2>12. Patterns &amp; Recipes</h2>
+
+<p>Here's a reference of buffer patterns ranked by how often they come up in binary format work.</p>
+
+<h3>Pattern 1: Two-Phase Write</h3>
+
+<p>Your <code>ShardWriter</code> uses this: accumulate entries in a temp file, then write the final file with correct offsets and alignment in one pass.</p>
+
+<div class="flow">
+  <div class="flow-box">Write entries → temp</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-box">Calculate layout</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-box">Write final (header + index + data)</div>
+</div>
+
+<pre><code><span class="comment">// Phase 1: Accumulate (order doesn't matter)</span>
+<span class="keyword">for</span> _, tensor := <span class="keyword">range</span> tensors {
+    w.tempFile.<span class="fn">Write</span>(encoded)
+    w.entries = <span class="fn">append</span>(w.entries, pendingEntry{...})
+}
+
+<span class="comment">// Phase 2: Finalize (correct layout)</span>
+<span class="fn">WriteShardHeader</span>(w.file, header)     <span class="comment">// 64B</span>
+<span class="fn">writeIndex</span>(w.file, entries)          <span class="comment">// 48B × N</span>
+<span class="fn">writeStringTable</span>(w.file, strings)   <span class="comment">// Variable</span>
+<span class="fn">writePadding</span>(w.file, alignTo64)     <span class="comment">// Alignment</span>
+<span class="fn">copyFromTemp</span>(w.file, w.tempFile)    <span class="comment">// Tensor data</span></code></pre>
+
+<h3>Pattern 2: Reserved-Space Stream</h3>
+
+<p>Your <code>ShardStreamWriter</code> reserves space for the header and index, writes data directly, then seeks back to fill in the header.</p>
+
+<pre><code><span class="comment">// Reserve header + index space</span>
+reserved := ShardHeaderSize + maxEntries*IndexEntrySize
+f.<span class="fn">Seek</span>(<span class="fn">int64</span>(reserved), io.SeekStart)
+
+<span class="comment">// Stream data directly to final position</span>
+<span class="keyword">for</span> _, tensor := <span class="keyword">range</span> tensors {
+    <span class="fn">writePadding</span>(f, align)
+    f.<span class="fn">Write</span>(encoded)
+}
+
+<span class="comment">// Seek back and fill in header + index</span>
+f.<span class="fn">Seek</span>(<span class="number">0</span>, io.SeekStart)
+<span class="fn">WriteShardHeader</span>(f, header)
+<span class="fn">writeIndex</span>(f, entries)</code></pre>
+
+<h3>Pattern 3: Scatter-Gather I/O</h3>
+
+<pre><code><span class="comment">// net.Buffers implements io.WriterTo with writev(2)</span>
+<span class="comment">// Sends multiple non-contiguous buffers in ONE syscall</span>
+bufs := net.Buffers{
+    header,      <span class="comment">// 64 bytes</span>
+    index,       <span class="comment">// 480 bytes</span>
+    stringTable, <span class="comment">// 200 bytes</span>
+    tensorData,  <span class="comment">// 10MB</span>
+}
+n, _ := bufs.<span class="fn">WriteTo</span>(conn)
+<span class="comment">// ONE writev() syscall instead of FOUR write() calls</span>
+<span class="comment">// Kernel gathers all buffers and sends as one unit</span></code></pre>
+
+<h3>Pattern 4: Copy-On-Write Slice</h3>
+
+<pre><code><span class="comment">// Share data until mutation — then copy</span>
+<span class="keyword">type</span> COWBuffer <span class="keyword">struct</span> {
+    data   []<span class="type">byte</span>
+    shared <span class="type">bool</span>
+}
+
+<span class="keyword">func</span> (c *COWBuffer) <span class="fn">Write</span>(offset <span class="type">int</span>, b <span class="type">byte</span>) {
+    <span class="keyword">if</span> c.shared {
+        <span class="comment">// First write: copy</span>
+        newData := <span class="fn">make</span>([]<span class="type">byte</span>, len(c.data))
+        <span class="fn">copy</span>(newData, c.data)
+        c.data = newData
+        c.shared = <span class="keyword">false</span>
+    }
+    c.data[offset] = b
+}
+
+<span class="keyword">func</span> (c *COWBuffer) <span class="fn">Share</span>() *COWBuffer {
+    <span class="keyword">return</span> &COWBuffer{data: c.data, shared: <span class="keyword">true</span>}
+}</code></pre>
+
+<h3>Pattern 5: Preallocated Encode Buffer</h3>
+
+<pre><code><span class="comment">// When you know the exact output size, allocate once</span>
+<span class="keyword">func</span> <span class="fn">EncodeTensorV1</span>(t *TensorV1) ([]<span class="type">byte</span>, <span class="type">error</span>) {
+    size := <span class="fn">TensorV1Size</span>(t)       <span class="comment">// Calculate exact size</span>
+    buf := <span class="fn">make</span>([]<span class="type">byte</span>, size)      <span class="comment">// ONE allocation</span>
+    <span class="fn">encodeTensorInto</span>(buf, t)       <span class="comment">// Fill directly via indexing</span>
+    <span class="keyword">return</span> buf, <span class="keyword">nil</span>                <span class="comment">// No reallocation, no copy</span>
+}
+<span class="comment">// This is what your tensor_v1.go does — it's optimal.</span></code></pre>
+
+<h3>The Complete Picture</h3>
+
+<div class="diagram">
+<span class="diagram-label">Buffer Decision Tree</span>
+<pre><code>  Need a buffer?
+  │
+  ├─ Known size at compile time?
+  │  ├─ Yes, ≤ 64B  →  var buf [N]byte          (stack, fastest)
+  │  └─ Yes, > 64B  →  make([]byte, N)          (heap, one alloc)
+  │
+  ├─ Growing incrementally?
+  │  ├─ Need io.Writer  →  bytes.Buffer          (versatile)
+  │  └─ Just appending   →  append(buf, data...) (simple)
+  │
+  ├─ Reading existing data?
+  │  ├─ Need Seek     →  bytes.Reader            (zero alloc)
+  │  └─ Stream only   →  bufio.Reader            (read-ahead)
+  │
+  ├─ File-backed?
+  │  ├─ Random access →  mmap                    (zero copy)
+  │  └─ Sequential    →  bufio.Writer + os.File  (batched writes)
+  │
+  ├─ Hot loop, many allocs?
+  │  ├─ Same size     →  sync.Pool               (reuse)
+  │  └─ Batch + reset →  Arena                   (bump alloc)
+  │
+  └─ Multiple goroutines?
+     ├─ SPSC          →  Lock-free ring buffer
+     └─ MPMC          →  channel of []byte (or sync.Pool)</code></pre>
+</div>
+
+</section>
+
+</div>
+
+<script>
+// Smooth scroll for nav links
+document.querySelectorAll('nav a').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    const target = document.querySelector(a.getAttribute('href'));
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+
+// Highlight active nav link on scroll
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('nav a');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navLinks.forEach(l => l.classList.remove('active'));
+      const link = document.querySelector(`nav a[href="#${entry.target.id}"]`);
+      if (link) link.classList.add('active');
+    }
+  });
+}, { rootMargin: '-20% 0px -70% 0px' });
+sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>

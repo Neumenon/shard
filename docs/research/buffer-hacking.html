@@ -1,0 +1,1512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buffer Hacking — Unleash the Raw Power</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* === SCANLINE OVERLAY === */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* === NAV === */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav a.active { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  /* === LAYOUT === */
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  /* === HERO === */
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* === SECTIONS === */
+  section {
+    margin-bottom: 5rem;
+    padding-top: 1rem;
+  }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  /* === DROP CAP === */
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  /* === CODE === */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  /* === DIAGRAM === */
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  /* === POWER BOX (insight) === */
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  /* === MEMORY VIS === */
+  .mem-row {
+    display: flex;
+    gap: 1px;
+    margin: 0.4rem 0;
+    flex-wrap: wrap;
+  }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+
+  /* === TABLE === */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  /* === EXPANDABLE === */
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  /* === COMPARISON === */
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  /* === GLITCH TEXT === */
+  .glitch {
+    position: relative;
+    display: inline-block;
+  }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  /* === TICKER === */
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  /* === RESPONSIVE === */
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ BUFFERS</span>
+  <a href="#ch1">what is a buffer</a>
+  <a href="#ch2">framebuffer</a>
+  <a href="#ch3">audio</a>
+  <a href="#ch4">keyboard</a>
+  <a href="#ch5">network</a>
+  <a href="#ch6">disk</a>
+  <a href="#ch7">overflow</a>
+  <a href="#ch8">double buffer</a>
+  <a href="#ch9">dma</a>
+  <a href="#ch10">tricks</a>
+  <a href="#ch11">raw power</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1><span class="glitch" data-text="BUFFER HACKING">BUFFER HACKING</span></h1>
+  <div class="subtitle">The raw memory between you and the machine. Every pixel you see, every sound you hear, every keystroke you type &mdash; it all passes through a buffer first.<span class="blink">_</span></div>
+</div>
+
+<!-- ============================================================ -->
+<section id="ch1">
+<h2>// what even is a buffer</h2>
+
+<p class="drop-cap">A buffer is a temporary holding area for data that's moving between two places that operate at different speeds. Your keyboard types at 100 WPM. Your CPU runs at 5 GHz. Without a buffer between them, every keystroke would either freeze the CPU waiting or get lost. The buffer absorbs the difference. It's a shock absorber for data.</p>
+
+<p>But here's the thing most people miss: <strong>buffers aren't just passive storage</strong>. They're the seams of the system. And at every seam, there's power &mdash; the power to intercept, transform, replay, corrupt, or accelerate whatever passes through.</p>
+
+<div class="diagram">
+<span class="diagram-label">Buffers Are Everywhere</span>
+<pre><code>
+  ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+  │ KEYBOARD │────→│  BUFFER  │────→│   CPU    │────→│  BUFFER  │──→ SCREEN
+  └──────────┘     └──────────┘     └──────────┘     └──────────┘
+       60 Hz          input            5 GHz          framebuffer
+                      buffer                            60-240 Hz
+
+  ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+  │ NETWORK  │────→│  BUFFER  │────→│   APP    │────→│  BUFFER  │──→ DISK
+  └──────────┘     └──────────┘     └──────────┘     └──────────┘
+      1 Gbps       socket buffer      varies        write buffer
+                      ~128 KB                          ~128 MB
+
+  ┌──────────┐     ┌──────────┐     ┌──────────┐
+  │   MIC    │────→│  BUFFER  │────→│ SPEAKER  │
+  └──────────┘     └──────────┘     └──────────┘
+     48 kHz        audio ring          48 kHz
+                   ~5-20 ms
+</code></pre>
+</div>
+
+<p>Every one of those boxes labeled BUFFER is a place where you can intervene. Where you can do something <em>wild</em>.</p>
+
+<h3>The Fundamental Properties</h3>
+
+<table>
+<tr><th>Property</th><th>What It Means</th><th>What You Can Exploit</th></tr>
+<tr><td>Size</td><td>How much data it holds</td><td>Overflow it. Underflow it. Fill it exactly.</td></tr>
+<tr><td>Speed</td><td>Producer vs consumer rate</td><td>Starve it. Flood it. Match it perfectly.</td></tr>
+<tr><td>Lifetime</td><td>How long data lives there</td><td>Capture snapshots. Replay. Time-travel.</td></tr>
+<tr><td>Visibility</td><td>Who can see the data</td><td>Intercept. Inject. Monitor.</td></tr>
+<tr><td>Ordering</td><td>FIFO? LIFO? Random?</td><td>Reorder. Prioritize. Skip.</td></tr>
+</table>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch2">
+<h2>// the framebuffer &mdash; painting pixels raw</h2>
+
+<p class="drop-cap">The framebuffer is a block of memory where every byte maps to a pixel on your screen. Write <code>0xFF0000</code> to offset 1000 and a red dot appears. No OpenGL. No Vulkan. No window manager. Just you, memory, and photons. This is how the first graphical programs worked, and you can still do it today on Linux via <code>/dev/fb0</code>.</p>
+
+<div class="diagram">
+<span class="diagram-label">Framebuffer Memory Layout (1920×1080, 32-bit BGRA)</span>
+<pre><code>  /dev/fb0 → mmap'd memory region (1920 × 1080 × 4 = 8,294,400 bytes)
+
+  Offset 0                                           Offset 7679
+  ┌────┬────┬────┬────┬────┬────┬────┬── ... ──┬────┬────┬────┬────┐
+  │ B  │ G  │ R  │ A  │ B  │ G  │ R  │         │ B  │ G  │ R  │ A  │  Row 0
+  └────┴────┴────┴────┴────┴────┴────┴── ... ──┴────┴────┴────┴────┘
+  pixel (0,0)        pixel (1,0)                    pixel (1919,0)
+
+  Offset 7680                                                         Row 1
+  ┌────┬────┬────┬────┬────┬────┬────┬── ... ──┬────┬────┬────┬────┐
+  │ B  │ G  │ R  │ A  │ B  │ G  │ R  │         │ B  │ G  │ R  │ A  │
+  └────┴────┴────┴────┴────┴────┴────┴── ... ──┴────┴────┴────┴────┘
+  pixel (0,1)        pixel (1,1)                    pixel (1919,1)
+
+  Address of pixel (x, y) = (y × stride) + (x × 4)
+  stride = 1920 × 4 = 7680 bytes per row</code></pre>
+</div>
+
+<h3>Draw Directly to Screen (No Libraries)</h3>
+
+<pre><code><span class="pp">#include</span> <span class="st">&lt;fcntl.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;sys/mman.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;linux/fb.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;sys/ioctl.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="ty">int</span> fb = <span class="fn">open</span>(<span class="st">"/dev/fb0"</span>, O_RDWR);
+
+    <span class="cm">// Ask the kernel: how big is this screen?</span>
+    <span class="kw">struct</span> fb_var_screeninfo vinfo;
+    <span class="fn">ioctl</span>(fb, FBIOGET_VSCREENINFO, &vinfo);
+    <span class="ty">int</span> w = vinfo.xres;           <span class="cm">// 1920</span>
+    <span class="ty">int</span> h = vinfo.yres;           <span class="cm">// 1080</span>
+    <span class="ty">int</span> bpp = vinfo.bits_per_pixel; <span class="cm">// 32</span>
+    <span class="ty">int</span> stride = w * (bpp / <span class="nm">8</span>);    <span class="cm">// 7680 bytes per row</span>
+    <span class="ty">size_t</span> size = stride * h;     <span class="cm">// 8,294,400 bytes total</span>
+
+    <span class="cm">// Map the entire framebuffer into our address space</span>
+    <span class="ty">uint8_t</span> *pixels = <span class="fn">mmap</span>(NULL, size, PROT_READ|PROT_WRITE,
+                           MAP_SHARED, fb, <span class="nm">0</span>);
+
+    <span class="cm">// Draw a red rectangle — just write bytes!</span>
+    <span class="kw">for</span> (<span class="ty">int</span> y = <span class="nm">100</span>; y < <span class="nm">300</span>; y++) {
+        <span class="kw">for</span> (<span class="ty">int</span> x = <span class="nm">200</span>; x < <span class="nm">500</span>; x++) {
+            <span class="ty">int</span> offset = y * stride + x * <span class="nm">4</span>;
+            pixels[offset + <span class="nm">0</span>] = <span class="nm">0x00</span>;   <span class="cm">// Blue</span>
+            pixels[offset + <span class="nm">1</span>] = <span class="nm">0x00</span>;   <span class="cm">// Green</span>
+            pixels[offset + <span class="nm">2</span>] = <span class="nm">0xFF</span>;   <span class="cm">// Red</span>
+            pixels[offset + <span class="nm">3</span>] = <span class="nm">0xFF</span>;   <span class="cm">// Alpha</span>
+        }
+    }
+    <span class="cm">// The rectangle appears INSTANTLY. No draw call. No flush.</span>
+    <span class="cm">// The GPU's display controller is reading this memory every 16ms.</span>
+
+    <span class="fn">munmap</span>(pixels, size);
+    <span class="fn">close</span>(fb);
+}
+<span class="label">C — raw framebuffer</span></code></pre>
+
+<div class="power hack">
+<div class="power-label">Hack: Pixel-Level Screen Capture</div>
+<p>If you can <code>mmap(/dev/fb0)</code> for reading, you have a zero-dependency screenshot tool. <code>memcpy</code> the framebuffer to a file, slap a BMP header on it, done. No X11, no Wayland, no libraries. Works even on a headless server with a virtual framebuffer (<code>Xvfb</code>).</p>
+</div>
+
+<h3>Plasma Effect — Pure Math in a Buffer</h3>
+
+<pre><code><span class="cm">// The classic demoscene plasma — no textures, no GPU shaders</span>
+<span class="cm">// Just sin() waves writing directly into pixel memory</span>
+<span class="kw">for</span> (<span class="ty">int</span> frame = <span class="nm">0</span>; ; frame++) {
+    <span class="ty">float</span> t = frame * <span class="nm">0.03f</span>;
+    <span class="kw">for</span> (<span class="ty">int</span> y = <span class="nm">0</span>; y < h; y++) {
+        <span class="kw">for</span> (<span class="ty">int</span> x = <span class="nm">0</span>; x < w; x++) {
+            <span class="cm">// Combine multiple sine waves for organic motion</span>
+            <span class="ty">float</span> v = <span class="fn">sinf</span>(x * <span class="nm">0.02f</span> + t)
+                    + <span class="fn">sinf</span>(y * <span class="nm">0.03f</span> + t * <span class="nm">0.7f</span>)
+                    + <span class="fn">sinf</span>((x + y) * <span class="nm">0.01f</span> + t * <span class="nm">1.3f</span>)
+                    + <span class="fn">sinf</span>(<span class="fn">sqrtf</span>(x*x + y*y) * <span class="nm">0.01f</span>);
+
+            <span class="cm">// Map [-4, 4] to [0, 255] for color</span>
+            <span class="ty">uint8_t</span> r = (<span class="ty">uint8_t</span>)(<span class="fn">sinf</span>(v * <span class="nm">3.14f</span>) * <span class="nm">127</span> + <span class="nm">128</span>);
+            <span class="ty">uint8_t</span> g = (<span class="ty">uint8_t</span>)(<span class="fn">sinf</span>(v * <span class="nm">3.14f</span> + <span class="nm">2.09f</span>) * <span class="nm">127</span> + <span class="nm">128</span>);
+            <span class="ty">uint8_t</span> b = (<span class="ty">uint8_t</span>)(<span class="fn">sinf</span>(v * <span class="nm">3.14f</span> + <span class="nm">4.18f</span>) * <span class="nm">127</span> + <span class="nm">128</span>);
+
+            <span class="ty">int</span> off = y * stride + x * <span class="nm">4</span>;
+            pixels[off] = b; pixels[off+<span class="nm">1</span>] = g;
+            pixels[off+<span class="nm">2</span>] = r; pixels[off+<span class="nm">3</span>] = <span class="nm">0xFF</span>;
+        }
+    }
+}
+<span class="label">C — demoscene plasma</span></code></pre>
+
+<div class="power">
+<div class="power-label">The Demoscene Insight</div>
+<p>The entire demoscene movement &mdash; those insane 64KB demos with full 3D worlds &mdash; is fundamentally buffer hacking. You're computing values with math and writing them into a framebuffer. No textures loaded from disk. No models. Just algorithms → pixels. A <code>sin()</code> function and a pixel buffer is all you need to create art.</p>
+</div>
+
+<h3>Terminal as a Character Buffer</h3>
+
+<pre><code><span class="cm">// Your terminal is a character buffer. Each cell = (char, fg, bg, attrs)</span>
+<span class="cm">// ANSI escape codes let you write directly to any position:</span>
+
+<span class="fn">printf</span>(<span class="st">"\033[2J"</span>);           <span class="cm">// Clear screen (fill buffer with spaces)</span>
+<span class="fn">printf</span>(<span class="st">"\033[10;20H"</span>);       <span class="cm">// Move cursor to row 10, col 20</span>
+<span class="fn">printf</span>(<span class="st">"\033[31mHELLO\033[0m"</span>); <span class="cm">// Red text at that position</span>
+
+<span class="cm">// The terminal is double-buffered internally:</span>
+<span class="cm">// Your writes go to a back buffer, then VT flushes to screen.</span>
+<span class="cm">// Tsoding's musializer renders spectrograms this way — </span>
+<span class="cm">// just characters and ANSI codes in a buffer, 60 FPS.</span>
+<span class="label">terminal buffer hacking</span></code></pre>
+
+<div class="power wild">
+<div class="power-label">Wild: Full Game in Terminal Buffer</div>
+<p>Games like <code>nethack</code>, <code>dwarf fortress</code> (classic), and Tsoding's <code>minicel</code> render entirely by writing to a character buffer. Each "pixel" is a Unicode character with color attributes. The terminal's double-buffering handles flicker. You can build a full game engine with nothing but <code>printf</code> and <code>write(STDOUT, buf, len)</code>.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch3">
+<h2>// audio buffers &mdash; shaping sound in real-time</h2>
+
+<p class="drop-cap">Audio is the most time-sensitive buffer in your system. At 48kHz, you have 20.8 microseconds per sample. Miss a single buffer deadline and you hear a click, a pop, a glitch. The audio buffer is a contract between you and time itself &mdash; and hacking it lets you synthesize, filter, and transform sound in real-time.</p>
+
+<div class="diagram">
+<span class="diagram-label">Audio Pipeline: Your Code → Speaker</span>
+<pre><code>  Your Code          Ring Buffer          Sound Card         Speaker
+  ─────────          ───────────          ──────────         ───────
+  Generate           ┌──┬──┬──┬──┐       DMA reads          Analog
+  samples  ────────→ │S1│S2│S3│S4│ ────→ from ring  ────→   Output
+  (float32)          └──┴──┴──┴──┘       at 48kHz
+                      ↑W        ↑R
+                      write     read
+                      cursor    cursor
+
+  Buffer size = latency tradeoff:
+    256 samples  = 5.3ms   (tight, risk of underrun)
+    512 samples  = 10.7ms  (sweet spot for music)
+    1024 samples = 21.3ms  (safe, noticeable lag for instruments)
+    2048 samples = 42.7ms  (streaming/playback only)</code></pre>
+</div>
+
+<h3>Synthesize Sound From Scratch</h3>
+
+<pre><code><span class="pp">#include</span> <span class="st">&lt;math.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;alsa/asoundlib.h&gt;</span>
+
+<span class="pp">#define</span> SAMPLE_RATE <span class="nm">48000</span>
+<span class="pp">#define</span> BUFFER_SIZE <span class="nm">512</span>
+
+<span class="ty">float</span> buffer[BUFFER_SIZE];
+<span class="ty">float</span> phase = <span class="nm">0.0f</span>;
+<span class="ty">float</span> freq = <span class="nm">440.0f</span>;  <span class="cm">// A4 note</span>
+
+<span class="cm">// Fill buffer with a sine wave — pure tone</span>
+<span class="kw">void</span> <span class="fn">generate_sine</span>(<span class="ty">float</span> *buf, <span class="ty">int</span> n) {
+    <span class="ty">float</span> inc = freq / SAMPLE_RATE;  <span class="cm">// Phase increment per sample</span>
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < n; i++) {
+        buf[i] = <span class="fn">sinf</span>(phase * <span class="nm">2.0f</span> * M_PI) * <span class="nm">0.5f</span>;  <span class="cm">// [-0.5, 0.5]</span>
+        phase += inc;
+        <span class="kw">if</span> (phase >= <span class="nm">1.0f</span>) phase -= <span class="nm">1.0f</span>;  <span class="cm">// Wrap around</span>
+    }
+}
+
+<span class="cm">// The audio callback fills the buffer every ~10ms</span>
+<span class="cm">// Miss the deadline → silence → audible glitch</span>
+<span class="kw">while</span> (<span class="nm">1</span>) {
+    <span class="fn">generate_sine</span>(buffer, BUFFER_SIZE);
+    <span class="fn">snd_pcm_writei</span>(pcm, buffer, BUFFER_SIZE);  <span class="cm">// Push to sound card</span>
+}
+<span class="label">C — raw audio synthesis</span></code></pre>
+
+<h3>Effects: Transform the Buffer</h3>
+
+<pre><code><span class="cm">// DISTORTION — clip the signal. Heavy metal in 3 lines.</span>
+<span class="kw">void</span> <span class="fn">distort</span>(<span class="ty">float</span> *buf, <span class="ty">int</span> n, <span class="ty">float</span> gain) {
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < n; i++) {
+        buf[i] = <span class="fn">fmaxf</span>(-<span class="nm">1.0f</span>, <span class="fn">fminf</span>(<span class="nm">1.0f</span>, buf[i] * gain));
+    }
+}
+
+<span class="cm">// ECHO — mix current buffer with a delayed copy</span>
+<span class="ty">float</span> delay_buf[SAMPLE_RATE];  <span class="cm">// 1 second delay buffer</span>
+<span class="ty">int</span> delay_pos = <span class="nm">0</span>;
+<span class="kw">void</span> <span class="fn">echo</span>(<span class="ty">float</span> *buf, <span class="ty">int</span> n, <span class="ty">float</span> decay) {
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < n; i++) {
+        <span class="ty">float</span> delayed = delay_buf[delay_pos];
+        buf[i] += delayed * decay;        <span class="cm">// Mix in the echo</span>
+        delay_buf[delay_pos] = buf[i];    <span class="cm">// Store for future echo</span>
+        delay_pos = (delay_pos + <span class="nm">1</span>) % SAMPLE_RATE;  <span class="cm">// Ring buffer!</span>
+    }
+}
+
+<span class="cm">// LOW-PASS FILTER — smooth out high frequencies</span>
+<span class="ty">float</span> prev = <span class="nm">0.0f</span>;
+<span class="kw">void</span> <span class="fn">lowpass</span>(<span class="ty">float</span> *buf, <span class="ty">int</span> n, <span class="ty">float</span> alpha) {
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < n; i++) {
+        buf[i] = prev + alpha * (buf[i] - prev);  <span class="cm">// Exponential moving avg</span>
+        prev = buf[i];
+    }
+}
+
+<span class="cm">// REVERSE — play the buffer backwards. Instant psychedelia.</span>
+<span class="kw">void</span> <span class="fn">reverse</span>(<span class="ty">float</span> *buf, <span class="ty">int</span> n) {
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < n/<span class="nm">2</span>; i++) {
+        <span class="ty">float</span> tmp = buf[i];
+        buf[i] = buf[n - <span class="nm">1</span> - i];
+        buf[n - <span class="nm">1</span> - i] = tmp;
+    }
+}
+<span class="label">C — audio buffer effects</span></code></pre>
+
+<div class="power">
+<div class="power-label">The Echo Is A Ring Buffer</div>
+<p>Look at the echo effect above. <code>delay_buf</code> is a ring buffer. The delay position wraps around with modulo. The delayed sample from 48000 samples ago (1 second) gets mixed into the current output. Every guitar pedal, every reverb plugin, every delay effect in music production is fundamentally a ring buffer with feedback. A $200 guitar pedal is a ring buffer with a knob.</p>
+</div>
+
+<h3>Spectral Analysis: FFT on the Buffer</h3>
+
+<pre><code><span class="cm">// Tsoding's musializer: take audio buffer → FFT → frequency bars</span>
+<span class="cm">// The buffer IS the frequency domain after FFT</span>
+
+<span class="ty">float</span> time_domain[<span class="nm">1024</span>];     <span class="cm">// Audio samples (time)</span>
+<span class="ty">float</span> freq_domain[<span class="nm">512</span>];     <span class="cm">// FFT output (frequency)</span>
+
+<span class="cm">// After FFT: freq_domain[0] = DC offset (bass)</span>
+<span class="cm">//            freq_domain[1] = 46.9 Hz</span>
+<span class="cm">//            freq_domain[10] = 469 Hz</span>
+<span class="cm">//            freq_domain[100] = 4.69 kHz</span>
+<span class="cm">//            freq_domain[511] = 24 kHz (Nyquist)</span>
+<span class="cm">//</span>
+<span class="cm">// Each bin = sample_rate / fft_size = 48000/1024 = 46.875 Hz</span>
+<span class="cm">//</span>
+<span class="cm">// Now render bars: for each freq bin, draw a rectangle</span>
+<span class="cm">// whose height = magnitude of that frequency component.</span>
+<span class="cm">// Music visualizer in ~50 lines of C.</span>
+<span class="label">frequency domain — another buffer</span></code></pre>
+
+<div class="power hack">
+<div class="power-label">Hack: Pitch Shift By Buffer Speed</div>
+<p>Play back audio samples faster → higher pitch. Slower → lower pitch. Chipmunk voice is just reading from the buffer at 1.5x speed. Darth Vader is 0.7x. Implement it by changing the read increment from <code>i++</code> to <code>i += 1.5</code> with linear interpolation between samples. DAWs charge money for this. It's 6 lines of code on a buffer.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch4">
+<h2>// keyboard buffer &mdash; intercepting keystrokes</h2>
+
+<p class="drop-cap">When you press a key, the keyboard controller generates a scan code and puts it in a hardware buffer. The kernel reads it via an interrupt, translates it to a key event, and puts it in a software buffer. Your application reads from that buffer when it's ready. At every stage, there's a buffer you can intercept.</p>
+
+<div class="diagram">
+<span class="diagram-label">Keystroke Journey</span>
+<pre><code>
+  Physical Key     Keyboard        USB/PS2         Kernel           Application
+  ────────────     ────────        ───────         ──────           ───────────
+  [A] pressed  →  scan code  →   interrupt   →  /dev/input/  →   stdin buffer
+                  0x1E            handler        event queue       getchar()
+                                 IRQ 1
+                                                  evdev            termios
+                                                  buffer           line buffer
+                                                  (64 events)      (4096 bytes)
+
+  Timeline:
+  ├── 1μs ──┤── 125μs USB ──┤── 5μs IRQ ──┤── ~100μs ──┤── ??? ms ──┤
+  key press   USB poll        ISR runs      queued       app reads
+              interval        schedules     in evdev     when ready
+</code></pre>
+</div>
+
+<h3>Read Raw Key Events (No Terminal)</h3>
+
+<pre><code><span class="pp">#include</span> <span class="st">&lt;linux/input.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;fcntl.h&gt;</span>
+
+<span class="cm">// Open the keyboard device directly — bypass the terminal</span>
+<span class="ty">int</span> fd = <span class="fn">open</span>(<span class="st">"/dev/input/event0"</span>, O_RDONLY);
+
+<span class="kw">struct</span> input_event ev;
+<span class="kw">while</span> (<span class="fn">read</span>(fd, &ev, <span class="kw">sizeof</span>(ev)) == <span class="kw">sizeof</span>(ev)) {
+    <span class="kw">if</span> (ev.type == EV_KEY) {
+        <span class="fn">printf</span>(<span class="st">"Key %d %s\n"</span>,
+            ev.code,
+            ev.value == <span class="nm">1</span> ? <span class="st">"PRESSED"</span> :
+            ev.value == <span class="nm">0</span> ? <span class="st">"RELEASED"</span> : <span class="st">"REPEAT"</span>);
+    }
+}
+<span class="cm">// You see EVERY key event. Key down AND key up.</span>
+<span class="cm">// This is how game engines and input mappers work.</span>
+<span class="cm">// The terminal only gives you "characters" — this gives you RAW events.</span>
+<span class="label">C — raw keyboard input</span></code></pre>
+
+<h3>Terminal Line Buffer vs Raw Mode</h3>
+
+<div class="vs">
+<div class="vs-col">
+<h4>Cooked Mode (default)</h4>
+<p>Terminal buffers your input until you press Enter. Supports backspace, Ctrl+C, etc.</p>
+<pre><code><span class="cm">// You type: "hello\n"</span>
+<span class="cm">// Terminal buffer:</span>
+<span class="cm">// [h][e][l][l][o][\n]</span>
+<span class="cm">// Only delivered to app</span>
+<span class="cm">// after newline</span>
+<span class="fn">fgets</span>(buf, <span class="nm">256</span>, stdin);
+<span class="cm">// blocks until Enter</span></code></pre>
+</div>
+<div class="vs-col">
+<h4>Raw Mode (hacker mode)</h4>
+<p>Every keystroke delivered immediately. No echo. No processing. Full control.</p>
+<pre><code><span class="kw">struct</span> termios raw;
+<span class="fn">tcgetattr</span>(<span class="nm">0</span>, &raw);
+raw.c_lflag &= ~(ECHO|ICANON);
+<span class="fn">tcsetattr</span>(<span class="nm">0</span>, TCSANOW, &raw);
+<span class="cm">// Now getchar() returns</span>
+<span class="cm">// INSTANTLY on keypress</span>
+<span class="ty">char</span> c = <span class="fn">getchar</span>();</code></pre>
+</div>
+</div>
+
+<div class="power">
+<div class="power-label">How Text Editors Work</div>
+<p>Every terminal text editor (vim, nano, helix, kakoune) puts the terminal in raw mode, then builds its own buffer for the document content. Vim's undo history? A buffer of buffers. The cursor position? An index into the line buffer. Syntax highlighting? Scan the text buffer with a state machine. The entire editor is buffer manipulation at every level.</p>
+</div>
+
+<h3>Build a Keylogger-Style Input Recorder</h3>
+
+<pre><code><span class="cm">// Record keystrokes with timestamps for replay</span>
+<span class="kw">typedef struct</span> {
+    <span class="ty">uint64_t</span> timestamp_us;   <span class="cm">// Microseconds since start</span>
+    <span class="ty">uint16_t</span> keycode;        <span class="cm">// Linux key code</span>
+    <span class="ty">uint8_t</span>  pressed;        <span class="cm">// 1 = down, 0 = up</span>
+} KeyEvent;
+
+KeyEvent recording[<span class="nm">65536</span>]; <span class="cm">// 64K event ring buffer</span>
+<span class="ty">int</span> rec_pos = <span class="nm">0</span>;
+
+<span class="cm">// Record</span>
+recording[rec_pos++] = (KeyEvent){
+    .timestamp_us = <span class="fn">now_us</span>() - start,
+    .keycode = ev.code,
+    .pressed = ev.value
+};
+
+<span class="cm">// Replay — inject events back via uinput</span>
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < rec_pos; i++) {
+    <span class="fn">usleep</span>(recording[i].timestamp_us - <span class="fn">now_us</span>());
+    <span class="fn">emit_key</span>(uinput_fd, recording[i].keycode, recording[i].pressed);
+}
+<span class="cm">// This is how macro recorders and typing test replays work</span>
+<span class="label">C — input recording/replay</span></code></pre>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>// network buffers &mdash; packets in flight</h2>
+
+<p class="drop-cap">Every TCP connection has four buffers: a send buffer and receive buffer on each side. When you call <code>write()</code> on a socket, you're copying data into the kernel's send buffer. The kernel's TCP stack decides when and how to actually transmit it. This is why <code>write()</code> returns instantly even though the data hasn't reached the other side yet.</p>
+
+<div class="diagram">
+<span class="diagram-label">TCP Buffer Architecture</span>
+<pre><code>
+  Your App                  Kernel                    Network
+  ────────                  ──────                    ───────
+                     ┌─────────────────┐
+  write(sock, ──────→│  Send Buffer    │────→ TCP segment ────→ ...
+  data, len)         │  (128 KB default)│     with seq #
+                     └─────────────────┘
+                                              ACK comes back
+                     ┌─────────────────┐         │
+  read(sock, ◄───────│  Recv Buffer    │◄────────┘
+  buf, len)          │  (128 KB default)│
+                     └─────────────────┘
+
+  Buffer states:
+  ┌──────┬──────┬──────┬──────┬──────┬──────┬──────┐
+  │ sent │ sent │ sent │write │      │      │      │
+  │ ACKd │ ACKd │ wait │ head │ free │ free │ free │
+  └──────┴──────┴──────┴──────┴──────┴──────┴──────┘
+  ← can free →  ← in flight →  ← available for write →
+
+  When send buffer is FULL → write() BLOCKS (or returns EAGAIN)
+  When recv buffer is FULL → TCP advertises window=0 → sender stops
+  This is TCP FLOW CONTROL — it's all buffer management
+</code></pre>
+</div>
+
+<h3>Tune the Buffers</h3>
+
+<pre><code><span class="cm">// Default socket buffers are 128KB — fine for most things</span>
+<span class="cm">// For high-throughput (video streaming, model weight transfer): go bigger</span>
+
+<span class="ty">int</span> bufsize = <span class="nm">4</span> * <span class="nm">1024</span> * <span class="nm">1024</span>;  <span class="cm">// 4MB buffer</span>
+<span class="fn">setsockopt</span>(sock, SOL_SOCKET, SO_SNDBUF, &bufsize, <span class="kw">sizeof</span>(bufsize));
+<span class="fn">setsockopt</span>(sock, SOL_SOCKET, SO_RCVBUF, &bufsize, <span class="kw">sizeof</span>(bufsize));
+
+<span class="cm">// System-wide limits (needs root):</span>
+<span class="cm">// echo 16777216 > /proc/sys/net/core/wmem_max   # 16MB send</span>
+<span class="cm">// echo 16777216 > /proc/sys/net/core/rmem_max   # 16MB recv</span>
+
+<span class="cm">// TCP_NODELAY: disable Nagle's algorithm</span>
+<span class="cm">// Nagle buffers small writes to combine them into bigger packets</span>
+<span class="cm">// Great for throughput, terrible for latency (games, trading)</span>
+<span class="ty">int</span> one = <span class="nm">1</span>;
+<span class="fn">setsockopt</span>(sock, IPPROTO_TCP, TCP_NODELAY, &one, <span class="kw">sizeof</span>(one));
+<span class="cm">// Now every write() becomes its own packet immediately</span>
+<span class="label">C — socket buffer tuning</span></code></pre>
+
+<h3>Raw Packet Crafting</h3>
+
+<pre><code><span class="cm">// With raw sockets, YOU fill the buffer that becomes the packet</span>
+<span class="cm">// You write IP headers, TCP headers, payload — the whole thing</span>
+
+<span class="ty">int</span> sock = <span class="fn">socket</span>(AF_INET, SOCK_RAW, IPPROTO_RAW);
+
+<span class="ty">uint8_t</span> packet[<span class="nm">4096</span>];  <span class="cm">// YOUR packet buffer</span>
+
+<span class="cm">// IP header (20 bytes)</span>
+<span class="kw">struct</span> iphdr *ip = (<span class="kw">struct</span> iphdr *)packet;
+ip->version = <span class="nm">4</span>;
+ip->ihl = <span class="nm">5</span>;                  <span class="cm">// 20 bytes / 4</span>
+ip->tot_len = <span class="fn">htons</span>(<span class="nm">40</span>);      <span class="cm">// IP + TCP headers</span>
+ip->protocol = IPPROTO_TCP;
+ip->saddr = <span class="fn">inet_addr</span>(<span class="st">"10.0.0.1"</span>);
+ip->daddr = <span class="fn">inet_addr</span>(<span class="st">"10.0.0.2"</span>);
+
+<span class="cm">// TCP header (20 bytes)</span>
+<span class="kw">struct</span> tcphdr *tcp = (<span class="kw">struct</span> tcphdr *)(packet + <span class="nm">20</span>);
+tcp->source = <span class="fn">htons</span>(<span class="nm">12345</span>);
+tcp->dest = <span class="fn">htons</span>(<span class="nm">80</span>);
+tcp->syn = <span class="nm">1</span>;                  <span class="cm">// SYN packet</span>
+tcp->seq = <span class="fn">htonl</span>(<span class="nm">0xDEADBEEF</span>);
+
+<span class="fn">sendto</span>(sock, packet, <span class="nm">40</span>, <span class="nm">0</span>, ...);
+<span class="cm">// You just hand-crafted a TCP SYN packet from raw bytes in a buffer</span>
+<span class="cm">// This is how nmap, scapy, and network testing tools work</span>
+<span class="label">C — raw packet crafting (authorized testing only)</span></code></pre>
+
+<div class="power zen">
+<div class="power-label">Insight: Protocols Are Buffer Formats</div>
+<p>TCP, UDP, HTTP, DNS, TLS &mdash; they're all just conventions for how to fill a buffer. An IP header is 20 bytes at specific offsets, just like your shard header is 64 bytes. A DNS query is a buffer with a 12-byte header, then variable-length question sections. <strong>If you can build a shard file, you can build a network packet.</strong> Same skills: offset math, endianness, length-prefixed fields, checksums.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>// disk buffers &mdash; the page cache</h2>
+
+<p class="drop-cap">You think you're writing to disk. You're not. You're writing to a buffer. The Linux kernel maintains a massive in-memory cache of disk data called the <strong>page cache</strong>. When you <code>write()</code>, data goes to the page cache. The kernel flushes dirty pages to disk in the background, whenever it feels like it. This is why a power failure can lose your last few seconds of writes &mdash; they were in a buffer, not on disk.</p>
+
+<div class="diagram">
+<span class="diagram-label">The Write Path: App → Disk</span>
+<pre><code>
+  write(fd, buf, 4096)
+       │
+       ▼
+  ┌────────────────┐
+  │  App Buffer    │  Your []byte or char buf[4096]
+  └───────┬────────┘
+          │ copy_from_user()
+          ▼
+  ┌────────────────┐
+  │  Page Cache    │  Kernel memory. Marked "dirty".
+  │  (RAM)         │  write() returns HERE. Not at disk.
+  └───────┬────────┘
+          │ pdflush / writeback thread (background, async)
+          ▼
+  ┌────────────────┐
+  │  Block Layer   │  I/O scheduler reorders for disk efficiency
+  │  Queue         │  (elevator algorithm: minimize seek distance)
+  └───────┬────────┘
+          │ DMA transfer
+          ▼
+  ┌────────────────┐
+  │  NVMe / SSD    │  Actually persistent now.
+  │  (Disk)        │  But SSD has its OWN buffer too...
+  └────────────────┘
+
+  Total buffers: 4 (app → page cache → block queue → SSD FTL)
+</code></pre>
+</div>
+
+<h3>Force Data to Disk</h3>
+
+<pre><code><span class="cm">// write() is a LIE — data might still be in page cache</span>
+<span class="fn">write</span>(fd, tensor_data, size);  <span class="cm">// Returns "success" but it's in RAM</span>
+
+<span class="cm">// fsync() — force THIS file's dirty pages to disk</span>
+<span class="fn">fsync</span>(fd);  <span class="cm">// Blocks until data is on disk. Slow (~1ms SSD, ~10ms HDD)</span>
+
+<span class="cm">// fdatasync() — like fsync but skips metadata (faster)</span>
+<span class="fn">fdatasync</span>(fd);  <span class="cm">// Only flushes data, not timestamps/size</span>
+
+<span class="cm">// O_DIRECT — bypass page cache entirely</span>
+<span class="ty">int</span> fd = <span class="fn">open</span>(<span class="st">"data.bin"</span>, O_WRONLY | O_DIRECT);
+<span class="cm">// Now write() goes straight to disk. But:</span>
+<span class="cm">//   - Buffer must be 512-byte aligned (use posix_memalign)</span>
+<span class="cm">//   - Write size must be multiple of 512</span>
+<span class="cm">//   - No page cache = no read-ahead = terrible for small reads</span>
+<span class="cm">// Used by databases (PostgreSQL, MySQL) that manage their own cache</span>
+
+<span class="cm">// O_SYNC — every write is an implicit fsync</span>
+<span class="ty">int</span> fd = <span class="fn">open</span>(<span class="st">"wal.log"</span>, O_WRONLY | O_SYNC);
+<span class="cm">// Every write() blocks until disk confirms. Bulletproof but slow.</span>
+<span class="cm">// WAL (write-ahead log) files use this for crash safety.</span>
+<span class="label">C — disk buffer control</span></code></pre>
+
+<div class="power">
+<div class="power-label">Page Cache Is Why mmap Is Fast</div>
+<p>When you mmap a file, you're mapping the <em>page cache</em> into your address space, not the disk. If the file was recently read, the pages are already in RAM &mdash; mmap access is a memory read, not a disk read. Multiple processes mmap'ing the same file share the same physical pages. This is why your MoSH <code>InstantLoader</code> works: the first load pages the file into cache, subsequent loads are instant.</p>
+</div>
+
+<h3>The readahead() Trick</h3>
+
+<pre><code><span class="cm">// Tell the kernel: "I'm going to read this region soon"</span>
+<span class="cm">// The kernel starts loading pages in the background</span>
+<span class="fn">posix_fadvise</span>(fd, offset, length, POSIX_FADV_WILLNEED);
+<span class="cm">// ...or the more direct version:</span>
+<span class="fn">readahead</span>(fd, offset, length);
+
+<span class="cm">// While the kernel is fetching from disk, you do other work</span>
+<span class="fn">prepare_compute_graph</span>();
+
+<span class="cm">// By the time you actually read, the data is already in page cache</span>
+<span class="fn">read</span>(fd, buf, length);  <span class="cm">// Cache hit! No disk wait.</span>
+
+<span class="cm">// Conversely, tell the kernel you're done with these pages:</span>
+<span class="fn">posix_fadvise</span>(fd, offset, length, POSIX_FADV_DONTNEED);
+<span class="cm">// Kernel evicts them from page cache, freeing RAM</span>
+<span class="cm">// Essential for large model files — don't hog the page cache</span>
+<span class="label">C — page cache prefetch</span></code></pre>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch7">
+<h2>// buffer overflow &mdash; the legendary exploit</h2>
+
+<p class="drop-cap">The buffer overflow is the most consequential bug in computing history. It's been exploited since the Morris Worm in 1988. The idea is devastatingly simple: write more data into a buffer than it can hold, and the excess overwrites whatever comes next in memory. If "whatever comes next" is a return address on the stack, you can redirect execution to code you control.</p>
+
+<div class="diagram">
+<span class="diagram-label">Stack Buffer Overflow (Classic)</span>
+<pre><code>
+  BEFORE overflow:                 AFTER overflow:
+  ┌─────────────────┐             ┌─────────────────┐
+  │  Return Address │ ← CPU      │  0xDEADBEEF     │ ← OVERWRITTEN
+  │  (back to main) │   jumps    │  (attacker's    │    CPU jumps to
+  ├─────────────────┤   here     │   shellcode)    │    attacker code!
+  │  Saved EBP      │            ├─────────────────┤
+  ├─────────────────┤            │  AAAAAAAAAA     │
+  │                 │            │  AAAAAAAAAA     │
+  │  char buf[16]   │            │  AAAAAAAAAA     │
+  │                 │            │  AAAAAAAAAA     │ ← Overflow
+  ├─────────────────┤            ├─────────────────┤
+  │                 │            │                 │
+  │  (other vars)   │            │  (other vars)   │
+  └─────────────────┘            └─────────────────┘
+     Stack grows ↓                  Stack grows ↓
+
+  The write goes PAST buf[16] and smashes the return address.
+  When the function returns, CPU jumps to attacker-controlled address.
+</code></pre>
+</div>
+
+<pre><code><span class="cm">// THE VULNERABLE CODE — never do this</span>
+<span class="kw">void</span> <span class="fn">vulnerable</span>(<span class="ty">char</span> *user_input) {
+    <span class="ty">char</span> buf[<span class="nm">16</span>];
+    <span class="fn">strcpy</span>(buf, user_input);  <span class="cm">// No length check! Copies until \0</span>
+    <span class="cm">// If user_input is 32 bytes, the extra 16 bytes</span>
+    <span class="cm">// overwrite saved EBP + return address</span>
+}
+
+<span class="cm">// THE SAFE VERSION</span>
+<span class="kw">void</span> <span class="fn">safe</span>(<span class="ty">char</span> *user_input) {
+    <span class="ty">char</span> buf[<span class="nm">16</span>];
+    <span class="fn">strncpy</span>(buf, user_input, <span class="kw">sizeof</span>(buf) - <span class="nm">1</span>);
+    buf[<span class="kw">sizeof</span>(buf) - <span class="nm">1</span>] = <span class="st">'\0'</span>;  <span class="cm">// Ensure null termination</span>
+}
+<span class="label">C — the classic vulnerability</span></code></pre>
+
+<h3>Modern Defenses</h3>
+
+<table>
+<tr><th>Defense</th><th>What It Does</th><th>How To Bypass (CTF context)</th></tr>
+<tr><td>Stack Canary</td><td>Random value between buffer and return address. Function checks it before returning.</td><td>Leak the canary value via format string or info disclosure, then include it in the overflow.</td></tr>
+<tr><td>ASLR</td><td>Randomize stack/heap/library addresses each run. Attacker can't hardcode jump targets.</td><td>Info leak to discover base address, then calculate offsets.</td></tr>
+<tr><td>NX / DEP</td><td>Mark stack memory as non-executable. Can't run shellcode on the stack.</td><td>ROP (Return-Oriented Programming): chain existing code gadgets instead of injecting new code.</td></tr>
+<tr><td>RELRO</td><td>Make GOT (Global Offset Table) read-only after loading.</td><td>Target other writable memory (stack, heap).</td></tr>
+<tr><td>PIE</td><td>Position-Independent Executable: code at random address.</td><td>Same as ASLR — need an info leak first.</td></tr>
+</table>
+
+<div class="power danger">
+<div class="power-label">Why This Still Matters</div>
+<p>Go, Rust, Python, JavaScript &mdash; they all prevent buffer overflows through bounds checking. But the libraries they call are often written in C. OpenSSL, zlib, libc, database drivers, image parsers &mdash; one unchecked <code>memcpy</code> in a C library and the whole process is compromised. Heartbleed (2014) was a buffer over-<em>read</em> in OpenSSL: the server returned up to 64KB of whatever was adjacent in memory &mdash; private keys, passwords, session tokens. All because a length field wasn't validated.</p>
+</div>
+
+<h3>Heap Overflow: Corrupting Metadata</h3>
+
+<pre><code><span class="cm">// Heap overflow targets malloc's internal metadata</span>
+<span class="cm">// Each heap chunk has a header with size and pointers:</span>
+
+<span class="cm">//  ┌──────────┬──────────┬──────────────────────┐</span>
+<span class="cm">//  │ prev_size│   size   │     user data...     │</span>
+<span class="cm">//  │  8 bytes │ 8 bytes  │     N bytes           │</span>
+<span class="cm">//  └──────────┴──────────┴──────────────────────┘</span>
+<span class="cm">//</span>
+<span class="cm">// Overflow from chunk A into chunk B's header</span>
+<span class="cm">// → corrupt size field → malloc returns overlapping chunks</span>
+<span class="cm">// → write to "your" chunk modifies "their" data</span>
+<span class="cm">//</span>
+<span class="cm">// This is how modern exploits work: heap grooming + corruption</span>
+<span class="cm">// Way harder than stack overflow but way harder to defend against</span>
+<span class="label">heap exploitation concept</span></code></pre>
+
+<div class="power zen">
+<div class="power-label">Your Shard Format Is Immune</div>
+<p>Your TensorV1 decoder validates sizes before allocation: <code>if numElements > math.MaxInt64/es { return -1 }</code>. The overflow gauntlet tests confirmed this. Go's slice bounds checking prevents buffer overflows at runtime. But the <em>concept</em> &mdash; that buffers have boundaries and crossing them has consequences &mdash; applies everywhere. Every time you check <code>if offset+size > len(data)</code> in your decoder, you're preventing a buffer overread.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch8">
+<h2>// double buffering &mdash; the flicker killer</h2>
+
+<p class="drop-cap">If you draw directly to the framebuffer while the display controller is reading it, the user sees half-drawn frames &mdash; tearing, flickering, visual garbage. Double buffering solves this: draw to a back buffer, then swap it to the front in one atomic operation. The user only ever sees complete frames.</p>
+
+<div class="diagram">
+<span class="diagram-label">Double Buffering</span>
+<pre><code>
+  Frame N:                          Frame N+1:
+  ┌─────────────────┐              ┌─────────────────┐
+  │  FRONT BUFFER   │ ← display   │  FRONT BUFFER   │ ← was back
+  │  (being shown)  │   reads     │  (Frame N+1)    │   NOW shown
+  ├─────────────────┤              ├─────────────────┤
+  │  BACK BUFFER    │ ← you       │  BACK BUFFER    │ ← was front
+  │  (being drawn)  │   write     │  (drawing N+2)  │   NOW drawing
+  └─────────────────┘              └─────────────────┘
+           │                                │
+           └───── SWAP (pointer swap) ──────┘
+                  ~0 ns (just change which buffer the display reads)
+
+  Triple buffering: add a third buffer so the GPU never waits.
+  ┌───────────┐  ┌───────────┐  ┌───────────┐
+  │  DISPLAY  │  │  READY    │  │  DRAWING  │
+  │  (front)  │  │  (middle) │  │  (back)   │
+  └───────────┘  └───────────┘  └───────────┘
+  Display shows   GPU done,      GPU currently
+  this one        waiting        rendering here
+</code></pre>
+</div>
+
+<pre><code><span class="cm">// Double buffering in practice — even for terminal rendering</span>
+
+<span class="ty">char</span> front[<span class="nm">80</span> * <span class="nm">24</span>];  <span class="cm">// What's on screen now</span>
+<span class="ty">char</span> back[<span class="nm">80</span> * <span class="nm">24</span>];   <span class="cm">// What we're building</span>
+
+<span class="kw">void</span> <span class="fn">render_frame</span>() {
+    <span class="cm">// Clear back buffer</span>
+    <span class="fn">memset</span>(back, <span class="st">' '</span>, <span class="kw">sizeof</span>(back));
+
+    <span class="cm">// Draw into back buffer (no screen updates yet)</span>
+    <span class="fn">draw_player</span>(back, player_x, player_y);
+    <span class="fn">draw_enemies</span>(back, enemies, enemy_count);
+    <span class="fn">draw_ui</span>(back, health, score);
+
+    <span class="cm">// Diff and flush only changed characters</span>
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < <span class="nm">80</span>*<span class="nm">24</span>; i++) {
+        <span class="kw">if</span> (back[i] != front[i]) {
+            <span class="ty">int</span> row = i / <span class="nm">80</span>, col = i % <span class="nm">80</span>;
+            <span class="fn">printf</span>(<span class="st">"\033[%d;%dH%c"</span>, row+<span class="nm">1</span>, col+<span class="nm">1</span>, back[i]);
+        }
+    }
+    <span class="fn">fflush</span>(stdout);  <span class="cm">// Send all updates at once</span>
+
+    <span class="cm">// Swap</span>
+    <span class="fn">memcpy</span>(front, back, <span class="kw">sizeof</span>(back));
+}
+<span class="label">C — terminal double buffering</span></code></pre>
+
+<div class="power hack">
+<div class="power-label">Hack: Diff-Based Rendering</div>
+<p>The diff step above is the key optimization. Instead of redrawing the whole screen (2000 characters), you only send escape codes for the characters that <em>changed</em>. On a 60 FPS game where 90% of the screen is static, this reduces terminal output from 120KB/s to ~12KB/s. Libraries like <code>ncurses</code>, React's virtual DOM, and GPU command buffers all use this same idea: diff the buffers, emit minimal updates.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch9">
+<h2>// DMA &mdash; buffers without the CPU</h2>
+
+<p class="drop-cap">Direct Memory Access (DMA) is the ultimate buffer trick: data moves between devices and memory <strong>without the CPU touching it</strong>. The CPU sets up a transfer &mdash; "copy from this address to that address, this many bytes" &mdash; then does other work while the DMA controller handles the copy. The CPU gets interrupted when it's done.</p>
+
+<div class="diagram">
+<span class="diagram-label">DMA vs CPU-Driven I/O</span>
+<pre><code>
+  CPU-DRIVEN (PIO):                        DMA:
+  ┌─────┐     ┌────────┐                  ┌─────┐     ┌────────┐
+  │ CPU │────→│ Buffer │                  │ CPU │     │ Buffer │
+  │     │◄────│        │                  │     │     │        │
+  │     │────→│        │  CPU busy        │ SET │     │        │  CPU free!
+  │     │◄────│        │  the ENTIRE      │ UP  │     │        │
+  │     │────→│        │  time...         │     │     │ ↕↕↕↕↕  │
+  │     │◄────│        │                  │ IRQ │◄────│ DONE   │
+  └─────┘     └────────┘                  └─────┘     └────────┘
+                                                 ↑
+  CPU copies each word manually          DMA controller does it
+  100% CPU utilization                   CPU does useful work meanwhile
+
+  GPU VRAM example:
+  ┌──────────┐    DMA     ┌──────────┐    DMA     ┌──────────┐
+  │ System   │ ─────────→ │ PCIe     │ ─────────→ │ GPU VRAM │
+  │ RAM      │   bus      │ Bridge   │   bus      │ (tensor) │
+  └──────────┘            └──────────┘            └──────────┘
+  CPU just says "transfer these 100MB of weights to GPU"
+  Then CPU prepares the next batch while GPU receives the first
+</code></pre>
+</div>
+
+<pre><code><span class="cm">// CUDA: async memory transfer = DMA under the hood</span>
+
+<span class="cm">// Pin host memory (prevent page-out, enable DMA)</span>
+<span class="ty">float</span> *host_weights;
+<span class="fn">cudaMallocHost</span>(&host_weights, size);  <span class="cm">// Pinned (non-pageable)</span>
+
+<span class="cm">// Allocate GPU memory</span>
+<span class="ty">float</span> *gpu_weights;
+<span class="fn">cudaMalloc</span>(&gpu_weights, size);
+
+<span class="cm">// Async copy: CPU → GPU via DMA</span>
+<span class="fn">cudaMemcpyAsync</span>(gpu_weights, host_weights, size,
+                cudaMemcpyHostToDevice, stream);
+
+<span class="cm">// CPU is FREE right now — DMA engine handles the copy</span>
+<span class="fn">prepare_next_layer</span>();  <span class="cm">// Overlap compute with transfer</span>
+
+<span class="cm">// Wait for DMA to finish</span>
+<span class="fn">cudaStreamSynchronize</span>(stream);
+<span class="label">CUDA — DMA-powered tensor transfer</span></code></pre>
+
+<div class="power">
+<div class="power-label">Pinned Memory: The DMA Prerequisite</div>
+<p>DMA needs physical memory addresses that don't change. Normal <code>malloc</code> memory can be paged out to swap at any time &mdash; the physical address changes, breaking the DMA. Pinned memory (<code>cudaMallocHost</code>, <code>mlock</code>) tells the OS "never page this out." The trade-off: pinned memory reduces available RAM for other processes. Pin too much and you starve the system.</p>
+</div>
+
+<h3>Overlap: The Pipeline of Buffers</h3>
+
+<pre><code><span class="cm">// The REAL power: double-buffer with DMA for pipeline overlap</span>
+<span class="cm">// While GPU computes on buffer A, DMA fills buffer B</span>
+
+<span class="ty">float</span> *buf_a, *buf_b;  <span class="cm">// Two GPU buffers</span>
+<span class="fn">cudaMalloc</span>(&buf_a, layer_size);
+<span class="fn">cudaMalloc</span>(&buf_b, layer_size);
+
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < num_layers; i++) {
+    <span class="ty">float</span> *current = (i % <span class="nm">2</span> == <span class="nm">0</span>) ? buf_a : buf_b;
+    <span class="ty">float</span> *next    = (i % <span class="nm">2</span> == <span class="nm">0</span>) ? buf_b : buf_a;
+
+    <span class="cm">// Start DMA for next layer while computing current</span>
+    <span class="kw">if</span> (i + <span class="nm">1</span> < num_layers) {
+        <span class="fn">cudaMemcpyAsync</span>(next, host_layers[i+<span class="nm">1</span>], layer_size,
+                        cudaMemcpyHostToDevice, copy_stream);
+    }
+
+    <span class="cm">// Compute on current layer</span>
+    <span class="fn">matmul_kernel</span><<<grid, block, <span class="nm">0</span>, compute_stream>>>(current, ...);
+
+    <span class="cm">// Both streams run concurrently!</span>
+    <span class="cm">// DMA engine: copying next layer</span>
+    <span class="cm">// GPU SMs: computing current layer</span>
+}
+<span class="label">CUDA — double-buffered DMA pipeline</span></code></pre>
+
+<div class="diagram">
+<span class="diagram-label">Pipeline Timeline: Transfer + Compute Overlap</span>
+<pre><code>
+  WITHOUT overlap:
+  Time →  ████████░░░░░░░░████████░░░░░░░░████████░░░░░░░░
+          copy L1  compute  copy L2  compute  copy L3  compute
+          Total: 6 units
+
+  WITH double-buffer overlap:
+  Time →  ████████████████████████████████
+  DMA:    ████    ████    ████
+  GPU:        ████    ████    ████
+          Total: ~3.5 units (nearly 2x speedup)
+</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch10">
+<h2>// dirty tricks &amp; little gains</h2>
+
+<p class="drop-cap">These are the buffer tricks that separate the hackers from the textbook readers. Small, sharp techniques that come from understanding how the metal actually works.</p>
+
+<h3>Trick 1: The Bounce Buffer</h3>
+
+<p>When you need to transform data between two different formats, use a small bounce buffer instead of converting in-place (which might corrupt data on failure).</p>
+
+<pre><code><span class="cm">// Convert BFloat16 → Float32 through a bounce buffer</span>
+<span class="cm">// Read raw BF16 from mmap'd shard, convert to F32 in bounce,</span>
+<span class="cm">// hand the bounce buffer to the compute kernel</span>
+
+<span class="ty">float</span> bounce[<span class="nm">256</span>];  <span class="cm">// Small, fits in L1 cache</span>
+<span class="ty">uint16_t</span> *src = (<span class="ty">uint16_t</span> *)mapped_tensor;
+
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < total; i += <span class="nm">256</span>) {
+    <span class="ty">int</span> chunk = <span class="fn">min</span>(<span class="nm">256</span>, total - i);
+    <span class="kw">for</span> (<span class="ty">int</span> j = <span class="nm">0</span>; j < chunk; j++) {
+        bounce[j] = <span class="fn">bf16_to_f32</span>(src[i + j]);  <span class="cm">// Convert in L1</span>
+    }
+    <span class="fn">process_chunk</span>(bounce, chunk);  <span class="cm">// All data hot in cache</span>
+}
+<span class="label">bounce buffer — cache-friendly conversion</span></code></pre>
+
+<h3>Trick 2: Sentinel Values</h3>
+
+<pre><code><span class="cm">// Instead of checking buffer length on every iteration,</span>
+<span class="cm">// place a sentinel value at the end</span>
+
+<span class="ty">char</span> buf[SIZE + <span class="nm">1</span>];
+buf[SIZE] = <span class="st">'\n'</span>;  <span class="cm">// Sentinel — guaranteed to terminate the loop</span>
+
+<span class="ty">int</span> i = <span class="nm">0</span>;
+<span class="kw">while</span> (buf[i] != <span class="st">'\n'</span>) i++;  <span class="cm">// No bounds check needed in the loop!</span>
+<span class="cm">// After loop: if (i == SIZE) → wasn't found; else → found at i</span>
+
+<span class="cm">// Standard library strlen() uses this trick internally.</span>
+<span class="cm">// Saves one comparison per iteration = 10-30% faster on tight loops.</span>
+<span class="label">sentinel elimination</span></code></pre>
+
+<h3>Trick 3: Buffer Gap (Text Editors)</h3>
+
+<pre><code><span class="cm">// How real text editors store text: gap buffer</span>
+<span class="cm">// Cursor position = gap position. Insert/delete at cursor is O(1).</span>
+
+<span class="cm">// Buffer: "Hello World" with cursor at position 5</span>
+<span class="cm">// ┌─┬─┬─┬─┬─┬───────┬─┬─┬─┬─┬─┬─┐</span>
+<span class="cm">// │H│e│l│l│o│       │ │W│o│r│l│d│</span>
+<span class="cm">// └─┴─┴─┴─┴─┴───────┴─┴─┴─┴─┴─┴─┘</span>
+<span class="cm">//  ←── pre-gap ──→ GAP ←── post-gap ──→</span>
+<span class="cm">//</span>
+<span class="cm">// Type 'X': put X before gap, shrink gap by 1. O(1)!</span>
+<span class="cm">// ┌─┬─┬─┬─┬─┬─┬─────┬─┬─┬─┬─┬─┬─┐</span>
+<span class="cm">// │H│e│l│l│o│X│     │ │W│o│r│l│d│</span>
+<span class="cm">// └─┴─┴─┴─┴─┴─┴─────┴─┴─┴─┴─┴─┴─┘</span>
+<span class="cm">//</span>
+<span class="cm">// Move cursor left: shift one char across the gap. O(1)!</span>
+<span class="cm">// Delete: just widen the gap. O(1)!</span>
+<span class="cm">//</span>
+<span class="cm">// Used by: Emacs, Scintilla, many editors</span>
+<span class="cm">// Alternative: piece table (VS Code), rope (Xi editor)</span>
+
+<span class="kw">typedef struct</span> {
+    <span class="ty">char</span> *buf;
+    <span class="ty">int</span> gap_start;  <span class="cm">// First byte of gap</span>
+    <span class="ty">int</span> gap_end;    <span class="cm">// First byte after gap</span>
+    <span class="ty">int</span> buf_size;
+} GapBuffer;
+
+<span class="kw">void</span> <span class="fn">insert</span>(GapBuffer *g, <span class="ty">char</span> c) {
+    g->buf[g->gap_start++] = c;  <span class="cm">// That's it. O(1).</span>
+}
+
+<span class="kw">void</span> <span class="fn">delete_back</span>(GapBuffer *g) {
+    g->gap_start--;  <span class="cm">// That's it. O(1). No memmove.</span>
+}
+<span class="label">C — gap buffer</span></code></pre>
+
+<h3>Trick 4: XOR Swap Buffer</h3>
+
+<pre><code><span class="cm">// Swap two buffers without a temporary — for the truly unhinged</span>
+<span class="cm">// Works because XOR is its own inverse: a ^ b ^ b = a</span>
+
+<span class="kw">void</span> <span class="fn">xor_swap_buffers</span>(<span class="ty">uint8_t</span> *a, <span class="ty">uint8_t</span> *b, <span class="ty">size_t</span> n) {
+    <span class="kw">for</span> (<span class="ty">size_t</span> i = <span class="nm">0</span>; i < n; i++) {
+        a[i] ^= b[i];
+        b[i] ^= a[i];
+        a[i] ^= b[i];
+    }
+}
+<span class="cm">// No temp buffer needed. But modern CPUs: just use memcpy.</span>
+<span class="cm">// This is slower on anything with a cache. It's a party trick.</span>
+<span class="label">C — XOR swap (party trick)</span></code></pre>
+
+<h3>Trick 5: Memory-Mapped Ring Buffer</h3>
+
+<pre><code><span class="cm">// The ULTIMATE ring buffer hack: map the same physical memory TWICE</span>
+<span class="cm">// adjacent in virtual memory. Wrap-around becomes invisible!</span>
+
+<span class="ty">size_t</span> size = <span class="nm">4096</span>;  <span class="cm">// Must be page-aligned</span>
+
+<span class="cm">// Create a shared memory region</span>
+<span class="ty">int</span> fd = <span class="fn">memfd_create</span>(<span class="st">"ring"</span>, <span class="nm">0</span>);
+<span class="fn">ftruncate</span>(fd, size);
+
+<span class="cm">// Map it TWICE, adjacent:</span>
+<span class="ty">void</span> *addr = <span class="fn">mmap</span>(NULL, size * <span class="nm">2</span>, PROT_NONE, MAP_PRIVATE|MAP_ANON, -<span class="nm">1</span>, <span class="nm">0</span>);
+<span class="fn">mmap</span>(addr,        size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_FIXED, fd, <span class="nm">0</span>);
+<span class="fn">mmap</span>(addr + size, size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_FIXED, fd, <span class="nm">0</span>);
+
+<span class="cm">// Now addr[0..4095] and addr[4096..8191] are the SAME physical memory!</span>
+<span class="cm">//</span>
+<span class="cm">// Virtual:  [────── Page A ──────][────── Page A (mirror) ──────]</span>
+<span class="cm">// Physical: [────── Page A ──────]</span>
+<span class="cm">//</span>
+<span class="cm">// Write past the end → automatically wraps to the beginning</span>
+<span class="cm">// memcpy across the "boundary" Just Works — no split logic!</span>
+<span class="cm">// This is how high-performance audio engines and network stacks work</span>
+<span class="label">C — mmap'd ring buffer (zero-copy wrap)</span></code></pre>
+
+<div class="power wild">
+<div class="power-label">Why This Is Beautiful</div>
+<p>Normal ring buffers need special handling when a read or write wraps around the end: you split into two memcpy's. With the mmap trick, the virtual memory system <em>is</em> the ring. A <code>memcpy</code> that crosses the boundary in virtual space quietly wraps in physical space. You can <code>write(fd, ring + offset, length)</code> even when it spans the wrap point. The kernel handles it. No branch. No split. Zero overhead. This is the kind of trick that makes you sit back and stare at the ceiling for a while.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch11">
+<h2>// raw power &mdash; what you can build</h2>
+
+<p class="drop-cap">Every one of these techniques is a building block. Combined, they let you build systems that feel impossible. Here's what opens up when you truly understand buffers.</p>
+
+<h3>Build a Live Audio Synthesizer</h3>
+<div class="power">
+<div class="power-label">Ingredients</div>
+<p>Audio ring buffer (Ch. 3) + keyboard raw input (Ch. 4) + double buffering (Ch. 8). Map keyboard keys to frequencies. On keypress, start filling the audio buffer with sine waves at that frequency. On release, fade out. You've built a piano in ~200 lines of C. Add the echo effect and you have a reverb piano. Add FFT and render bars to the framebuffer &mdash; now you have a music visualizer.</p>
+</div>
+
+<h3>Build a Network Protocol Analyzer</h3>
+<div class="power">
+<div class="power-label">Ingredients</div>
+<p>Raw socket buffer (Ch. 5) + ring buffer (Ch. 10) + terminal double buffer (Ch. 8). Capture packets into a ring buffer. Parse headers (same offset math as shard format). Render packet flow in the terminal with colors. You've built a mini Wireshark. All buffer manipulation.</p>
+</div>
+
+<h3>Build a GPU Tensor Loader</h3>
+<div class="power">
+<div class="power-label">Ingredients</div>
+<p>mmap (Ch. 7) + DMA double buffering (Ch. 9) + your MoSH format. mmap the .mosh file. Use <code>posix_fadvise(WILLNEED)</code> to prefetch the next layer while DMA transfers the current one to GPU. Overlap disk → RAM → GPU pipeline with three buffers. This is how vLLM and llama.cpp load models at near-hardware-speed.</p>
+</div>
+
+<h3>Build a Demoscene Demo</h3>
+<div class="power">
+<div class="power-label">Ingredients</div>
+<p>Framebuffer direct access (Ch. 2) + double buffering (Ch. 8) + audio synthesis (Ch. 3). Render plasma/tunnel/raymarching into back buffer. Sync visual transitions to audio beats via the audio buffer position. Swap front/back every 16ms. The entire thing fits in 4KB if you're creative with the math. No GPU. No libraries. Just buffers and sin().</p>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">The Grand Unified Buffer Theory</span>
+<pre><code>
+                          ┌─────────────────────────────────┐
+                          │     YOUR APPLICATION            │
+                          │                                 │
+                          │   "Everything is a buffer.      │
+                          │    Buffers all the way down."   │
+                          └────────────┬────────────────────┘
+                                       │
+              ┌────────────────────────┼────────────────────────┐
+              │                        │                        │
+        ┌─────▼─────┐           ┌──────▼──────┐          ┌─────▼─────┐
+        │  INPUT    │           │  COMPUTE    │          │  OUTPUT   │
+        │           │           │             │          │           │
+        │ keyboard  │           │ arena alloc │          │ framebuf  │
+        │ network   │───────────│ ring buffer │──────────│ audio out │
+        │ disk read │           │ bounce buf  │          │ network   │
+        │ mic input │           │ gap buffer  │          │ disk write│
+        └───────────┘           └─────────────┘          └───────────┘
+
+        Absorb speed               Transform              Emit at
+        differences                the data               device speed
+
+        Every I/O device           Every algorithm         Every output
+        has a buffer               has a buffer            has a buffer
+</code></pre>
+</div>
+
+<div class="ticker" style="display: block; text-align: center; margin: 3rem auto; max-width: 600px; padding: 1rem;">
+  &gt; buffers are the connective tissue of computing.<br>
+  &gt; master them and you master the machine._
+</div>
+
+</section>
+
+</div>
+
+<script>
+document.querySelectorAll('nav a').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    const target = document.querySelector(a.getAttribute('href'));
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('nav a');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navLinks.forEach(l => l.classList.remove('active'));
+      const link = document.querySelector(`nav a[href="#${entry.target.id}"]`);
+      if (link) link.classList.add('active');
+    }
+  });
+}, { rootMargin: '-20% 0px -70% 0px' });
+sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>

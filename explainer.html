@@ -1,0 +1,2503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shard Codec: A Forensic Deep-Dive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300..900;1,8..60,300..900&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   RESET & BASE
+   ============================================================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #1a1815;
+  --bg-elevated: #211e19;
+  --text: #e8e0d4;
+  --text-dim: #a89e8c;
+  --accent: #e6a756;
+  --accent-dim: #b8863f;
+  --code-bg: #252118;
+  --border: #3a3228;
+  --border-light: #4a4238;
+  --pink: #ff6b9d;
+  --cyan: #4ecdc4;
+  --cyan-dim: #3a9e97;
+  --serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --max-w: 800px;
+  --nav-h: 56px;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--nav-h) + 24px);
+}
+
+body {
+  font-family: var(--serif);
+  font-size: 18px;
+  line-height: 1.72;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+a:hover {
+  border-bottom-color: var(--accent);
+}
+
+/* ============================================================
+   NAVIGATION
+   ============================================================ */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(26, 24, 21, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  height: var(--nav-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-inner {
+  width: 100%;
+  max-width: var(--max-w);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nav-inner::-webkit-scrollbar { display: none; }
+
+.nav-brand {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  white-space: nowrap;
+  margin-right: 12px;
+}
+
+.nav-link {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border-bottom: none;
+  transition: color 0.2s, background 0.2s;
+}
+.nav-link:hover {
+  color: var(--text);
+  background: var(--code-bg);
+  border-bottom: none;
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+.container {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ============================================================
+   HERO
+   ============================================================ */
+.hero {
+  padding: 96px 0 64px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.hero h1 {
+  font-family: var(--serif);
+  font-size: clamp(36px, 6vw, 56px);
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+
+.hero h1 span {
+  color: var(--accent);
+}
+
+.hero-sub {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 24px;
+}
+
+.hero-meta {
+  font-size: 15px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+.hero-meta strong {
+  color: var(--cyan);
+}
+
+/* ============================================================
+   CHAPTERS
+   ============================================================ */
+.chapter {
+  padding: 72px 0 48px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chapter:last-of-type {
+  border-bottom: none;
+}
+
+.chapter-number {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 8px;
+  display: block;
+}
+
+.chapter h2 {
+  font-family: var(--serif);
+  font-size: clamp(28px, 4vw, 38px);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text);
+  margin-bottom: 32px;
+}
+
+.chapter h3 {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 36px 0 16px;
+}
+
+.chapter h4 {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  margin: 28px 0 12px;
+}
+
+.chapter p {
+  margin-bottom: 18px;
+}
+
+/* Drop caps */
+.drop-cap::first-letter {
+  float: left;
+  font-family: var(--serif);
+  font-size: 3.6em;
+  font-weight: 800;
+  line-height: 0.82;
+  margin: 4px 12px 0 -4px;
+  color: var(--accent);
+}
+
+/* ============================================================
+   CODE / DETAILS
+   ============================================================ */
+code {
+  font-family: var(--mono);
+  font-size: 0.82em;
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+pre {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 20px 24px;
+  overflow-x: auto;
+  margin: 16px 0 24px;
+  color: var(--text);
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+details {
+  margin: 16px 0 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+details summary {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 14px 20px;
+  background: var(--code-bg);
+  color: var(--accent);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+details summary::-webkit-details-marker { display: none; }
+
+details summary::before {
+  content: '\25B6';
+  font-size: 10px;
+  transition: transform 0.2s;
+  color: var(--text-dim);
+}
+
+details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+details .code-body {
+  padding: 0;
+}
+
+details .code-body pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* ============================================================
+   INSIGHT BOX
+   ============================================================ */
+.insight {
+  border-left: 4px solid var(--accent);
+  background: var(--code-bg);
+  padding: 20px 24px;
+  margin: 24px 0;
+  border-radius: 0 6px 6px 0;
+}
+
+.insight-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 8px;
+  display: block;
+}
+
+.insight p {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+.insight p:last-child { margin-bottom: 0; }
+
+.insight.warning {
+  border-left-color: var(--pink);
+}
+.insight.warning .insight-label {
+  color: var(--pink);
+}
+
+.insight.info {
+  border-left-color: var(--cyan);
+}
+.insight.info .insight-label {
+  color: var(--cyan);
+}
+
+/* ============================================================
+   TABLES
+   ============================================================ */
+.data-table-wrap {
+  overflow-x: auto;
+  margin: 16px 0 24px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-align: left;
+  padding: 12px 16px;
+  border-bottom: 2px solid var(--accent-dim);
+  white-space: nowrap;
+}
+
+td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+tr:nth-child(even) td {
+  background: rgba(37, 33, 24, 0.5);
+}
+
+td code {
+  font-size: 12px;
+}
+
+/* ============================================================
+   DIAGRAMS (CSS boxes)
+   ============================================================ */
+.diagram {
+  margin: 24px 0 32px;
+  padding: 24px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.diagram-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+/* Linear layout diagram */
+.layout-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-height: 56px;
+}
+
+.layout-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  border: 2px solid var(--accent-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: center;
+  min-width: 80px;
+  position: relative;
+}
+
+.layout-block.accent {
+  border-color: var(--accent);
+  background: rgba(230, 167, 86, 0.08);
+}
+
+.layout-block.cyan {
+  border-color: var(--cyan);
+  background: rgba(78, 205, 196, 0.08);
+}
+
+.layout-block.pink {
+  border-color: var(--pink);
+  background: rgba(255, 107, 157, 0.08);
+}
+
+.layout-block .block-size {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.layout-arrow {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  color: var(--text-dim);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+/* File tree */
+.file-tree {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.file-tree .dir {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.file-tree .file {
+  color: var(--text-dim);
+}
+
+.file-tree .count {
+  color: var(--cyan);
+  font-size: 11px;
+}
+
+.file-tree .indent {
+  color: var(--border-light);
+  user-select: none;
+}
+
+/* ============================================================
+   TIMELINE
+   ============================================================ */
+.timeline {
+  position: relative;
+  padding-left: 32px;
+  margin: 24px 0 32px;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: var(--border-light);
+}
+
+.timeline-item {
+  position: relative;
+  margin-bottom: 28px;
+}
+
+.timeline-item:last-child {
+  margin-bottom: 0;
+}
+
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: -29px;
+  top: 8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.timeline-date {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--cyan);
+  margin-bottom: 4px;
+}
+
+.timeline-title {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.timeline-body {
+  font-size: 15px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+.timeline-body code {
+  font-size: 12px;
+}
+
+.timeline-stat {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: rgba(230, 167, 86, 0.12);
+  color: var(--accent);
+  margin: 4px 4px 0 0;
+}
+
+/* ============================================================
+   METRICS ROW
+   ============================================================ */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin: 24px 0 32px;
+}
+
+.metric {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 20px;
+  text-align: center;
+}
+
+.metric-value {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.2;
+}
+
+.metric-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
+/* ============================================================
+   BYTE MAP (for header/index)
+   ============================================================ */
+.byte-map {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  margin: 16px 0 24px;
+}
+
+.byte-map .bm-offset {
+  padding: 6px 12px 6px 0;
+  color: var(--cyan);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.byte-map .bm-size {
+  padding: 6px 12px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.byte-map .bm-field {
+  padding: 6px 12px;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+.byte-map .bm-field code {
+  font-size: 11px;
+  color: var(--accent);
+}
+
+/* ============================================================
+   TAG GRID (content types)
+   ============================================================ */
+.tag-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 24px;
+}
+
+.tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  background: var(--code-bg);
+}
+
+.tag .tag-id {
+  color: var(--cyan);
+  margin-right: 4px;
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+footer {
+  padding: 48px 0;
+  text-align: center;
+  border-top: 1px solid var(--border);
+  margin-top: 32px;
+}
+
+footer p {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 640px) {
+  body { font-size: 16px; }
+  .container { padding: 0 16px; }
+  .hero { padding: 64px 0 48px; }
+  .chapter { padding: 48px 0 32px; }
+  pre { font-size: 12px; padding: 16px; }
+  .layout-row { flex-wrap: wrap; }
+  .layout-block { min-width: 60px; font-size: 11px; }
+  .drop-cap::first-letter { font-size: 2.8em; }
+  .nav-link { font-size: 10px; padding: 4px 6px; }
+  .byte-map { font-size: 11px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     NAVIGATION
+     ============================================================ -->
+<nav>
+  <div class="nav-inner">
+    <span class="nav-brand">Shard</span>
+    <a href="#ch1" class="nav-link">Origin</a>
+    <a href="#ch2" class="nav-link">Wire Format</a>
+    <a href="#ch3" class="nav-link">Cross-Lang</a>
+    <a href="#ch4" class="nav-link">Timeline</a>
+    <a href="#ch5" class="nav-link">Security</a>
+    <a href="#ch6" class="nav-link">Robustness</a>
+    <a href="#appendix" class="nav-link">Reference</a>
+  </div>
+</nav>
+
+<!-- ============================================================
+     HERO
+     ============================================================ -->
+<header class="hero">
+  <div class="container">
+    <p class="hero-sub">A Forensic Technical Narrative</p>
+    <h1>The <span>Shard</span> Codec</h1>
+    <p class="hero-meta">
+      Binary container format for ML model weights and structured data.<br>
+      <strong>5 languages</strong> &middot; <strong>85 files</strong> &middot; <strong>34,124 lines</strong> &middot; Built in 5 days.
+    </p>
+  </div>
+</header>
+
+<main class="container">
+
+<!-- ============================================================
+     CHAPTER 1: ORIGIN
+     ============================================================ -->
+<section class="chapter" id="ch1">
+  <span class="chapter-number">Chapter I</span>
+  <h2>The Problem With Model Weights</h2>
+
+  <p class="drop-cap">A seven-billion-parameter language model is, at its core, a collection of named tensors. Thousands of them. Each one a dense block of floating-point numbers&mdash;attention projections, feed-forward gates, embedding tables, layer norms&mdash;keyed by names like <code>model.layers.31.self_attn.q_proj.weight</code>. The question that every inference runtime, every training pipeline, and every model distribution system must answer is deceptively simple: <em>how do you store and retrieve these tensors efficiently, safely, and from any programming language?</em></p>
+
+  <p>The incumbent answers are unsatisfying. SafeTensors is single-language in spirit, bolted onto Python's ecosystem. GGUF is a monolith designed around <code>llama.cpp</code>'s specific needs. HDF5 is a 30-year-old format that requires a C library the size of a small operating system. None of them were designed for the reality of modern ML infrastructure: models served from Go runtimes, preprocessed in Python, validated in Rust, loaded in C for CUDA kernels, and orchestrated from TypeScript control planes. You need one format that works natively in all five, with checksums you can trust, compression you can control, and alignment that lets you <code>mmap</code> directly into GPU memory.</p>
+
+  <p>Shard is that format. A 64-byte header, 48-byte index entries, xxHash64 name lookups, CRC32C integrity checks, zstd/LZ4 compression, and 64-byte alignment by default. Five language implementations&mdash;all binary-compatible, all producing identical bytes for identical inputs. No runtime dependencies beyond a compression library. No schema negotiation. No version hell. You write a shard in Python, read it in C, stream it in Go, validate it in Rust. The bytes are the contract.</p>
+
+  <div class="insight">
+    <div class="insight-label">How It Got Here</div>
+    <p>Shard was extracted from the Agent-GO monorepo on March 6, 2026&mdash;85 files, 34,124 lines, arriving fully formed across four languages. Go, paradoxically, was the laggard: it had CLI tools but no library. That asymmetry was resolved within 24 hours.</p>
+  </div>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="metric-value">85</div>
+      <div class="metric-label">Files Extracted</div>
+    </div>
+    <div class="metric">
+      <div class="metric-value">34,124</div>
+      <div class="metric-label">Lines of Code</div>
+    </div>
+    <div class="metric">
+      <div class="metric-value">5</div>
+      <div class="metric-label">Languages</div>
+    </div>
+    <div class="metric">
+      <div class="metric-value">1</div>
+      <div class="metric-label">Commit</div>
+    </div>
+  </div>
+
+  <h3>The Initial File Tree</h3>
+
+  <p>The repository landed with a sprawling directory structure&mdash;not just the core <code>shard_v2</code> codec, but satellite projects that used it: <code>sampleshard</code> for ML training data, <code>mosh</code> for model shards, <code>wshard</code> for windowed shards, and <code>pyshard</code> as a Python variant. The Go directory contained only the CLI tools.</p>
+
+  <div class="diagram">
+    <div class="diagram-label">Initial Repository Layout &mdash; March 6, 2026</div>
+    <div class="file-tree">
+      <div><span class="dir">shard/</span></div>
+      <div><span class="indent">&boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">c/</span> <span class="count">&mdash; 8 files, 4,599 lines</span></div>
+      <div><span class="indent">&boxv;  &boxvr;&HorizontalLine;&HorizontalLine; </span><span class="file">shard_v2.c</span> <span class="count">(1,539 lines)</span></div>
+      <div><span class="indent">&boxv;  &boxvr;&HorizontalLine;&HorizontalLine; </span><span class="file">shard_v2.h</span> <span class="count">(293 lines)</span></div>
+      <div><span class="indent">&boxv;  &boxvr;&HorizontalLine;&HorizontalLine; </span><span class="file">test_compression.c, test_golden.c, test_metadata.c</span></div>
+      <div><span class="indent">&boxv;  &boxur;&HorizontalLine;&HorizontalLine; </span><span class="file">test_mmap.c, test_safety.c, test_streaming.c, test_writer.c</span></div>
+      <div><span class="indent">&boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">go/</span> <span class="count">&mdash; CLI only, no library</span></div>
+      <div><span class="indent">&boxv;  &boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">cmd/shardctl/</span> <span class="file">main.go</span> <span class="count">(1,432 lines)</span></div>
+      <div><span class="indent">&boxv;  &boxur;&HorizontalLine;&HorizontalLine; </span><span class="dir">cmd/ucodec/</span> <span class="file">main.go, export.go, gguf.go, info.go, prune.go, quantize.go, run.go</span></div>
+      <div><span class="indent">&boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">py/</span> <span class="count">&mdash; Core Python implementation</span></div>
+      <div><span class="indent">&boxv;  &boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">shard_v2/</span> <span class="file">shard_v2.py</span> <span class="count">(1,096 lines)</span></div>
+      <div><span class="indent">&boxv;  &boxur;&HorizontalLine;&HorizontalLine; </span><span class="dir">tests/</span> <span class="file">7 test files</span> <span class="count">(2,322 lines)</span></div>
+      <div><span class="indent">&boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">rs/</span> <span class="count">&mdash; Rust implementation</span></div>
+      <div><span class="indent">&boxv;  &boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">src/</span> <span class="file">lib.rs</span> <span class="count">(1,949 lines)</span></div>
+      <div><span class="indent">&boxv;  &boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">tests/</span> <span class="file">8 test files</span> <span class="count">(4,437 lines)</span></div>
+      <div><span class="indent">&boxv;  &boxur;&HorizontalLine;&HorizontalLine; </span><span class="dir">fuzz/</span> <span class="file">5 fuzz targets</span></div>
+      <div><span class="indent">&boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">ts/</span> <span class="count">&mdash; TypeScript implementation</span></div>
+      <div><span class="indent">&boxv;  &boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">src/</span> <span class="file">index.ts</span> <span class="count">(1,455 lines)</span></div>
+      <div><span class="indent">&boxv;  &boxur;&HorizontalLine;&HorizontalLine; </span><span class="dir">src/__tests__/</span> <span class="file">7 test files</span> <span class="count">(2,721 lines)</span></div>
+      <div><span class="indent">&boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">sampleshard/</span> <span class="count">&mdash; ML training data format</span></div>
+      <div><span class="indent">&boxv;  &boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">js/</span> <span class="file">reader.ts, writer.ts, types.ts, cowrie.ts</span></div>
+      <div><span class="indent">&boxv;  &boxur;&HorizontalLine;&HorizontalLine; </span><span class="dir">py/</span> <span class="file">reader.py, writer.py, types.py, bridges.py, torch.py</span></div>
+      <div><span class="indent">&boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">mosh/</span> <span class="count">&mdash; Model shard codec</span></div>
+      <div><span class="indent">&boxvr;&HorizontalLine;&HorizontalLine; </span><span class="dir">wshard/</span> <span class="count">&mdash; Windowed shard</span></div>
+      <div><span class="indent">&boxur;&HorizontalLine;&HorizontalLine; </span><span class="dir">pyshard/</span> <span class="count">&mdash; Python shard variant</span></div>
+    </div>
+  </div>
+
+  <div class="insight">
+    <span class="insight-label">Insight</span>
+    <p>The Go CLI tools (<code>shardctl</code> and <code>ucodec</code>) contained full shard read/write logic&mdash;but it was woven into command handlers, not exposed as a reusable package. The extraction preserved this architectural debt. It would take another day to pay it down.</p>
+  </div>
+
+  <h3>What Arrived in Each Language</h3>
+
+  <p>The asymmetry between languages is worth examining in detail. Four languages had production-ready codec implementations; Go had only consumer code.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Language</th><th>Codec Impl</th><th>Tests</th><th>Reader</th><th>Writer</th><th>Compression</th><th>Mmap</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>C</code></td>
+          <td>1,539 lines</td>
+          <td>7 test files</td>
+          <td>Yes</td>
+          <td>Yes</td>
+          <td>zstd + LZ4</td>
+          <td>Yes</td>
+        </tr>
+        <tr>
+          <td><code>Python</code></td>
+          <td>1,096 lines</td>
+          <td>7 test files</td>
+          <td>Yes</td>
+          <td>Yes</td>
+          <td>zstd + LZ4</td>
+          <td>No</td>
+        </tr>
+        <tr>
+          <td><code>Rust</code></td>
+          <td>1,949 lines</td>
+          <td>8 test files + 5 fuzz</td>
+          <td>Yes</td>
+          <td>Yes</td>
+          <td>zstd + LZ4</td>
+          <td>Yes</td>
+        </tr>
+        <tr>
+          <td><code>TypeScript</code></td>
+          <td>1,455 lines</td>
+          <td>7 test files</td>
+          <td>Yes</td>
+          <td>Yes</td>
+          <td>zstd + LZ4</td>
+          <td>No (Buffer)</td>
+        </tr>
+        <tr>
+          <td><code>Go</code></td>
+          <td style="color: var(--pink);">0 lines (CLI only)</td>
+          <td>0</td>
+          <td style="color: var(--pink);">No</td>
+          <td style="color: var(--pink);">No</td>
+          <td>N/A</td>
+          <td>N/A</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Go's absence from the library layer is the central tension of Day 1. The <code>shardctl</code> command (1,432 lines) could create, inspect, merge, and split shards. The <code>ucodec</code> command (1,576 lines across 6 files) could export to GGUF, quantize weights, prune entries, and run inference. All of this logic was locked inside <code>main()</code> functions and <code>cobra</code> command handlers. No other Go package could import it.</p>
+
+  <div class="insight info">
+    <span class="insight-label">The ucodec CLI</span>
+    <p>The <code>ucodec</code> tool reveals the shard format's origin story. Its subcommands&mdash;<code>export</code>, <code>gguf</code>, <code>info</code>, <code>prune</code>, <code>quantize</code>, <code>run</code>&mdash;show that the format was born in the context of LLM model weight management. It wasn't designed as an abstract container; it was designed to hold quantized weight tiles for inference on GPU hardware, with GGUF conversion as a migration path from existing tooling.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     CHAPTER 2: THE WIRE FORMAT
+     ============================================================ -->
+<section class="chapter" id="ch2">
+  <span class="chapter-number">Chapter II</span>
+  <h2>The Wire Format</h2>
+
+  <p class="drop-cap">Shard v2 is a binary container format designed for one purpose: packing named blobs&mdash;typically ML model weights, tensors, and metadata&mdash;into a single seekable file with O(1) lookup by name. The format uses a fixed 64-byte header, a flat index of 48-byte entries, a string table, and an aligned data section. Everything is little-endian. There is no tree structure, no nested containers, no variable-length headers. It is deliberately simple.</p>
+
+  <p>The magic bytes are <code>SHRD</code> (0x53, 0x48, 0x52, 0x44). Version is always <code>0x02</code>&mdash;there is no v1 in this codebase; the numbering implies a predecessor that was either discarded or never formalized.</p>
+
+  <h3>Header &mdash; 64 Bytes</h3>
+
+  <p>Every shard file begins with exactly 64 bytes. All multi-byte fields are little-endian.</p>
+
+  <div class="byte-map">
+    <div class="bm-offset">0&ndash;3</div>
+    <div class="bm-size">4B</div>
+    <div class="bm-field">Magic <code>"SHRD"</code> (0x53 0x48 0x52 0x44)</div>
+
+    <div class="bm-offset">4</div>
+    <div class="bm-size">1B</div>
+    <div class="bm-field">Version <code>0x02</code></div>
+
+    <div class="bm-offset">5</div>
+    <div class="bm-size">1B</div>
+    <div class="bm-field">Role &mdash; MoSH=1, Sample=2, GemmPanel=3, Manifest=4, WShard=5, UMSH=6</div>
+
+    <div class="bm-offset">6&ndash;7</div>
+    <div class="bm-size">2B</div>
+    <div class="bm-field">Flags (uint16 LE) &mdash; bit1=LE, bit4=schema, bit5=checksums, bit6=streaming, bit7=content_types</div>
+
+    <div class="bm-offset">8</div>
+    <div class="bm-size">1B</div>
+    <div class="bm-field">Alignment &mdash; 0=none, 16, 32, 64</div>
+
+    <div class="bm-offset">9</div>
+    <div class="bm-size">1B</div>
+    <div class="bm-field">Compression default &mdash; 0=none, 1=zstd, 2=lz4</div>
+
+    <div class="bm-offset">10&ndash;11</div>
+    <div class="bm-size">2B</div>
+    <div class="bm-field">Index entry size (uint16 LE) &mdash; always <code>48</code></div>
+
+    <div class="bm-offset">12&ndash;15</div>
+    <div class="bm-size">4B</div>
+    <div class="bm-field">Entry count (uint32 LE)</div>
+
+    <div class="bm-offset">16&ndash;23</div>
+    <div class="bm-size">8B</div>
+    <div class="bm-field">String table offset (uint64 LE)</div>
+
+    <div class="bm-offset">24&ndash;31</div>
+    <div class="bm-size">8B</div>
+    <div class="bm-field">Data section offset (uint64 LE)</div>
+
+    <div class="bm-offset">32&ndash;39</div>
+    <div class="bm-size">8B</div>
+    <div class="bm-field">Schema offset (uint64 LE) &mdash; 0 if no schema</div>
+
+    <div class="bm-offset">40&ndash;47</div>
+    <div class="bm-size">8B</div>
+    <div class="bm-field">Total file size (uint64 LE)</div>
+
+    <div class="bm-offset">48&ndash;63</div>
+    <div class="bm-size">16B</div>
+    <div class="bm-field">Reserved (zeroed)</div>
+  </div>
+
+  <div class="insight info">
+    <span class="insight-label">Note</span>
+    <p>The <code>index_entry_size</code> field is always 48 and is validated on open. This provides forward-compatibility&mdash;a future version could bump this value, and old readers would reject the file cleanly rather than parsing garbage.</p>
+  </div>
+
+  <h3>Index Entry &mdash; 48 Bytes</h3>
+
+  <p>Immediately after the header, <code>entry_count</code> index entries are laid out contiguously. Each entry describes one named blob in the data section.</p>
+
+  <div class="byte-map">
+    <div class="bm-offset">0&ndash;7</div>
+    <div class="bm-size">8B</div>
+    <div class="bm-field">Name hash &mdash; xxHash64 of the entry name (for O(1) lookup)</div>
+
+    <div class="bm-offset">8&ndash;11</div>
+    <div class="bm-size">4B</div>
+    <div class="bm-field">Name offset into string table (uint32 LE)</div>
+
+    <div class="bm-offset">12&ndash;13</div>
+    <div class="bm-size">2B</div>
+    <div class="bm-field">Name length (uint16 LE)</div>
+
+    <div class="bm-offset">14&ndash;15</div>
+    <div class="bm-size">2B</div>
+    <div class="bm-field">Flags &mdash; bit0=compressed, bit1=zstd, bit2=lz4, bit3=chunked</div>
+
+    <div class="bm-offset">16&ndash;23</div>
+    <div class="bm-size">8B</div>
+    <div class="bm-field">Data offset (absolute file position, uint64 LE)</div>
+
+    <div class="bm-offset">24&ndash;31</div>
+    <div class="bm-size">8B</div>
+    <div class="bm-field">Disk size (compressed size on disk, uint64 LE)</div>
+
+    <div class="bm-offset">32&ndash;39</div>
+    <div class="bm-size">8B</div>
+    <div class="bm-field">Original size (uncompressed, uint64 LE)</div>
+
+    <div class="bm-offset">40&ndash;43</div>
+    <div class="bm-size">4B</div>
+    <div class="bm-field">CRC32C checksum of uncompressed data (uint32 LE)</div>
+
+    <div class="bm-offset">44&ndash;47</div>
+    <div class="bm-size">4B</div>
+    <div class="bm-field">Reserved &mdash; lower 16 bits carry content type ID</div>
+  </div>
+
+  <h3>File Layout</h3>
+
+  <p>The sections are laid out sequentially. The data section is padded to the specified alignment boundary. The optional schema section sits at the end.</p>
+
+  <div class="diagram">
+    <div class="diagram-label">Shard v2 File Layout</div>
+    <div class="layout-row">
+      <div class="layout-block accent">
+        Header
+        <span class="block-size">64 B</span>
+      </div>
+      <div class="layout-arrow">&rarr;</div>
+      <div class="layout-block cyan">
+        Index
+        <span class="block-size">48 B &times; N</span>
+      </div>
+      <div class="layout-arrow">&rarr;</div>
+      <div class="layout-block">
+        String Table
+        <span class="block-size">variable</span>
+      </div>
+      <div class="layout-arrow">&rarr;</div>
+      <div class="layout-block" style="border-style: dashed;">
+        Padding
+        <span class="block-size">to align</span>
+      </div>
+      <div class="layout-arrow">&rarr;</div>
+      <div class="layout-block pink">
+        Data Section
+        <span class="block-size">variable</span>
+      </div>
+      <div class="layout-arrow">&rarr;</div>
+      <div class="layout-block" style="border-style: dashed;">
+        Schema
+        <span class="block-size">optional</span>
+      </div>
+    </div>
+  </div>
+
+  <h3>Content Types</h3>
+
+  <p>Each index entry can declare what kind of data it contains via a 16-bit content type ID stored in the reserved field. Values 0x8000 and above are user-defined.</p>
+
+  <div class="tag-grid">
+    <span class="tag"><span class="tag-id">0</span> Unknown</span>
+    <span class="tag"><span class="tag-id">1</span> Tensor</span>
+    <span class="tag"><span class="tag-id">2</span> JSON</span>
+    <span class="tag"><span class="tag-id">3</span> Cowrie</span>
+    <span class="tag"><span class="tag-id">4</span> GLYPH</span>
+    <span class="tag"><span class="tag-id">5</span> Text</span>
+    <span class="tag"><span class="tag-id">6</span> Image</span>
+    <span class="tag"><span class="tag-id">7</span> Audio</span>
+    <span class="tag"><span class="tag-id">8</span> Video</span>
+    <span class="tag"><span class="tag-id">9</span> Protobuf</span>
+    <span class="tag"><span class="tag-id">10</span> Blob</span>
+    <span class="tag"><span class="tag-id">11</span> Embedding</span>
+    <span class="tag"><span class="tag-id">12</span> TokenIDs</span>
+    <span class="tag"><span class="tag-id">13</span> Logits</span>
+    <span class="tag"><span class="tag-id">14</span> AttentionMask</span>
+    <span class="tag"><span class="tag-id">15</span> PositionIDs</span>
+    <span class="tag"><span class="tag-id">16</span> ExpertIndices</span>
+    <span class="tag"><span class="tag-id">0x8000+</span> User-Defined</span>
+  </div>
+
+  <h3>Roles</h3>
+
+  <p>The role byte at offset 5 declares the intended use of the shard. This is metadata, not structural&mdash;all roles share the same wire format.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Value</th><th>Role</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>0</code></td><td>Unknown</td><td>Unspecified</td></tr>
+        <tr><td><code>1</code></td><td>MoSH</td><td>Model shard &mdash; quantized weight tiles for inference</td></tr>
+        <tr><td><code>2</code></td><td>Sample</td><td>Training samples (input/target pairs)</td></tr>
+        <tr><td><code>3</code></td><td>GemmPanel</td><td>GEMM panel data for tiled matrix multiplication</td></tr>
+        <tr><td><code>4</code></td><td>Manifest</td><td>Index of other shards</td></tr>
+        <tr><td><code>5</code></td><td>WShard</td><td>Windowed shard for streaming access</td></tr>
+        <tr><td><code>6</code></td><td>UMSH</td><td>Universal model shard</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Compression</h3>
+
+  <p>Entries can be individually compressed with zstd or LZ4. The writer applies compression only when the entry is at least 256 bytes and compression achieves at least a 90% ratio (compressed size &le; 90% of original). Otherwise, the entry is stored raw. This prevents small entries from being inflated by compression framing overhead.</p>
+
+  <p>The compression decision happens per-entry, not per-file. Each entry's index flags record whether it is compressed and which algorithm was used. This means a single shard can contain a mix of compressed and uncompressed entries&mdash;small metadata entries stored raw alongside multi-megabyte weight tensors compressed with zstd.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Parameter</th><th>Value</th><th>Rationale</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>MIN_COMPRESS_SIZE</code></td>
+          <td>256 bytes</td>
+          <td>Below this threshold, zstd/LZ4 framing overhead dominates</td>
+        </tr>
+        <tr>
+          <td>Savings threshold</td>
+          <td>90% (9/10)</td>
+          <td>Compressed size must be &le; 90% of original; otherwise stored raw</td>
+        </tr>
+        <tr>
+          <td><code>MAX_DECOMPRESS_SIZE</code></td>
+          <td>1 GB</td>
+          <td>Anti-decompression-bomb safety cap</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <details>
+    <summary>Compression Decision Logic (from Go reference)</summary>
+    <div class="code-body">
+<pre><code>// MIN_COMPRESS_SIZE = 256 bytes
+// Compression must save at least 10% (ratio <= 0.90)
+if len(data) < MinCompressSize {
+    return data, false  // too small
+}
+compressed := zstdEncode(data)
+if len(compressed) >= len(data) * 9 / 10 {
+    return data, false  // savings too small
+}
+return compressed, true</code></pre>
+    </div>
+  </details>
+
+  <h3>Extended Sections</h3>
+
+  <p>Beyond the core layout, the Go implementation defines a forward-compatible section directory system in <code>shard_sections.go</code>. These optional sections use FourCC type codes and are designed to be safely skipped by readers that don't understand them.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>FourCC</th><th>Section</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>INDX</code></td><td>Index</td><td>Tensor index (core)</td></tr>
+        <tr><td><code>DATA</code></td><td>Data</td><td>Tensor data blob (core)</td></tr>
+        <tr><td><code>STRT</code></td><td>String Table</td><td>Name storage (core)</td></tr>
+        <tr><td><code>META</code></td><td>Metadata</td><td>Model metadata as JSON</td></tr>
+        <tr><td><code>NMAP</code></td><td>Name Map</td><td>Canonical-to-source name mapping</td></tr>
+        <tr><td><code>RGON</code></td><td>Region Table</td><td>Prefetch hints for streaming access</td></tr>
+        <tr><td><code>QMET</code></td><td>Quant Meta</td><td>Quantization metadata linking</td></tr>
+        <tr><td><code>SDIR</code></td><td>Section Directory</td><td>Directory of all sections for extensibility</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>The section directory supports alignment at multiple granularities: 64 bytes for SIMD (AVX-512), 4 KB for OS page alignment, and 64 KB for large page support. These are stored as power-of-two exponents in the header flags.</p>
+
+  <details>
+    <summary>Section alignment constants (Go)</summary>
+    <div class="code-body">
+<pre><code>const (
+    AlignPow2_64B  uint8 = 6  // 1&lt;&lt;6  = 64 bytes (SIMD)
+    AlignPow2_4KB  uint8 = 12 // 1&lt;&lt;12 = 4096 bytes (page)
+    AlignPow2_64KB uint8 = 16 // 1&lt;&lt;16 = 65536 bytes (large page)
+)</code></pre>
+    </div>
+  </details>
+
+  <h3>The Shard Analogy</h3>
+
+  <p>The package documentation in <code>shard.go</code> offers a crisp analogy for the format's place in the stack:</p>
+
+  <div class="insight info">
+    <span class="insight-label">From shard.go</span>
+    <p><em>"Think of it as a ZIP file optimized for tensors&mdash;but with mmap support, 64-byte alignment for SIMD, and streaming writes."</em></p>
+    <p>Cowrie and GLYPH are value codecs (individual "files"). Shard is a container format (a "directory" holding many files). A shard typically contains Cowrie-encoded or TensorV1-encoded entries, but the format is agnostic&mdash;entries can be any binary data.</p>
+  </div>
+
+  <h3>Streaming Writes</h3>
+
+  <p>The Go implementation provides two writer types: <code>ShardV2Writer</code> for standard buffered writes, and <code>ShardV2StreamWriter</code> for zero-copy streaming. The stream writer is designed for very large models where you cannot hold all entries in memory. It requires pre-declaring the entry count, writes the header and index with placeholder offsets, streams data entries sequentially, then seeks back to finalize the header and index.</p>
+
+  <details>
+    <summary>Streaming write pattern (from shard.go docs)</summary>
+    <div class="code-body">
+<pre><code>// Streaming write (for very large models):
+sw, _ := NewShardV2StreamWriter("model.shard", ShardRoleMoSH, 1000)
+sw.BeginData()
+sw.WriteEntry("layer.0.weight", tensorBytes)
+sw.Finalize()</code></pre>
+    </div>
+  </details>
+</section>
+
+<!-- ============================================================
+     CHAPTER 3: CROSS-LANGUAGE API
+     ============================================================ -->
+<section class="chapter" id="ch3">
+  <span class="chapter-number">Chapter III</span>
+  <h2>Five Languages, One Format</h2>
+
+  <p class="drop-cap">Five implementations of the same binary format exist in this repository: Go, Python, TypeScript, Rust, and C. All produce and consume binary-identical files. The wire format is the contract; the API surfaces are language-idiomatic but functionally equivalent. After March 10, Go was formally declared the reference implementation, and all cross-language fixes were anchored against its behavior.</p>
+
+  <h3>Implementation Sizes</h3>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Language</th><th>File</th><th>Lines</th><th>Dependencies</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>Rust</code></td><td>rs/src/lib.rs</td><td>1,968</td><td>memmap2, xxhash-rust, crc32c, zstd, lz4_flex</td></tr>
+        <tr><td><code>Go</code></td><td>go/shard/shard_v2.go</td><td>1,768</td><td>xxhash/v2, klauspost/compress, pierrec/lz4</td></tr>
+        <tr><td><code>TypeScript</code></td><td>ts/src/index.ts</td><td>1,764</td><td>xxhash-wasm, @bokuweb/zstd-wasm, lz4js</td></tr>
+        <tr><td><code>C</code></td><td>c/shard_v2.c</td><td>1,583</td><td>zstd.h, lz4.h (linked)</td></tr>
+        <tr><td><code>Python</code></td><td>py/shard_v2/shard_v2.py</td><td>1,338</td><td>xxhash, crc32c, zstandard, lz4.block</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>API Comparison</h3>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Operation</th><th>Go</th><th>Python</th><th>TypeScript</th><th>Rust</th><th>C</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Open</td>
+          <td><code>OpenShardV2(path)</code></td>
+          <td><code>ShardV2Reader(path)</code></td>
+          <td><code>new ShardV2Reader(buf)</code></td>
+          <td><code>ShardV2Reader::from_file(p)</code></td>
+          <td><code>shard_v2_open(path)</code></td>
+        </tr>
+        <tr>
+          <td>Lookup</td>
+          <td><code>r.Lookup(name)</code></td>
+          <td><code>r.lookup(name)</code></td>
+          <td><code>r.lookup(name)</code></td>
+          <td><code>r.lookup(name)</code></td>
+          <td><code>shard_v2_lookup(r, name)</code></td>
+        </tr>
+        <tr>
+          <td>Read</td>
+          <td><code>r.ReadEntry(i)</code></td>
+          <td><code>r.read_entry(i)</code></td>
+          <td><code>r.readEntry(i)</code></td>
+          <td><code>r.read_entry(i)</code></td>
+          <td><code>shard_v2_read_entry(r, i, ...)</code></td>
+        </tr>
+        <tr>
+          <td>Write</td>
+          <td><code>w.WriteEntry(n, d)</code></td>
+          <td><code>w.write_entry(n, d)</code></td>
+          <td><code>w.writeEntry(n, d)</code></td>
+          <td><code>w.write_entry(n, d)</code></td>
+          <td><code>shard_v2_writer_write(w, ...)</code></td>
+        </tr>
+        <tr>
+          <td>Close</td>
+          <td><code>r.Close()</code></td>
+          <td><code>r.close()</code></td>
+          <td><code>&mdash;</code></td>
+          <td><code>drop(r)</code></td>
+          <td><code>shard_v2_close(r)</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Key Divergences</h3>
+
+  <div class="insight warning">
+    <span class="insight-label">Divergence: TypeScript</span>
+    <p>The TypeScript implementation takes a <code>Buffer</code> in the constructor rather than a file path. It operates entirely in-memory. This makes sense for its primary use case (Node.js/browser), but means it cannot mmap large files the way Go, Rust, and C do.</p>
+  </div>
+
+  <div class="insight warning">
+    <span class="insight-label">Divergence: C NULL Handling</span>
+    <p>The C implementation rejects <code>NULL</code> data for zero-length entries. All other languages accept a zero-length buffer. This was documented in the cross-language parity commit (<code>ae38c57</code>) but intentionally left as a C-specific guard: passing NULL to memcpy is undefined behavior in C even when the length is zero.</p>
+  </div>
+
+  <div class="insight info">
+    <span class="insight-label">Lookup Strategy</span>
+    <p>All implementations use xxHash64 for name hashing. Lookup computes the hash, then walks the index linearly to find a matching hash, confirming by comparing the actual name from the string table. This is O(n) in the worst case but typically O(1) for unique names&mdash;xxHash64 collisions are vanishingly rare in practice. Go and Rust build an in-memory hash map on open for O(1) amortized lookup.</p>
+  </div>
+
+  <details>
+    <summary>Go Reader Struct &mdash; from shard_v2.go</summary>
+    <div class="code-body">
+<pre><code>type ShardV2Header struct {
+    Magic              [4]byte
+    Version            uint8
+    Role               ShardRole
+    Flags              ShardFlags
+    Alignment          uint8
+    CompressionDefault uint8
+    IndexEntrySize     uint16
+    EntryCount         uint32
+    StringTableOffset  uint64
+    DataSectionOffset  uint64
+    SchemaOffset       uint64
+    TotalFileSize      uint64
+    Reserved           [16]byte
+}
+
+type IndexEntryV2 struct {
+    NameHash   uint64
+    NameOffset uint32
+    NameLen    uint16
+    Flags      uint16
+    DataOffset uint64
+    DiskSize   uint64
+    OrigSize   uint64
+    Checksum   uint32
+    Reserved   uint32  // lower 16 bits = content_type
+}</code></pre>
+    </div>
+  </details>
+
+  <details>
+    <summary>C Header Struct &mdash; from shard_v2.h</summary>
+    <div class="code-body">
+<pre><code>typedef struct {
+    uint8_t  magic[4];
+    uint8_t  version;
+    uint8_t  role;
+    uint16_t flags;
+    uint8_t  alignment;
+    uint8_t  compression_default;
+    uint16_t index_entry_size;
+    uint32_t entry_count;
+    uint64_t string_table_offset;
+    uint64_t data_section_offset;
+    uint64_t schema_offset;
+    uint64_t total_file_size;
+    uint8_t  reserved[16];
+} shard_v2_header_t;</code></pre>
+    </div>
+  </details>
+
+  <details>
+    <summary>Rust Constants &mdash; from lib.rs</summary>
+    <div class="code-body">
+<pre><code>pub const SHARD_MAGIC: &[u8; 4] = b"SHRD";
+pub const SHARD_VERSION2: u8 = 0x02;
+pub const HEADER_SIZE: usize = 64;
+pub const INDEX_ENTRY_SIZE: usize = 48;
+
+pub const ROLE_MOSH: u8 = 1;
+pub const ROLE_SAMPLE: u8 = 2;
+pub const ROLE_GEMMPANEL: u8 = 3;
+pub const ROLE_MANIFEST: u8 = 4;
+pub const ROLE_WSHARD: u8 = 5;
+pub const ROLE_UMSH: u8 = 6;
+
+pub const COMPRESS_NONE: u8 = 0;
+pub const COMPRESS_ZSTD: u8 = 1;
+pub const COMPRESS_LZ4: u8 = 2;</code></pre>
+    </div>
+  </details>
+
+  <details>
+    <summary>Python Constants &mdash; from shard_v2.py</summary>
+    <div class="code-body">
+<pre><code>SHARD_MAGIC = b"SHRD"
+SHARD_VERSION2 = 0x02
+HEADER_SIZE = 64
+INDEX_ENTRY_SIZE = 48
+
+# Roles
+ROLE_UNKNOWN = 0
+ROLE_MOSH = 1
+ROLE_SAMPLE = 2
+ROLE_GEMMPANEL = 3
+ROLE_MANIFEST = 4
+ROLE_WSHARD = 5
+ROLE_UMSH = 6
+
+# Compression
+COMPRESS_NONE = 0
+COMPRESS_ZSTD = 1
+COMPRESS_LZ4 = 2</code></pre>
+    </div>
+  </details>
+
+  <h3>Error Handling Strategies</h3>
+
+  <p>Each language takes a different idiomatic approach to error handling, but all implementations produce the same behavioral outcome: invalid data never reaches the caller.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Language</th><th>Strategy</th><th>Example</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Go</code></td>
+          <td>Multiple return values <code>(T, error)</code></td>
+          <td><code>data, err := r.ReadEntry(i)</code></td>
+        </tr>
+        <tr>
+          <td><code>Rust</code></td>
+          <td><code>Result&lt;T, ShardError&gt;</code> enum</td>
+          <td><code>let data = r.read_entry(i)?;</code></td>
+        </tr>
+        <tr>
+          <td><code>Python</code></td>
+          <td>Exceptions</td>
+          <td><code>data = r.read_entry(i)  # raises ValueError</code></td>
+        </tr>
+        <tr>
+          <td><code>TypeScript</code></td>
+          <td>Thrown errors</td>
+          <td><code>const data = r.readEntry(i);  // throws Error</code></td>
+        </tr>
+        <tr>
+          <td><code>C</code></td>
+          <td>Return codes + out params</td>
+          <td><code>int rc = shard_v2_read_entry(r, i, &buf, &len);</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="insight">
+    <span class="insight-label">Rust API Evolution</span>
+    <p>The Rust implementation originally used panics for some error conditions. Commit <code>50a3c8e</code> on Day 3 migrated the reader API to return <code>Result</code> types throughout, producing a rich <code>ShardError</code> enum with 13 variants covering every failure mode: <code>InvalidMagic</code>, <code>UnsupportedVersion</code>, <code>ChecksumMismatch</code>, <code>DecompressTooLarge</code>, <code>SecurityLimitExceeded</code>, <code>FileSizeMismatch</code>, <code>EntryOffsetOutOfRange</code>, and more.</p>
+  </div>
+
+  <details>
+    <summary>Rust ShardError enum &mdash; 13 variants</summary>
+    <div class="code-body">
+<pre><code>#[derive(Debug)]
+pub enum ShardError {
+    InvalidMagic,
+    UnsupportedVersion(u8),
+    InvalidIndexEntrySize(u16),
+    ChecksumMismatch { entry: usize, expected: u32, got: u32 },
+    EntryNotFound(String),
+    CompressionNotSupported,
+    DecompressTooLarge(u64),
+    DecompressFailed(String),
+    SecurityLimitExceeded(String),
+    FileSizeMismatch { expected: u64, actual: u64 },
+    EntryOffsetOutOfRange { index: usize },
+    IndexOutOfBounds { index: usize, count: usize },
+    JsonError(String),
+    Io(std::io::Error),
+}</code></pre>
+    </div>
+  </details>
+
+  <h3>Dependency Choices</h3>
+
+  <p>Each implementation makes its own choices for xxHash64, CRC32C, zstd, and LZ4&mdash;but the wire-format output is identical. The dependency choices reveal the constraints of each ecosystem.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th></th><th>xxHash64</th><th>CRC32C</th><th>Zstd</th><th>LZ4</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Go</code></td>
+          <td>cespare/xxhash/v2</td>
+          <td>hash/crc32 (Castagnoli)</td>
+          <td>klauspost/compress</td>
+          <td>pierrec/lz4/v4</td>
+        </tr>
+        <tr>
+          <td><code>Python</code></td>
+          <td>xxhash</td>
+          <td>crc32c</td>
+          <td>zstandard</td>
+          <td>lz4.block</td>
+        </tr>
+        <tr>
+          <td><code>TypeScript</code></td>
+          <td>xxhash-wasm</td>
+          <td>manual / built-in</td>
+          <td>@bokuweb/zstd-wasm</td>
+          <td>lz4js (CJS)</td>
+        </tr>
+        <tr>
+          <td><code>Rust</code></td>
+          <td>xxhash-rust</td>
+          <td>crc32c</td>
+          <td>zstd</td>
+          <td>lz4_flex</td>
+        </tr>
+        <tr>
+          <td><code>C</code></td>
+          <td>inline xxHash</td>
+          <td>inline CRC32C</td>
+          <td>libzstd</td>
+          <td>liblz4</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>The TypeScript implementation is notable for using WASM-compiled versions of both xxHash64 and zstd, plus a CommonJS-only LZ4 library loaded via <code>createRequire</code>. This means the TS reader requires an async initialization step before it can hash names or decompress data&mdash;an unavoidable consequence of the WASM compilation model.</p>
+
+  <h3>Memory Models</h3>
+
+  <p>The implementations differ significantly in how they access file data, reflecting the memory management capabilities of each language.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Language</th><th>Access Method</th><th>Advantage</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Go</code></td>
+          <td>File I/O + optional mmap</td>
+          <td>Works on all platforms; mmap for large files</td>
+        </tr>
+        <tr>
+          <td><code>Rust</code></td>
+          <td>mmap via memmap2</td>
+          <td>Zero-copy access, OS page cache handles eviction</td>
+        </tr>
+        <tr>
+          <td><code>C</code></td>
+          <td>mmap (POSIX)</td>
+          <td>Direct pointer access, no allocation for reads</td>
+        </tr>
+        <tr>
+          <td><code>Python</code></td>
+          <td>File I/O (read/seek)</td>
+          <td>Cross-platform, simple implementation</td>
+        </tr>
+        <tr>
+          <td><code>TypeScript</code></td>
+          <td>In-memory Buffer</td>
+          <td>Works in browser/Node.js, no filesystem dependency</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================================================
+     CHAPTER 4: THE 5-DAY SPRINT
+     ============================================================ -->
+<section class="chapter" id="ch4">
+  <span class="chapter-number">Chapter IV</span>
+  <h2>The Five-Day Sprint</h2>
+
+  <p class="drop-cap">Between March 6 and March 10, 2026, the shard repository went from a raw code extraction to a hardened, cross-language codec with formal robustness testing. Fifteen commits in five days. The velocity is instructive: it shows a project being brought to production-grade quality through systematic, focused passes&mdash;each day tackling a different layer of the stack.</p>
+
+  <div class="timeline">
+
+    <div class="timeline-item">
+      <div class="timeline-date">Day 1 &mdash; March 6, 2026</div>
+      <div class="timeline-title">The Extraction</div>
+      <div class="timeline-body">
+        <p>Single commit <code>d1f9c7c</code> carves 85 files from Agent-GO. Four languages arrive with full implementations. Go has only CLI tools. The commit message lists the directory structure: <code>py/</code>, <code>ts/</code>, <code>rs/</code>, <code>c/</code>, <code>wshard/</code>, <code>sampleshard/</code>, <code>mosh/</code>, <code>pyshard/</code>, and <code>go/cmd/</code>.</p>
+        <span class="timeline-stat">85 files</span>
+        <span class="timeline-stat">34,124 lines</span>
+        <span class="timeline-stat">1 commit</span>
+      </div>
+    </div>
+
+    <div class="timeline-item">
+      <div class="timeline-date">Day 2 &mdash; March 7, 2026</div>
+      <div class="timeline-title">Go Library + CI + First Bug Fix</div>
+      <div class="timeline-body">
+        <p>Four commits in one day. The Go library lands as <code>go/shard/</code> with 10 new files and 3,414 lines: <code>ShardV2Writer</code>, <code>ShardV2StreamWriter</code>, <code>ShardV2Reader</code>, schema validation, metadata, and DType constants. CI workflow is added. Golden and safety test fixtures are restored. PR #1 fixes a C use-after-free in <code>test_metadata</code>&mdash;the buffer was being freed before closing the reader.</p>
+        <span class="timeline-stat">3,414 lines (Go lib)</span>
+        <span class="timeline-stat">PR #1: C UAF fix</span>
+        <span class="timeline-stat">CI + fixtures</span>
+      </div>
+    </div>
+
+    <div class="timeline-item">
+      <div class="timeline-date">Day 3 &mdash; March 8, 2026</div>
+      <div class="timeline-title">Integer Safety + Bounds Hardening</div>
+      <div class="timeline-body">
+        <p>Six commits in a single day, each tightening a different boundary. The dedicated <code>intconv.go</code> module lands with safe <code>uint64&rarr;int</code> and <code>uint64&rarr;int64</code> conversions. C gets malloc overflow protection. Rust API methods shift from panics to <code>Result</code>. LZ4 integer truncation is fixed. Writer rejects names longer than <code>uint16</code> max. String table size is validated.</p>
+        <span class="timeline-stat">6 commits</span>
+        <span class="timeline-stat">intconv.go</span>
+        <span class="timeline-stat">Rust &rarr; Result API</span>
+      </div>
+    </div>
+
+    <div class="timeline-item">
+      <div class="timeline-date">Day 4 &mdash; March 10, AM</div>
+      <div class="timeline-title">Cross-Language Parity</div>
+      <div class="timeline-body">
+        <p>Commit <code>ae38c57</code>: 2,283 insertions across 25 files, touching all five languages plus both sampleshard implementations. Go is formally declared the reference implementation. Ten specific parity fixes are enumerated in the commit message: zstd decompression must match <code>origSize</code> exactly; name offsets validated against string table (not whole file); schema offsets validated before read; <code>ListChildren</code> returns bare path components; sampleshard rejects duplicate sample IDs.</p>
+        <span class="timeline-stat">2,283 insertions</span>
+        <span class="timeline-stat">25 files changed</span>
+        <span class="timeline-stat">Go = reference impl</span>
+      </div>
+    </div>
+
+    <div class="timeline-item">
+      <div class="timeline-date">Day 5 &mdash; March 10, PM</div>
+      <div class="timeline-title">Robustness Framework</div>
+      <div class="timeline-body">
+        <p>Two commits close the sprint. Commit <code>aa75c71</code> adds Tier 1 roadmap items and pushes Go test coverage to 80%. Commit <code>4a9d1a9</code> introduces the robustness test framework: truth table tests across all 5 languages (9 cases each) and performance cliff detection in Go (testing for quadratic blowup with increasing entry counts and sizes).</p>
+        <span class="timeline-stat">1,031 lines added</span>
+        <span class="timeline-stat">7 new test files</span>
+        <span class="timeline-stat">9 truth table cases</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="insight">
+    <span class="insight-label">Pattern</span>
+    <p>The sprint followed a clear layering strategy: Day 1 extracted raw code. Day 2 filled the Go gap and added CI. Day 3 hardened integer boundaries. Day 4 synchronized cross-language behavior. Day 5 formalized correctness with data-driven tests. Each layer built on the previous one&mdash;you cannot write truth tables until the APIs agree on what "correct" means.</p>
+  </div>
+
+  <h3>The Complete Commit Log</h3>
+
+  <p>Fifteen commits in five days. Each one is a discrete, documented change with a conventional-commit-style message. The log reads like a construction diary.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Hash</th><th>Date</th><th>Message</th><th>Impact</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>d1f9c7c</code></td>
+          <td>Mar 6</td>
+          <td>Initial commit: consolidate shard implementations from Agent-GO</td>
+          <td>85 files, 34,124 lines</td>
+        </tr>
+        <tr>
+          <td><code>31a1f09</code></td>
+          <td>Mar 7</td>
+          <td>feat: add Go shard v2 library</td>
+          <td>10 files, 3,414 lines</td>
+        </tr>
+        <tr>
+          <td><code>085b3a7</code></td>
+          <td>Mar 7</td>
+          <td>Harden shard readers and server surfaces</td>
+          <td>Bounds checks</td>
+        </tr>
+        <tr>
+          <td><code>23ab985</code></td>
+          <td>Mar 7</td>
+          <td>ci: add CI workflow and restore golden/safety test fixtures</td>
+          <td>CI + 18 fixtures</td>
+        </tr>
+        <tr>
+          <td><code>69e75d7</code></td>
+          <td>Mar 7</td>
+          <td>fix(c): use-after-free in test_metadata</td>
+          <td>PR #1</td>
+        </tr>
+        <tr>
+          <td><code>3369184</code></td>
+          <td>Mar 7</td>
+          <td>Merge pull request #1 from Neumenon/codex</td>
+          <td>Merge</td>
+        </tr>
+        <tr>
+          <td><code>71877cf</code></td>
+          <td>Mar 8</td>
+          <td>fix: reader bounds checks, download path collision, short write</td>
+          <td>Multi-lang</td>
+        </tr>
+        <tr>
+          <td><code>2544d22</code></td>
+          <td>Mar 8</td>
+          <td>fix: harden C decoder malloc overflow + Go uint64-to-int safety</td>
+          <td>intconv.go</td>
+        </tr>
+        <tr>
+          <td><code>82b3b83</code></td>
+          <td>Mar 8</td>
+          <td>fix: tighten shard integer bounds checks</td>
+          <td>All langs</td>
+        </tr>
+        <tr>
+          <td><code>f22b0b2</code></td>
+          <td>Mar 8</td>
+          <td>fix: LZ4 int truncation, writer name_len overflow, string table</td>
+          <td>Go + C</td>
+        </tr>
+        <tr>
+          <td><code>50a3c8e</code></td>
+          <td>Mar 8</td>
+          <td>test: update rust reader tests for Result API</td>
+          <td>Rust</td>
+        </tr>
+        <tr>
+          <td><code>0b4d5e5</code></td>
+          <td>Mar 8</td>
+          <td>fix: update sampleshard cowrie codecs for v3 wire format</td>
+          <td>Sampleshard</td>
+        </tr>
+        <tr>
+          <td><code>ae38c57</code></td>
+          <td>Mar 10</td>
+          <td>fix: cross-language parity and safety fixes (Go = reference)</td>
+          <td>25 files, 2,283 lines</td>
+        </tr>
+        <tr>
+          <td><code>aa75c71</code></td>
+          <td>Mar 10</td>
+          <td>feat: Tier 1 roadmap (tags, bitmask, schema ID) + beef Go tests</td>
+          <td>80% coverage</td>
+        </tr>
+        <tr>
+          <td><code>4a9d1a9</code></td>
+          <td>Mar 10</td>
+          <td>feat: add robustness test framework (truth tables, perf cliffs)</td>
+          <td>7 files, 1,031 lines</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="insight info">
+    <span class="insight-label">Velocity</span>
+    <p>Day 3 (March 8) was the densest day: 6 commits, all security-focused. This was not a feature day&mdash;it was a hardening day. The pattern is telling: extract first, fill gaps second, harden third, align fourth, verify fifth. Most projects reverse this order, hardening late (or never). This project hardened before it had its first public API.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     CHAPTER 5: SECURITY ARCHITECTURE
+     ============================================================ -->
+<section class="chapter" id="ch5">
+  <span class="chapter-number">Chapter V</span>
+  <h2>Security Architecture</h2>
+
+  <p class="drop-cap">A binary container format that reads untrusted files is an attack surface. The shard codec addresses this with four interlocking defenses: hard limits on structure sizes, cryptographic checksums on every entry, integer overflow protection at the boundary between wire format and memory, and a comprehensive corpus of corrupt test fixtures.</p>
+
+  <h3>Safety Limits</h3>
+
+  <p>Every reader enforces these constants before allocating memory or reading data. They are identical across all five implementations.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Limit</th><th>Value</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>MAX_ENTRY_COUNT</code></td>
+          <td>10,000,000</td>
+          <td>Prevents allocation of unbounded index arrays</td>
+        </tr>
+        <tr>
+          <td><code>MAX_INDEX_SIZE</code></td>
+          <td>1 GB</td>
+          <td>Caps total index section memory</td>
+        </tr>
+        <tr>
+          <td><code>MAX_STRING_TABLE_SIZE</code></td>
+          <td>100 MB</td>
+          <td>Prevents string table from consuming all memory</td>
+        </tr>
+        <tr>
+          <td><code>MAX_DECOMPRESS_SIZE</code></td>
+          <td>1 GB</td>
+          <td>Caps decompressed entry size (anti-bomb)</td>
+        </tr>
+        <tr>
+          <td><code>MIN_COMPRESS_SIZE</code></td>
+          <td>256 B</td>
+          <td>Entries below this are never compressed</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Checksums and Hashing</h3>
+
+  <p>The format uses two hash functions for different purposes.</p>
+
+  <h4>CRC32C Castagnoli &mdash; Data Integrity</h4>
+
+  <p>Every entry carries a CRC32C checksum of its uncompressed data, computed at write time and verified on read (when the <code>FLAG_HAS_CHECKSUMS</code> header flag is set, which is the default). CRC32C was chosen over CRC32 for its hardware acceleration on modern x86 (<code>SSE 4.2</code>) and ARM (<code>CRC</code> extension) processors.</p>
+
+  <h4>xxHash64 &mdash; Name Lookup</h4>
+
+  <p>Each entry stores the xxHash64 of its name for fast lookup. The reader computes the hash of the requested name and scans the index for a match, then confirms by comparing the actual name from the string table. This two-step process avoids false positives from hash collisions while keeping the common path fast.</p>
+
+  <h3>Integer Overflow Protection</h3>
+
+  <p>The Go reference implementation introduced a dedicated module, <code>intconv.go</code>, for safe conversion between unsigned wire-format integers and signed platform integers. This is more subtle than it appears: Go's <code>int</code> is platform-sized (32-bit on 32-bit systems), so a <code>uint64</code> value from the wire can silently truncate.</p>
+
+  <details>
+    <summary>intconv.go &mdash; Safe uint64-to-int conversion</summary>
+    <div class="code-body">
+<pre><code>const maxShardInt64 = 1&lt;&lt;63 - 1
+
+func uint64ToInt(v uint64) (int, bool) {
+    if strconv.IntSize == 32 {
+        if v > 1&lt;&lt;31-1 {
+            return 0, false
+        }
+    } else if v > maxShardInt64 {
+        return 0, false
+    }
+    // #nosec G115 -- bounds checked above
+    return int(v), true
+}
+
+func uint64ToInt64(v uint64) (int64, bool) {
+    if v > maxShardInt64 {
+        return 0, false
+    }
+    return int64(v), true
+}</code></pre>
+    </div>
+  </details>
+
+  <div class="insight warning">
+    <span class="insight-label">The C malloc overflow</span>
+    <p>Commit <code>2544d22</code> fixed a critical C bug: the index allocation computed <code>entry_count * INDEX_ENTRY_SIZE</code> without checking for multiplication overflow. A crafted shard with <code>entry_count = 0xFFFFFFFF</code> could wrap the multiplication to a small value, allocating a tiny buffer and then writing far beyond it. The fix validates <code>entry_count</code> against <code>MAX_ENTRY_COUNT</code> before the multiplication.</p>
+  </div>
+
+  <h3>Test Fixtures</h3>
+
+  <p>The repository ships with two classes of test fixtures, stored in <code>ucodec/testdata/</code>.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Category</th><th>Count</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Golden fixtures</td>
+          <td>7</td>
+          <td>Known-good shards for cross-language roundtrip validation</td>
+        </tr>
+        <tr>
+          <td>Corrupt fixtures</td>
+          <td>11</td>
+          <td>Intentionally malformed shards for reject-path testing</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>The corrupt fixtures cover specific failure modes.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Fixture</th><th>What It Tests</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>corrupt_bad_magic.shard</code></td><td>Magic bytes are wrong &mdash; must reject on open</td></tr>
+        <tr><td><code>corrupt_truncated_header.shard</code></td><td>File shorter than 64 bytes &mdash; must reject on open</td></tr>
+        <tr><td><code>corrupt_crc_mismatch.shard</code></td><td>CRC32C doesn't match entry data &mdash; must reject on verify</td></tr>
+        <tr><td><code>corrupt_truncated_data.shard</code></td><td>Data section shorter than index claims &mdash; must reject on read</td></tr>
+        <tr><td><code>corrupt_entry_count_overflow.shard</code></td><td>Entry count exceeds MAX_ENTRY_COUNT &mdash; must reject on open</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Compression Safety</h3>
+
+  <p>Decompression is bounded by <code>MAX_DECOMPRESS_SIZE</code> (1 GB). The Go reference implementation additionally validates that zstd decompression produces exactly <code>origSize</code> bytes&mdash;not fewer, not more. This prevents both truncated decompression (silent data loss) and decompression bombs (malicious origSize that allows unbounded output).</p>
+
+  <h3>Validation Chain</h3>
+
+  <p>On open, every reader performs the same sequence of validations. Failing any check aborts the open and returns an error. This chain is worth enumerating because it represents the threat model:</p>
+
+  <div class="diagram">
+    <div class="diagram-label">Reader Validation Chain (all 5 languages)</div>
+    <div style="font-family: var(--mono); font-size: 13px; line-height: 2.2; color: var(--text);">
+      <div><span style="color: var(--cyan);">1.</span> Read 64 bytes &mdash; reject if file is too short</div>
+      <div><span style="color: var(--cyan);">2.</span> Verify magic = <code>"SHRD"</code> &mdash; reject if wrong</div>
+      <div><span style="color: var(--cyan);">3.</span> Verify version = <code>0x02</code> &mdash; reject if unsupported</div>
+      <div><span style="color: var(--cyan);">4.</span> Verify index_entry_size = <code>48</code> &mdash; reject if unexpected</div>
+      <div><span style="color: var(--cyan);">5.</span> Verify entry_count &le; <code>MAX_ENTRY_COUNT</code> (10M) &mdash; reject if too many</div>
+      <div><span style="color: var(--cyan);">6.</span> Compute index_size = entry_count &times; 48 &mdash; check for overflow</div>
+      <div><span style="color: var(--cyan);">7.</span> Verify index_size &le; <code>MAX_INDEX_SIZE</code> (1 GB) &mdash; reject if too large</div>
+      <div><span style="color: var(--cyan);">8.</span> Read index entries &mdash; reject if file truncated</div>
+      <div><span style="color: var(--cyan);">9.</span> Read string table &mdash; verify size &le; <code>MAX_STRING_TABLE_SIZE</code> (100 MB)</div>
+      <div><span style="color: var(--cyan);">10.</span> Validate total_file_size against actual file size &mdash; reject on mismatch</div>
+      <div><span style="color: var(--cyan);">11.</span> Validate each entry's data_offset + disk_size within file bounds</div>
+      <div><span style="color: var(--cyan);">12.</span> Validate name_offset + name_len within string table bounds</div>
+    </div>
+  </div>
+
+  <h3>Bugs Found During Hardening</h3>
+
+  <p>The five-day sprint uncovered real security bugs in the pre-extraction code. These were not hypothetical&mdash;they were found through systematic testing and fixed in tracked commits.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Bug</th><th>Language</th><th>Commit</th><th>Severity</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Use-after-free in test_metadata: buffer freed before reader closed</td>
+          <td>C</td>
+          <td><code>69e75d7</code></td>
+          <td style="color: var(--pink);">Critical</td>
+        </tr>
+        <tr>
+          <td>malloc overflow: <code>entry_count * 48</code> wraps on 32-bit</td>
+          <td>C</td>
+          <td><code>2544d22</code></td>
+          <td style="color: var(--pink);">Critical</td>
+        </tr>
+        <tr>
+          <td>uint64-to-int truncation on 32-bit Go platforms</td>
+          <td>Go</td>
+          <td><code>2544d22</code></td>
+          <td style="color: var(--accent);">High</td>
+        </tr>
+        <tr>
+          <td>LZ4 decompressed size truncated from uint64 to int</td>
+          <td>Go</td>
+          <td><code>f22b0b2</code></td>
+          <td style="color: var(--accent);">High</td>
+        </tr>
+        <tr>
+          <td>Writer accepts name_len > uint16 max (65535 bytes)</td>
+          <td>Go</td>
+          <td><code>f22b0b2</code></td>
+          <td style="color: var(--text-dim);">Medium</td>
+        </tr>
+        <tr>
+          <td>Name offset validated against file size, not string table</td>
+          <td>C</td>
+          <td><code>ae38c57</code></td>
+          <td style="color: var(--text-dim);">Medium</td>
+        </tr>
+        <tr>
+          <td>Name offset bounds not checked at all</td>
+          <td>Python, TS</td>
+          <td><code>ae38c57</code></td>
+          <td style="color: var(--text-dim);">Medium</td>
+        </tr>
+        <tr>
+          <td>Schema offset read without validation</td>
+          <td>Python, TS</td>
+          <td><code>ae38c57</code></td>
+          <td style="color: var(--text-dim);">Medium</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="insight warning">
+    <span class="insight-label">The C Use-After-Free (PR #1)</span>
+    <p>The very first pull request to the shard repository fixed a use-after-free in the C test suite. In <code>test_metadata.c</code>, the test buffer was being freed before <code>shard_v2_close()</code> was called on the reader. Since the reader held a pointer into the buffer (for mmap-style access), closing it after the free triggered undefined behavior. The fix was simple: reorder the <code>free()</code> to come after <code>shard_v2_close()</code>. But the bug illustrates why the C implementation is the most dangerous to work with&mdash;memory lifetime is the caller's responsibility.</p>
+  </div>
+
+  <div class="insight info">
+    <span class="insight-label">Defense in Depth</span>
+    <p>The security model assumes adversarial input. Every offset from the wire is validated against the file size. Every count is checked against a hard maximum before allocation. Every checksum is verified before the data is returned to the caller. The format trusts nothing it reads.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     CHAPTER 6: THE ROBUSTNESS LAYER
+     ============================================================ -->
+<section class="chapter" id="ch6">
+  <span class="chapter-number">Chapter VI</span>
+  <h2>The Robustness Layer</h2>
+
+  <p class="drop-cap">The final commit of the sprint introduced something unusual: a data-driven test framework that treats correctness as a truth table. Rather than writing ad hoc tests in each language, the robustness layer defines 9 behavioral assertions that every implementation must satisfy. The same 9 cases are tested in Go, Python, TypeScript, Rust, and C. If any language diverges, the truth table catches it.</p>
+
+  <h3>The Truth Table</h3>
+
+  <p>Each case is a proposition about the format's behavior. The test either constructs the condition programmatically or loads a corrupt fixture.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>#</th><th>Case</th><th>Expected Behavior</th><th>Method</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>Duplicate entry names</td>
+          <td>Rejected at write or read time</td>
+          <td>Programmatic: write two entries with the same name</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>Zero-length entry</td>
+          <td>Valid: write and read back empty data</td>
+          <td>Programmatic: write entry with <code>[]byte{}</code></td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>Unicode entry name</td>
+          <td>Valid: name preserved through roundtrip</td>
+          <td>Programmatic: write entry named <code>"&#x65E5;&#x672C;&#x8A9E;"</code></td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>Bad magic bytes</td>
+          <td>Rejected on open</td>
+          <td>Fixture: <code>corrupt_bad_magic.shard</code></td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td>Truncated header</td>
+          <td>Rejected on open</td>
+          <td>Fixture: <code>corrupt_truncated_header.shard</code></td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td>CRC mismatch</td>
+          <td>Rejected on open or on verified read</td>
+          <td>Fixture: <code>corrupt_crc_mismatch.shard</code></td>
+        </tr>
+        <tr>
+          <td>7</td>
+          <td>Truncated data section</td>
+          <td>Rejected on open or on read</td>
+          <td>Fixture: <code>corrupt_truncated_data.shard</code></td>
+        </tr>
+        <tr>
+          <td>8</td>
+          <td>Entry count overflow</td>
+          <td>Rejected on open</td>
+          <td>Fixture: <code>corrupt_entry_count_overflow.shard</code></td>
+        </tr>
+        <tr>
+          <td>9</td>
+          <td>Empty input (0 bytes)</td>
+          <td>Rejected on open</td>
+          <td>Programmatic: write empty file, attempt to open</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="insight">
+    <span class="insight-label">Design Choice</span>
+    <p>Cases 4&ndash;8 accept two valid behaviors: rejection on open <em>or</em> rejection on read. This flexibility accommodates structural differences between implementations. Go and Rust validate eagerly (fail-fast on open). C and Python may defer validation until the affected entry is actually accessed. Both strategies are correct as long as the invalid data never reaches the caller.</p>
+  </div>
+
+  <h3>Performance Cliff Detection</h3>
+
+  <p>The Go implementation includes performance cliff tests that guard against accidentally quadratic behavior. The test writes shards with increasing entry counts (100, 1,000, 5,000) and measures write+read time. If any step takes more than 20&times; the previous step, the test fails&mdash;signaling potential O(n&sup2;) behavior in what should be an O(n) operation.</p>
+
+  <details>
+    <summary>Perf cliff test &mdash; quadratic blowup detection</summary>
+    <div class="code-body">
+<pre><code>func TestPerfCliff_ManyEntries(t *testing.T) {
+    sizes := []int{100, 1000, 5000}
+    var lastDuration time.Duration
+
+    for _, size := range sizes {
+        // ... write 'size' entries, read them all back ...
+        dur := time.Since(start)
+
+        if lastDuration > 0 && dur > lastDuration*20 {
+            t.Errorf(
+                "possible quadratic blowup at size=%d: took %v, previous %v",
+                size, dur, lastDuration,
+            )
+        }
+        lastDuration = dur
+    }
+}</code></pre>
+    </div>
+  </details>
+
+  <p>A second test checks large entry sizes (1 KB, 1 MB, 10 MB) and fails if any single entry takes more than 10 seconds to write and read back. This catches compression pathologies or accidental full-file copies.</p>
+
+  <h3>Fuzz Targets</h3>
+
+  <p>The Rust implementation ships with 5 cargo-fuzz targets, each covering a different attack surface of the parser.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Target</th><th>What It Fuzzes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>fuzz_header</code></td><td>Random bytes as a 64-byte header &mdash; must not panic</td></tr>
+        <tr><td><code>fuzz_index_entry</code></td><td>Random bytes as a 48-byte index entry &mdash; must not panic</td></tr>
+        <tr><td><code>fuzz_open</code></td><td>Random bytes as a complete shard file &mdash; must return <code>Err</code> or valid reader</td></tr>
+        <tr><td><code>fuzz_lookup</code></td><td>Random name lookups against a valid shard &mdash; must not panic</td></tr>
+        <tr><td><code>fuzz_decompress</code></td><td>Random bytes as compressed data with crafted headers &mdash; must not OOM</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="insight info">
+    <span class="insight-label">Test Coverage</span>
+    <p>By the end of the sprint, Go test coverage stood at 80%. The truth table alone added 1,031 lines of test code across 7 new files (one per language, plus the CI integration). Combined with the existing test suites (golden, safety, compression, streaming, metadata, schema, writer, mmap), each implementation had between 7 and 11 test files exercising different layers of the codec.</p>
+  </div>
+
+  <h3>The Contract</h3>
+
+  <p>What the robustness layer ultimately establishes is a behavioral contract. Not a specification document&mdash;the code <em>is</em> the specification&mdash;but a machine-checkable set of propositions about how every implementation must behave when given valid input, invalid input, edge-case input, and adversarial input. If you add a sixth language implementation tomorrow, you write those 9 truth table tests first. If they pass, your implementation is compatible. If they don't, the truth table tells you exactly which proposition you violated.</p>
+
+  <h3>Truth Table Across Languages</h3>
+
+  <p>Each language has its own truth table test file. The same 9 cases appear in each, ensuring behavioral parity. Here is the complete matrix of test files added in commit <code>4a9d1a9</code>:</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Language</th><th>Test File</th><th>Lines</th><th>Method</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Go</code></td>
+          <td>go/shard/truth_table_test.go</td>
+          <td>230</td>
+          <td>Standard <code>testing.T</code> sub-tests</td>
+        </tr>
+        <tr>
+          <td><code>Python</code></td>
+          <td>py/tests/test_truth_table.py</td>
+          <td>125</td>
+          <td>pytest parametrized fixtures</td>
+        </tr>
+        <tr>
+          <td><code>TypeScript</code></td>
+          <td>ts/src/__tests__/truth_table.test.ts</td>
+          <td>144</td>
+          <td>Node.js built-in test runner</td>
+        </tr>
+        <tr>
+          <td><code>Rust</code></td>
+          <td>rs/tests/truth_table.rs</td>
+          <td>142</td>
+          <td>cargo test integration tests</td>
+        </tr>
+        <tr>
+          <td><code>C</code></td>
+          <td>c/test_truth_table.c</td>
+          <td>261</td>
+          <td>Custom assert macros, compiled binary</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>The C implementation requires the most test code (261 lines) because it lacks built-in test infrastructure&mdash;every assertion, every fixture path, every cleanup step must be spelled out. Python requires the least (125 lines) thanks to pytest's fixture system and context managers. This disparity is itself a data point about the cost of cross-language parity.</p>
+
+  <details>
+    <summary>Go truth table: Case 3 (Unicode entry name)</summary>
+    <div class="code-body">
+<pre><code>func TestTruthUnicodeEntryName(t *testing.T) {
+    entries := []struct{ name string; data []byte }{
+        {"&#x65E5;&#x672C;&#x8A9E;", []byte("hello")},
+    }
+    data := writeShardToBytes(t, entries)
+
+    path := filepath.Join(t.TempDir(), "unicode.shard")
+    if err := os.WriteFile(path, data, 0644); err != nil {
+        t.Fatal(err)
+    }
+
+    r, err := OpenShardV2(path)
+    if err != nil {
+        t.Fatalf("OpenShardV2 failed for unicode name shard: %v", err)
+    }
+    defer r.Close()
+
+    name := r.EntryName(0)
+    if name != "&#x65E5;&#x672C;&#x8A9E;" {
+        t.Fatalf("expected entry name '&#x65E5;&#x672C;&#x8A9E;', got %q", name)
+    }
+}</code></pre>
+    </div>
+  </details>
+
+  <details>
+    <summary>Go truth table: Case 6 (CRC mismatch)</summary>
+    <div class="code-body">
+<pre><code>func TestTruthCrcMismatchRejected(t *testing.T) {
+    path := filepath.Join(fixtureDir(), "corrupt_crc_mismatch.shard")
+    r, err := OpenShardV2(path)
+    if err != nil {
+        // Rejected at open -- acceptable.
+        return
+    }
+    defer r.Close()
+
+    // If open succeeded, reading the entry with verify should fail.
+    for i := 0; i &lt; r.EntryCount(); i++ {
+        _, err := r.ReadEntryWithVerify(i, true)
+        if err != nil {
+            return // CRC mismatch detected on read -- acceptable.
+        }
+    }
+    t.Fatal("expected CRC mismatch error, but all entries read successfully")
+}</code></pre>
+    </div>
+  </details>
+
+  <h3>The Satellite Formats</h3>
+
+  <p>The repository contains more than just the core shard codec. Three satellite formats build on top of it, each targeting a specific use case.</p>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Format</th><th>Languages</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>SampleShard</strong></td>
+          <td>Python, TypeScript</td>
+          <td>ML training data: input/target pairs with metadata, torch integration, bridge to HuggingFace datasets</td>
+        </tr>
+        <tr>
+          <td><strong>MoSH</strong></td>
+          <td>Python, TypeScript</td>
+          <td>Model shards: quantized weight tiles keyed by layer path</td>
+        </tr>
+        <tr>
+          <td><strong>WShard</strong></td>
+          <td>Python, TypeScript</td>
+          <td>Windowed shards: streaming access with prefetch windows for sequential reads</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>The SampleShard format is the most developed satellite, with its own reader/writer, a Cowrie codec bridge, PyTorch dataset integration (<code>sampleshard/py/sampleshard/torch.py</code>), and a bridge to external formats. The cross-language parity commit (<code>ae38c57</code>) touched both SampleShard implementations&mdash;JavaScript and Python&mdash;fixing CRC32C polynomial selection, compression flag encoding, and duplicate sample ID rejection.</p>
+
+  <h3>The Contract</h3>
+
+  <p>What the robustness layer ultimately establishes is a behavioral contract. Not a specification document&mdash;the code <em>is</em> the specification&mdash;but a machine-checkable set of propositions about how every implementation must behave when given valid input, invalid input, edge-case input, and adversarial input. If you add a sixth language implementation tomorrow, you write those 9 truth table tests first. If they pass, your implementation is compatible. If they don't, the truth table tells you exactly which proposition you violated.</p>
+
+  <p>The shard format is young&mdash;five days old at the time of writing. But the robustness layer gives it something most formats never achieve: a formal definition of correctness that is tested across every implementation, on every commit, in CI. The format cannot drift because the truth table won't let it.</p>
+
+  <div class="insight">
+    <span class="insight-label">Final Count</span>
+    <p>At the close of the sprint: 15 commits, 5 languages, 8,421 lines of core codec across the 5 implementations, plus thousands more in tests, CLI tools, and satellite formats. One binary format. One truth table. Zero drift.</p>
+  </div>
+
+</section>
+
+</main>
+
+<!-- ============================================================
+     APPENDIX: QUICK REFERENCE
+     ============================================================ -->
+<section class="chapter" id="appendix">
+  <span class="chapter-number">Appendix</span>
+  <h2>Quick Reference</h2>
+
+  <h3>Header Flag Bits</h3>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Bit</th><th>Hex</th><th>Name</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td><code>0x0001</code></td><td>COMPRESSED</td><td>Default compression is enabled</td></tr>
+        <tr><td>1</td><td><code>0x0002</code></td><td>LITTLE_ENDIAN</td><td>Multi-byte values are little-endian (always set)</td></tr>
+        <tr><td>2</td><td><code>0x0004</code></td><td>BIG_ENDIAN</td><td>Multi-byte values are big-endian (reserved)</td></tr>
+        <tr><td>4</td><td><code>0x0010</code></td><td>HAS_SCHEMA</td><td>Schema section is present</td></tr>
+        <tr><td>5</td><td><code>0x0020</code></td><td>HAS_CHECKSUMS</td><td>Per-entry CRC32C checksums are valid</td></tr>
+        <tr><td>6</td><td><code>0x0040</code></td><td>STREAMING</td><td>Written in streaming mode (index may be incomplete)</td></tr>
+        <tr><td>7</td><td><code>0x0080</code></td><td>HAS_CONTENT_TYPES</td><td>Content type hints in reserved field are valid</td></tr>
+        <tr><td>8</td><td><code>0x0100</code></td><td>HAS_SECTION_DIR</td><td>Section directory (SDIR) is present</td></tr>
+        <tr><td>9</td><td><code>0x0200</code></td><td>HAS_NAME_MAP</td><td>Name map (NMAP) section is present</td></tr>
+        <tr><td>10</td><td><code>0x0400</code></td><td>HAS_REGION_TBL</td><td>Region table (RGON) is present</td></tr>
+        <tr><td>11</td><td><code>0x0800</code></td><td>HAS_QUANT_META</td><td>Quant metadata (QMET) section is present</td></tr>
+        <tr><td>12</td><td><code>0x1000</code></td><td>ALIGN_POW2</td><td>Uses power-of-two alignment semantics</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Entry Flag Bits</h3>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Bit</th><th>Hex</th><th>Name</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td><code>0x0001</code></td><td>COMPRESSED</td><td>This entry's data is compressed</td></tr>
+        <tr><td>1</td><td><code>0x0002</code></td><td>ZSTD</td><td>Compressed with zstd</td></tr>
+        <tr><td>2</td><td><code>0x0004</code></td><td>LZ4</td><td>Compressed with LZ4</td></tr>
+        <tr><td>3</td><td><code>0x0008</code></td><td>CHUNKED</td><td>Data is chunked (for streaming writes)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Default Flags</h3>
+
+  <p>The default header flags for new shards are <code>0x00A2</code>: LITTLE_ENDIAN | HAS_CHECKSUMS | HAS_CONTENT_TYPES. This is set identically across all five implementations.</p>
+
+  <details>
+    <summary>Default flags in each language</summary>
+    <div class="code-body">
+<pre><code>// Go (shard.go)
+ShardFlagLittleEndian ShardFlags = 0x0002
+
+// Rust (lib.rs)
+pub const DEFAULT_FLAGS: u16 =
+    FLAG_LITTLE_ENDIAN | FLAG_HAS_CHECKSUMS | FLAG_HAS_CONTENT_TYPES;
+    // = 0x0002 | 0x0020 | 0x0080 = 0x00A2
+
+// C (shard_v2.h)
+#define DEFAULT_FLAGS (FLAG_LITTLE_ENDIAN | FLAG_HAS_CHECKSUMS | FLAG_HAS_CONTENT_TYPES)
+
+// Python (shard_v2.py)
+DEFAULT_FLAGS = FLAG_LITTLE_ENDIAN | FLAG_HAS_CHECKSUMS | FLAG_HAS_CONTENT_TYPES
+
+// TypeScript (index.ts)
+const DEFAULT_FLAGS = FLAG_LITTLE_ENDIAN | FLAG_HAS_CHECKSUMS | FLAG_HAS_CONTENT_TYPES;</code></pre>
+    </div>
+  </details>
+
+  <h3>Go Error Sentinels</h3>
+
+  <p>The Go reference implementation defines named error values for each failure mode, enabling callers to use <code>errors.Is()</code> for precise error matching.</p>
+
+  <details>
+    <summary>Error sentinels (from shard.go and shard_v2.go)</summary>
+    <div class="code-body">
+<pre><code>// Base errors (shard.go)
+ErrInvalidShardMagic  = errors.New("ucodec: invalid shard magic bytes")
+ErrUnsupportedVersion = errors.New("ucodec: unsupported shard version")
+ErrInvalidShardHeader = errors.New("ucodec: invalid shard header")
+ErrShardIndexCorrupt  = errors.New("ucodec: shard index is corrupt")
+ErrEntryNotFound      = errors.New("ucodec: entry not found in shard")
+ErrShardClosed        = errors.New("ucodec: shard is closed")
+
+// V2-specific errors (shard_v2.go)
+ErrV2HeaderTooShort    = errors.New("ucodec: v2 header too short")
+ErrV2IndexCorrupt      = errors.New("ucodec: v2 index corrupt")
+ErrV2ChecksumMismatch  = errors.New("ucodec: v2 checksum mismatch")
+ErrV2CompressionFailed = errors.New("ucodec: v2 compression failed")
+ErrV2InvalidAlignment  = errors.New("ucodec: invalid alignment (must be 0, 16, 32, or 64)")</code></pre>
+    </div>
+  </details>
+
+  <h3>Repository Structure (Final State)</h3>
+
+  <p>After 15 commits, the repository contains the following top-level directories.</p>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="metric-value">15</div>
+      <div class="metric-label">Total Commits</div>
+    </div>
+    <div class="metric">
+      <div class="metric-value">8,421</div>
+      <div class="metric-label">Core Codec Lines</div>
+    </div>
+    <div class="metric">
+      <div class="metric-value">18</div>
+      <div class="metric-label">Test Fixtures</div>
+    </div>
+    <div class="metric">
+      <div class="metric-value">5</div>
+      <div class="metric-label">Fuzz Targets</div>
+    </div>
+  </div>
+
+  <div class="data-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Directory</th><th>Purpose</th><th>Key Files</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>c/</code></td>
+          <td>C implementation + Makefile</td>
+          <td>shard_v2.c, shard_v2.h, 8 test files</td>
+        </tr>
+        <tr>
+          <td><code>go/shard/</code></td>
+          <td>Go reference implementation</td>
+          <td>shard_v2.go, shard.go, shard_sections.go, intconv.go</td>
+        </tr>
+        <tr>
+          <td><code>go/cmd/</code></td>
+          <td>CLI tools</td>
+          <td>shardctl/main.go, ucodec/*.go</td>
+        </tr>
+        <tr>
+          <td><code>py/</code></td>
+          <td>Python implementation</td>
+          <td>shard_v2/shard_v2.py, 8 test files</td>
+        </tr>
+        <tr>
+          <td><code>rs/</code></td>
+          <td>Rust implementation + fuzz targets</td>
+          <td>src/lib.rs, 9 test files, fuzz/</td>
+        </tr>
+        <tr>
+          <td><code>ts/</code></td>
+          <td>TypeScript implementation</td>
+          <td>src/index.ts, 8 test files</td>
+        </tr>
+        <tr>
+          <td><code>sampleshard/</code></td>
+          <td>ML training data format</td>
+          <td>js/ + py/ (reader, writer, types, bridges)</td>
+        </tr>
+        <tr>
+          <td><code>mosh/</code></td>
+          <td>Model shard codec</td>
+          <td>py/ + js/</td>
+        </tr>
+        <tr>
+          <td><code>wshard/</code></td>
+          <td>Windowed shard</td>
+          <td>py/ + js/</td>
+        </tr>
+        <tr>
+          <td><code>.github/</code></td>
+          <td>CI configuration</td>
+          <td>workflows/ci.yml</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</section>
+
+<!-- ============================================================
+     FOOTER
+     ============================================================ -->
+<footer>
+  <div class="container">
+    <p>Shard Codec &mdash; Forensic analysis built from 15 commits, 5 languages, and 5 days of git history.</p>
+    <p style="margin-top: 8px;">Generated 2026-03-10</p>
+  </div>
+</footer>
+
+<!-- ============================================================
+     MINIMAL JS: Smooth scroll for nav links + active state
+     ============================================================ -->
+<script>
+(function() {
+  'use strict';
+
+  // Active nav link on scroll
+  const sections = document.querySelectorAll('.chapter');
+  const navLinks = document.querySelectorAll('.nav-link');
+
+  function updateActiveNav() {
+    let current = '';
+    const scrollY = window.scrollY + 80;
+
+    sections.forEach(function(section) {
+      if (section.offsetTop <= scrollY) {
+        current = section.getAttribute('id');
+      }
+    });
+
+    navLinks.forEach(function(link) {
+      link.style.color = '';
+      link.style.background = '';
+      if (link.getAttribute('href') === '#' + current) {
+        link.style.color = '#e6a756';
+        link.style.background = 'rgba(230, 167, 86, 0.1)';
+      }
+    });
+  }
+
+  let ticking = false;
+  window.addEventListener('scroll', function() {
+    if (!ticking) {
+      requestAnimationFrame(function() {
+        updateActiveNav();
+        ticking = false;
+      });
+      ticking = true;
+    }
+  });
+
+  updateActiveNav();
+})();
+</script>
+
+</body>
+</html>

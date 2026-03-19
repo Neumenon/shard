@@ -1,0 +1,1699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Compression — From Bits to Neural Networks</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  section { margin-bottom: 5rem; padding-top: 1rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none; border: none; padding: 0; margin: 0;
+    font-size: 13px; line-height: 1.45; color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .mem-row { display: flex; gap: 1px; margin: 0.4rem 0; flex-wrap: wrap; }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; font-weight: 600; border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+  .mc.wide { width: 50px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ COMPRESS</span>
+  <a href="#ch1">shannon</a>
+  <a href="#ch2">rle</a>
+  <a href="#ch3">huffman</a>
+  <a href="#ch4">lz77</a>
+  <a href="#ch5">deflate</a>
+  <a href="#ch6">zstd</a>
+  <a href="#ch7">lz4</a>
+  <a href="#ch8">delta</a>
+  <a href="#ch9">quantization</a>
+  <a href="#ch10">weights</a>
+  <a href="#ch11">decision</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1><span class="glitch" data-text="COMPRESSION">COMPRESSION</span></h1>
+  <div class="subtitle">From bits to neural networks. Every byte you store, every packet you send, every model you load &mdash; compression decides how much of your life you spend waiting.<span class="blink">_</span></div>
+</div>
+
+<!-- ============================================================ -->
+<section id="ch1">
+<h2>// 01 &mdash; Shannon's Surprise</h2>
+
+<p class="drop-cap">In 1948, Claude Shannon published "A Mathematical Theory of Communication" and invented information theory in a single paper. Before Shannon, engineers thought about signals and noise. After Shannon, we had a mathematical framework for measuring information itself &mdash; not the meaning of a message, but its <em>surprise</em>. And surprise turns out to be the entire game when it comes to compression.</p>
+
+<p>The core idea: <strong>information is surprise</strong>. If I tell you "the sun rose this morning," that carries almost zero information &mdash; you already expected it. But "the sun exploded" is maximally surprising, maximally informative. Shannon formalized this intuition with a single equation.</p>
+
+<h3>Self-Information</h3>
+
+<p>The self-information of an event with probability <em>p</em> is:</p>
+
+<div class="diagram">
+<span class="diagram-label">Self-Information</span>
+<pre><code>  I(x) = -log2(p(x))     bits
+
+  Fair coin flip (p = 0.5):
+    I(heads) = -log2(0.5) = 1 bit          one bit of surprise
+
+  Loaded die, rolling a 6 (p = 1/6):
+    I(6) = -log2(1/6) = 2.585 bits         more surprise, more bits
+
+  Certain event (p = 1.0):
+    I(certain) = -log2(1.0) = 0 bits        no surprise, zero information
+
+  Impossible event (p approaches 0):
+    I(x) approaches infinity                 infinite surprise</code></pre>
+</div>
+
+<p>Your friend who posts the same selfie every day is low-information. Predictability is compressible. Surprise is not.</p>
+
+<h3>Entropy: The Average Surprise</h3>
+
+<p><strong>Entropy</strong> is the expected value of self-information across all possible outcomes. For a source emitting symbols from an alphabet with probabilities <em>p<sub>1</sub>, p<sub>2</sub>, ..., p<sub>n</sub></em>:</p>
+
+<div class="diagram">
+<span class="diagram-label">Shannon Entropy</span>
+<pre><code>  H(X) = - SUM[ p(x) * log2(p(x)) ]     bits per symbol
+
+  This is THE fundamental limit of lossless compression.
+  No scheme can represent data at fewer than H bits per symbol on average.
+  Every compression algorithm is racing toward this floor.</code></pre>
+</div>
+
+<h3>Calculating Entropy By Hand</h3>
+
+<p>Let us work through a real example. Consider the byte sequence <code>AAABBC</code>:</p>
+
+<div class="diagram">
+<span class="diagram-label">Entropy of "AAABBC"</span>
+<pre><code>  Symbol frequencies:
+    A: 3/6 = 0.500
+    B: 2/6 = 0.333
+    C: 1/6 = 0.167
+
+  Self-information per symbol:
+    I(A) = -log2(0.500) = 1.000 bits
+    I(B) = -log2(0.333) = 1.585 bits
+    I(C) = -log2(0.167) = 2.585 bits
+
+  Entropy H = weighted average:
+    H = 0.500 * 1.000 + 0.333 * 1.585 + 0.167 * 2.585
+    H = 0.500 + 0.528 + 0.431
+    H = 1.459 bits per symbol
+
+  Total information: 6 symbols * 1.459 = 8.755 bits minimum
+  Uncompressed at 8 bits/char: 6 * 8 = 48 bits
+  Theoretical best ratio: 48 / 8.755 = 5.48x</code></pre>
+</div>
+
+<p>Now compare with a maximally random sequence where every byte value is equally likely:</p>
+
+<div class="diagram">
+<span class="diagram-label">Maximum Entropy</span>
+<pre><code>  256 equally likely byte values:
+    p(x) = 1/256 for all x
+
+    H = -256 * (1/256) * log2(1/256)
+    H = -log2(1/256)
+    H = 8.0 bits per symbol              maximum entropy for a byte
+
+  You CANNOT compress truly random data.
+  Every compressor will make it BIGGER (it adds overhead to incompressible data).</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">Shannon's Source Coding Theorem</div>
+<p>You can compress data to within arbitrarily close of the entropy, but never below it. This is not a suggestion &mdash; it is a mathematical proof. Every compression algorithm is racing toward this limit. The ones that get closest, win.</p>
+</div>
+
+<div class="ticker">ENTROPY = FLOOR &bull; SURPRISE = BITS &bull; PREDICTABLE = COMPRESSIBLE &bull; RANDOM = INCOMPRESSIBLE</div>
+
+<h3>Why Some Data Compresses Better</h3>
+
+<table>
+<tr><th>Data</th><th>Entropy (bits/byte)</th><th>Why</th></tr>
+<tr><td>All zeros</td><td>0</td><td>One symbol, zero surprise, compresses to nearly nothing</td></tr>
+<tr><td>English text</td><td>~1.0&ndash;1.5</td><td>Highly redundant &mdash; <code>th</code>, <code>the</code>, <code>ing</code> everywhere</td></tr>
+<tr><td>Executable binary</td><td>~5&ndash;6</td><td>Structured but varied &mdash; opcodes repeat, data varies</td></tr>
+<tr><td>Compressed data</td><td>~7.9&ndash;8.0</td><td>Already compressed = near random = incompressible</td></tr>
+<tr><td>Encrypted data</td><td>8.0</td><td>Indistinguishable from random by design</td></tr>
+</table>
+
+<div class="power zen">
+<div class="power-label">Zen: The Compression Test</div>
+<p>Entropy works as a file classifier. Calculate the entropy: if it is near 8.0 bits/byte, the data is compressed, encrypted, or truly random. Under 6, there is significant structure to exploit. Tools like <code>binwalk</code> and <code>ent</code> use entropy plots to find encrypted or compressed sections inside firmware images.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch2">
+<h2>// 02 &mdash; Run-Length Encoding</h2>
+
+<p class="drop-cap">Run-Length Encoding is the "hello world" of compression. The idea is embarrassingly simple: instead of storing <code>AAAAAABBBCC</code>, store <code>6A3B2C</code>. Replace runs of identical symbols with a count and the symbol. Ancient, obvious, and it still shows up in modern formats because sometimes the simplest tool is exactly the right one.</p>
+
+<h3>When RLE Wins</h3>
+
+<p>RLE dominates when data has long runs of identical values:</p>
+
+<div class="diagram">
+<span class="diagram-label">RLE Sweet Spots</span>
+<pre><code>  Pixel data (1-bit fax image):
+  Input:  00000000 00000000 11111111 11111111 11111111 00000000
+  RLE:    (16, 0) (24, 1) (8, 0)
+  Ratio:  48 bytes -> 6 bytes = 8x
+
+  Sparse array (mostly zeros):
+  Input:  0 0 0 0 0 0 0 0 0 0 0 0 0 42 0 0 0 0 0 0 0 0 0 0 7
+  RLE:    (13, 0) (1, 42) (11, 0) (1, 7)
+  Ratio:  25 bytes -> 8 bytes = 3.1x
+
+  Screen buffer with solid backgrounds:
+  1920 identical pixels per scanline = massive runs</code></pre>
+</div>
+
+<h3>When RLE Catastrophically Loses</h3>
+
+<div class="diagram">
+<span class="diagram-label">RLE Worst Case</span>
+<pre><code>  Input:   A B C D E F G H I J K L M N O P
+  Naive:   1A 1B 1C 1D 1E 1F 1G 1H 1I 1J 1K 1L 1M 1N 1O 1P
+  Result:  16 bytes -> 32 bytes = 2x EXPANSION
+
+  Alternating data annihilates RLE.
+  Every single-byte "run" costs 2 bytes to encode.</code></pre>
+</div>
+
+<div class="power danger">
+<div class="power-label">Danger: The Expansion Problem</div>
+<p>Any lossless compression algorithm can expand some inputs &mdash; this is a mathematical certainty from the pigeonhole principle. If an algorithm maps some inputs to shorter outputs, it MUST map other inputs to longer ones. Good algorithms minimize the damage. Bad ones (naive RLE on random data) double your file size.</p>
+</div>
+
+<h3>PackBits: RLE Done Right</h3>
+
+<p>Apple's PackBits format solves the expansion problem with a signed control byte:</p>
+
+<div class="diagram">
+<span class="diagram-label">PackBits Encoding</span>
+<pre><code>  Control byte N:
+    N = 0..127:   copy next (N+1) literal bytes
+    N = -1..-127: repeat the next byte (1-N) times
+    N = -128:     no-op (padding)
+
+  Example: "AAAAAABCDEFG"
+
+  Step 1: 6 A's -> control = -(6-1) = -5, data = 'A'
+          Encoded: [FB] [41]                     (2 bytes for 6)
+  Step 2: BCDEFG  -> control = 6-1 = 5, data = "BCDEFG"
+          Encoded: [05] [42 43 44 45 46 47]      (7 bytes for 6)
+
+  Total:  12 bytes -> 9 bytes
+  Worst case expansion: ~1% (one control byte per 128 literals)</code></pre>
+</div>
+
+<h3>C Implementation</h3>
+
+<pre><code><span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="cm">// Simple RLE encoder: (count, byte) pairs</span>
+<span class="cm">// Returns number of bytes written to dst</span>
+<span class="ty">size_t</span> <span class="fn">rle_encode</span>(<span class="kw">const</span> <span class="ty">uint8_t</span> *src, <span class="ty">size_t</span> len, <span class="ty">uint8_t</span> *dst) {
+    <span class="ty">size_t</span> out = <span class="nm">0</span>;
+    <span class="ty">size_t</span> i = <span class="nm">0</span>;
+
+    <span class="kw">while</span> (i &lt; len) {
+        <span class="ty">uint8_t</span> val = src[i];
+        <span class="ty">size_t</span> run = <span class="nm">1</span>;
+
+        <span class="cm">// Count consecutive identical bytes (max 255)</span>
+        <span class="kw">while</span> (i + run &lt; len &amp;&amp; src[i + run] == val &amp;&amp; run &lt; <span class="nm">255</span>) {
+            run++;
+        }
+
+        dst[out++] = (<span class="ty">uint8_t</span>)run;   <span class="cm">// count</span>
+        dst[out++] = val;             <span class="cm">// value</span>
+        i += run;
+    }
+    <span class="kw">return</span> out;
+}
+
+<span class="ty">size_t</span> <span class="fn">rle_decode</span>(<span class="kw">const</span> <span class="ty">uint8_t</span> *src, <span class="ty">size_t</span> len, <span class="ty">uint8_t</span> *dst) {
+    <span class="ty">size_t</span> out = <span class="nm">0</span>;
+    <span class="kw">for</span> (<span class="ty">size_t</span> i = <span class="nm">0</span>; i + <span class="nm">1</span> &lt; len; i += <span class="nm">2</span>) {
+        <span class="fn">memset</span>(dst + out, src[i + <span class="nm">1</span>], src[i]);
+        out += src[i];
+    }
+    <span class="kw">return</span> out;
+}
+<span class="label">C &mdash; basic RLE</span></code></pre>
+
+<h4>Byte Stream Transformation</h4>
+
+<div class="diagram">
+<span class="diagram-label">RLE Step By Step</span>
+<pre><code>  Input bytes:
+  +----+----+----+----+----+----+----+----+----+----+----+
+  | 41 | 41 | 41 | 41 | 42 | 42 | 43 | 43 | 43 | 43 | 43 |
+  |  A |  A |  A |  A |  B |  B |  C |  C |  C |  C |  C |
+  +----+----+----+----+----+----+----+----+----+----+----+
+    run of 4 A's       run of 2 B's   run of 5 C's
+
+  Output bytes:
+  +----+----+----+----+----+----+
+  | 04 | 41 | 02 | 42 | 05 | 43 |
+  |  4 |  A |  2 |  B |  5 |  C |
+  +----+----+----+----+----+----+
+    cnt  val  cnt  val  cnt  val
+
+  11 bytes -> 6 bytes = 1.83x compression</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch3">
+<h2>// 03 &mdash; Huffman Coding</h2>
+
+<p class="drop-cap">David Huffman was a graduate student at MIT in 1951 when his professor Robert Fano gave the class a choice: take the final exam, or find an optimal binary prefix code. Fano himself had been working on the problem with Shannon and could not prove optimality. Huffman, about to give up and take the exam, had a flash of insight: build the tree from the bottom up instead of the top down. He solved the problem his professor could not, and invented one of the most important algorithms in computer science.</p>
+
+<h3>The Key Insight: Variable-Length Codes</h3>
+
+<p>In fixed-width encoding, every character costs 8 bits. But Shannon told us some characters carry less information than others. If <code>e</code> appears 12% of the time and <code>z</code> appears 0.07% of the time, why should they cost the same?</p>
+
+<p>Huffman coding assigns <strong>short codes to frequent symbols</strong> and <strong>long codes to rare symbols</strong>. The trick is making the codes <em>prefix-free</em> &mdash; no code is a prefix of any other &mdash; so you can decode without ambiguity.</p>
+
+<h3>Building the Tree: ABRACADABRA</h3>
+
+<h4>Step 1: Count frequencies</h4>
+
+<div class="diagram">
+<span class="diagram-label">Symbol Frequencies</span>
+<pre><code>  A B R A C A D A B R A
+  |   |   |   |   |
+  A: 5  (45.5%)
+  B: 2  (18.2%)
+  R: 2  (18.2%)
+  C: 1  ( 9.1%)
+  D: 1  ( 9.1%)</code></pre>
+</div>
+
+<h4>Step 2: Build priority queue (min-heap)</h4>
+
+<div class="diagram">
+<span class="diagram-label">Priority Queue</span>
+<pre><code>  Queue: [C:1] [D:1] [B:2] [R:2] [A:5]</code></pre>
+</div>
+
+<h4>Step 3: Build tree bottom-up</h4>
+
+<div class="diagram">
+<span class="diagram-label">Huffman Tree Construction</span>
+<pre><code>  Round 1: Pop C(1) and D(1), merge -> node(2)
+    Queue: [(CD):2] [B:2] [R:2] [A:5]
+
+  Round 2: Pop (CD)(2) and B(2), merge -> node(4)
+    Queue: [R:2] [(CDB):4] [A:5]
+
+  Round 3: Pop R(2) and (CDB)(4), merge -> node(6)
+    Queue: [A:5] [(RCDB):6]
+
+  Round 4: Pop A(5) and (RCDB)(6), merge -> root(11)
+    Queue: [root:11]     DONE
+
+  Final tree:
+              (11)
+             /    \
+           A(5)   (6)
+          [0]    /    \
+              R(2)    (4)
+             [10]    /    \
+                  B(2)   (2)
+                 [110]  /    \
+                     C(1)   D(1)
+                    [1110] [1111]</code></pre>
+</div>
+
+<h4>Step 4: Read off codes (left=0, right=1)</h4>
+
+<table>
+<tr><th>Symbol</th><th>Freq</th><th>Code</th><th>Bits</th><th>vs Fixed (8-bit)</th></tr>
+<tr><td>A</td><td>5</td><td><code>0</code></td><td>1</td><td>8</td></tr>
+<tr><td>R</td><td>2</td><td><code>10</code></td><td>2</td><td>8</td></tr>
+<tr><td>B</td><td>2</td><td><code>110</code></td><td>3</td><td>8</td></tr>
+<tr><td>C</td><td>1</td><td><code>1110</code></td><td>4</td><td>8</td></tr>
+<tr><td>D</td><td>1</td><td><code>1111</code></td><td>4</td><td>8</td></tr>
+</table>
+
+<h4>Step 5: Encode!</h4>
+
+<div class="diagram">
+<span class="diagram-label">Encoding "ABRACADABRA"</span>
+<pre><code>  A    B    R    A    C    A    D    A    B    R    A
+  0    110  10   0    1110 0    1111 0    110  10   0
+
+  Bitstream: 0|110|10|0|1110|0|1111|0|110|10|0
+           = 01101001110011110110100
+
+  Original:  11 chars * 8 bits = 88 bits
+  Huffman:   23 bits
+  Ratio:     3.83x compression
+
+  Entropy:   H = 1.82 bits/symbol
+  Huffman:   23/11 = 2.09 bits/symbol
+  Efficiency: 87% of theoretical optimum</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">The Prefix-Free Property</div>
+<p>No Huffman code is a prefix of any other. <code>0</code> is A, so nothing else starts with <code>0</code>. <code>10</code> is R, so nothing else starts with <code>10</code>. This means you can decode left-to-right without lookahead. Read bits, walk the tree, emit a symbol when you hit a leaf, restart at root. No delimiters. No ambiguity.</p>
+</div>
+
+<h3>C Implementation</h3>
+
+<pre><code><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+
+<span class="pp">#define</span> MAX_SYMBOLS <span class="nm">256</span>
+<span class="pp">#define</span> MAX_TREE    <span class="nm">511</span>  <span class="cm">// 2*256 - 1</span>
+
+<span class="kw">typedef struct</span> {
+    <span class="ty">int</span>      freq;
+    <span class="ty">int</span>      left, right;        <span class="cm">// -1 = leaf</span>
+    <span class="ty">uint8_t</span>  symbol;
+} <span class="ty">HuffNode</span>;
+
+<span class="kw">typedef struct</span> {
+    <span class="ty">uint32_t</span> code;               <span class="cm">// bit pattern</span>
+    <span class="ty">uint8_t</span>  len;                <span class="cm">// code length in bits</span>
+} <span class="ty">HuffCode</span>;
+
+<span class="cm">// Build Huffman tree. Returns root index.</span>
+<span class="ty">int</span> <span class="fn">huffman_build</span>(<span class="kw">const</span> <span class="ty">int</span> *freq, <span class="ty">HuffNode</span> *tree) {
+    <span class="ty">int</span> n = <span class="nm">0</span>;
+    <span class="ty">int</span> heap[MAX_TREE];
+    <span class="ty">int</span> heap_size = <span class="nm">0</span>;
+
+    <span class="cm">// Create leaf nodes</span>
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; MAX_SYMBOLS; i++) {
+        <span class="kw">if</span> (freq[i] &gt; <span class="nm">0</span>) {
+            tree[n] = (<span class="ty">HuffNode</span>){freq[i], -<span class="nm">1</span>, -<span class="nm">1</span>, (<span class="ty">uint8_t</span>)i};
+            heap[heap_size++] = n++;
+        }
+    }
+
+    <span class="cm">// Merge two lowest-frequency nodes until one remains</span>
+    <span class="kw">while</span> (heap_size &gt; <span class="nm">1</span>) {
+        <span class="cm">// Find min1 (brute force for clarity)</span>
+        <span class="ty">int</span> min1 = <span class="nm">0</span>;
+        <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">1</span>; i &lt; heap_size; i++)
+            <span class="kw">if</span> (tree[heap[i]].freq &lt; tree[heap[min1]].freq) min1 = i;
+        <span class="ty">int</span> a = heap[min1];
+        heap[min1] = heap[--heap_size];
+
+        <span class="cm">// Find min2</span>
+        <span class="ty">int</span> min2 = <span class="nm">0</span>;
+        <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">1</span>; i &lt; heap_size; i++)
+            <span class="kw">if</span> (tree[heap[i]].freq &lt; tree[heap[min2]].freq) min2 = i;
+        <span class="ty">int</span> b = heap[min2];
+        heap[min2] = heap[--heap_size];
+
+        <span class="cm">// Merge</span>
+        tree[n] = (<span class="ty">HuffNode</span>){tree[a].freq + tree[b].freq, a, b, <span class="nm">0</span>};
+        heap[heap_size++] = n++;
+    }
+
+    <span class="kw">return</span> heap[<span class="nm">0</span>];
+}
+
+<span class="cm">// Walk tree to extract codes</span>
+<span class="kw">void</span> <span class="fn">huffman_codes</span>(<span class="kw">const</span> <span class="ty">HuffNode</span> *tree, <span class="ty">int</span> node,
+                   <span class="ty">HuffCode</span> *codes, <span class="ty">uint32_t</span> code, <span class="ty">uint8_t</span> depth) {
+    <span class="kw">if</span> (tree[node].left == -<span class="nm">1</span>) {
+        codes[tree[node].symbol] = (<span class="ty">HuffCode</span>){code, depth};
+        <span class="kw">return</span>;
+    }
+    <span class="fn">huffman_codes</span>(tree, tree[node].left,  codes, code &lt;&lt; <span class="nm">1</span>,       depth+<span class="nm">1</span>);
+    <span class="fn">huffman_codes</span>(tree, tree[node].right, codes, code &lt;&lt; <span class="nm">1</span> | <span class="nm">1</span>, depth+<span class="nm">1</span>);
+}
+<span class="label">C &mdash; Huffman tree</span></code></pre>
+
+<h3>Canonical Huffman Codes</h3>
+
+<p>In practice, nobody transmits the actual tree. <strong>Canonical Huffman</strong> reconstructs the codes deterministically given only the code lengths. Sort symbols by length (breaking ties alphabetically), then assign codes sequentially. DEFLATE, JPEG, and most real formats use this.</p>
+
+<div class="diagram">
+<span class="diagram-label">Canonical Huffman</span>
+<pre><code>  Given code lengths from the ABRACADABRA tree:
+    A: 1 bit   B: 3 bits   C: 4 bits   D: 4 bits   R: 2 bits
+
+  Sort by length, then alphabetically:
+    A (1)  -> 0
+    R (2)  -> 10           (prev code + 1, left-shifted)
+    B (3)  -> 110          (prev code + 1, left-shifted)
+    C (4)  -> 1110         (prev code + 1, left-shifted)
+    D (4)  -> 1111         (prev code + 1, same length)
+
+  To transmit the "tree," send only: [1, 3, 4, 4, 2]
+  5 bytes instead of the full tree structure.
+  Decoder rebuilds exact same codes.</code></pre>
+</div>
+
+<div class="power hack">
+<div class="power-label">Hack: Why Huffman Is Not Optimal</div>
+<p>Huffman must use an integer number of bits per symbol. If a symbol's ideal cost is 2.3 bits, Huffman rounds to 2 or 3. This wastes up to 1 bit per symbol. For small alphabets with skewed distributions, the waste adds up. Arithmetic coding and its modern successor tANS assign fractional bits. We will meet tANS in the Zstandard chapter.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch4">
+<h2>// 04 &mdash; LZ77: The Sliding Window</h2>
+
+<p class="drop-cap">Lempel and Ziv published their algorithm in 1977 and changed everything. Before LZ77, compression was about modeling symbol frequencies. LZ77 took a completely different approach: instead of encoding individual symbols, find strings that already appeared earlier and emit a <em>reference</em> back to the previous occurrence. Copy from history. This single idea underpins gzip, zstd, LZ4, Snappy, Brotli, and essentially every general-purpose compressor used today.</p>
+
+<h3>The Core Mechanism</h3>
+
+<p>LZ77 maintains a <strong>sliding window</strong> over already-processed data. At each position, search backward for the longest match. If found, emit an <code>(offset, length)</code> pair. Otherwise, emit the literal byte.</p>
+
+<div class="diagram">
+<span class="diagram-label">LZ77 Sliding Window</span>
+<pre><code>                    sliding window (already encoded)
+  +-------------------------------------++---------------------+
+  |  A  B  R  A  C  A  D  A  B  R  A   ||  B  R  A  C  A  ...|
+  +-------------------------------------++---------------------+
+   <---- search buffer (e.g. 32KB) ---->  <-- lookahead ------>
+                                           ^
+                                           current position
+
+  At "BRA..." the encoder searches backward and finds "BRA" at offset 9.
+  Emit: (offset=9, length=3) instead of three literal bytes.
+  The decoder copies 3 bytes from 9 positions back.</code></pre>
+</div>
+
+<h3>Step-by-Step: Compressing "ABRACADABRACADABRA"</h3>
+
+<div class="diagram">
+<span class="diagram-label">LZ77 Encoding Walkthrough</span>
+<pre><code>  Input: A B R A C A D A B R A C A D A B R A
+  Pos:   0 1 2 3 4 5 6 7 8 9 ...
+
+  Pos 0: No history.      Emit literal 'A'
+  Pos 1: No match.        Emit literal 'B'
+  Pos 2: No match.        Emit literal 'R'
+  Pos 3: 'A' at offset 3. Try longer: 'ABRACAD' = 7 chars from pos 0
+         Emit (offset=3, length=7)   <- copies "ABRACAD"
+
+  After emitting, pos jumps to 10:
+  Pos 10: Search backward. "ABRACADA" = 8 chars from pos 3!
+          Emit (offset=7, length=8)  <- copies "ABRACADA"
+
+  Result:
+    lit 'A', lit 'B', lit 'R', (3,7), (7,8)
+    3 literal bytes + 2 back-references
+    Original: 18 bytes   Compressed: ~7 bytes</code></pre>
+</div>
+
+<div class="power wild">
+<div class="power-label">Wild: Self-Referential Copies</div>
+<p>The match length can EXCEED the offset. <code>(offset=1, length=10)</code> means "go back 1 byte, keep copying." The byte you just decoded becomes the source for the next copy. If the byte back is <code>X</code>, you get <code>XXXXXXXXXX</code>. LZ77 handles runs this way even though it was not designed for them. The decoder just reads one byte at a time from already-decoded output.</p>
+</div>
+
+<h3>The Sliding Window Is a Ring Buffer</h3>
+
+<p>If you read the <a href="buffer-hacking.html" style="color: var(--cyan);">Buffer Hacking</a> deep dive, you already know ring buffers. The LZ77 sliding window is exactly that &mdash; a fixed-size ring buffer where old data falls off as new data arrives. Window sizes range from 32KB (classic DEFLATE) to 8MB (zstd) to 4GB (modern variants).</p>
+
+<pre><code><span class="pp">#define</span> WINDOW_BITS <span class="nm">15</span>
+<span class="pp">#define</span> WINDOW_SIZE (<span class="nm">1</span> &lt;&lt; WINDOW_BITS)  <span class="cm">// 32768</span>
+<span class="pp">#define</span> WINDOW_MASK (WINDOW_SIZE - <span class="nm">1</span>)   <span class="cm">// 0x7FFF</span>
+
+<span class="ty">uint8_t</span> window[WINDOW_SIZE];
+<span class="ty">int</span> wpos = <span class="nm">0</span>;
+
+<span class="kw">void</span> <span class="fn">window_put</span>(<span class="ty">uint8_t</span> b) {
+    window[wpos &amp; WINDOW_MASK] = b;
+    wpos++;
+}
+
+<span class="ty">uint8_t</span> <span class="fn">window_get</span>(<span class="ty">int</span> offset) {
+    <span class="kw">return</span> window[(wpos - offset) &amp; WINDOW_MASK];
+}
+
+<span class="cm">// Find longest match (naive O(n*m) -- real impls use hash chains)</span>
+<span class="ty">int</span> <span class="fn">find_match</span>(<span class="kw">const</span> <span class="ty">uint8_t</span> *data, <span class="ty">int</span> pos, <span class="ty">int</span> len,
+               <span class="ty">int</span> *best_off, <span class="ty">int</span> *best_len) {
+    *best_len = <span class="nm">0</span>;
+    <span class="ty">int</span> max_back = (pos &lt; WINDOW_SIZE) ? pos : WINDOW_SIZE;
+
+    <span class="kw">for</span> (<span class="ty">int</span> off = <span class="nm">1</span>; off &lt;= max_back; off++) {
+        <span class="ty">int</span> m = <span class="nm">0</span>;
+        <span class="kw">while</span> (pos + m &lt; len &amp;&amp;
+               data[pos + m] == data[pos - off + (m % off)] &amp;&amp;
+               m &lt; <span class="nm">258</span>) {
+            m++;
+        }
+        <span class="kw">if</span> (m &gt; *best_len &amp;&amp; m &gt;= <span class="nm">3</span>) {
+            *best_len = m;
+            *best_off = off;
+        }
+    }
+    <span class="kw">return</span> *best_len &gt;= <span class="nm">3</span>;
+}
+<span class="label">C &mdash; LZ77 core</span></code></pre>
+
+<div class="power zen">
+<div class="power-label">Zen: Why LZ77 Was Revolutionary</div>
+<p>Before LZ77, you needed to analyze the entire input to build a frequency model (Huffman needs a pre-pass). LZ77 is <em>adaptive</em> &mdash; it builds its "dictionary" from data it has already seen. No pre-pass. Streaming friendly. Works on any data type without knowing anything about content. This universality is why LZ-family algorithms dominate 50 years later.</p>
+</div>
+
+<div class="ticker">OFFSET + LENGTH = COPY FROM HISTORY &bull; RING BUFFER = SLIDING WINDOW &bull; HASH CHAINS = FAST SEARCH</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>// 05 &mdash; DEFLATE &amp; Friends</h2>
+
+<p class="drop-cap">Phil Katz created DEFLATE in 1991 for PKZIP. The idea: take LZ77 match-finding and feed its output through Huffman coding. Two stages, each amplifying the other. LZ77 eliminates redundancy at the string level. Huffman eliminates redundancy at the bit level. The combination is so effective that DEFLATE is still the backbone of gzip, zlib, PNG, ZIP, and HTTP content encoding over thirty years later.</p>
+
+<h3>The Two-Stage Pipeline</h3>
+
+<div class="diagram">
+<span class="diagram-label">DEFLATE = LZ77 + Huffman</span>
+<pre><code>  Raw data
+    |
+    v
+  +----------------------+
+  |     LZ77 Stage       |  Find matches in 32KB window
+  |                      |  Output: literals + (len, dist) pairs
+  +----------+-----------+
+             |
+             v
+  +----------------------+
+  |    Huffman Stage      |  Two separate Huffman trees:
+  |                      |    Tree 1: literals (0-255) + lengths (3-258)
+  |                      |    Tree 2: distances (1-32768)
+  +----------+-----------+
+             |
+             v
+  Compressed bitstream</code></pre>
+</div>
+
+<h3>The Two Huffman Trees</h3>
+
+<p><strong>Tree 1 &mdash; Literal/Length:</strong> 286 symbols. Codes 0-255 are literal bytes, 256 is end-of-block, 257-285 are match lengths (3-258) with extra bits for precision.</p>
+
+<p><strong>Tree 2 &mdash; Distance:</strong> 30 symbols. Codes 0-29 represent distance ranges (1-32768) with extra bits for precision.</p>
+
+<div class="diagram">
+<span class="diagram-label">DEFLATE Length/Distance Encoding (Excerpt)</span>
+<pre><code>  Length codes:
+    Code 257 -> length 3          (0 extra bits)
+    Code 258 -> length 4          (0 extra bits)
+    Code 265 -> length 11-12      (1 extra bit)
+    Code 285 -> length 258        (0 extra bits)
+
+  Distance codes:
+    Code 0   -> distance 1        (0 extra bits)
+    Code 4   -> distance 5-6      (1 extra bit)
+    Code 10  -> distance 33-48    (4 extra bits)
+    Code 29  -> distance 24577-32768 (13 extra bits)</code></pre>
+</div>
+
+<h3>Block Types</h3>
+
+<table>
+<tr><th>BTYPE</th><th>Name</th><th>Description</th></tr>
+<tr><td><code>00</code></td><td>Stored</td><td>No compression. Raw bytes with length header. Used when data is incompressible.</td></tr>
+<tr><td><code>01</code></td><td>Fixed</td><td>Pre-defined Huffman trees baked into the spec. Zero tree overhead. Good for small blocks.</td></tr>
+<tr><td><code>10</code></td><td>Dynamic</td><td>Custom Huffman trees optimized for this block. Trees transmitted compactly before data.</td></tr>
+<tr><td><code>11</code></td><td>Reserved</td><td>Error if encountered.</td></tr>
+</table>
+
+<div class="power">
+<div class="power-label">Dynamic vs Fixed Tradeoff</div>
+<p>Fixed trees cost zero overhead but are not tailored to your data. Dynamic trees are optimal but cost ~50-100 bytes to transmit. For blocks under ~1KB, fixed often wins. For larger blocks, dynamic almost always wins. Smart compressors try both and pick the smaller.</p>
+</div>
+
+<h3>The Family Tree</h3>
+
+<div class="diagram">
+<span class="diagram-label">DEFLATE's Many Wrappers</span>
+<pre><code>                          DEFLATE
+                        (raw algorithm)
+                       /       |       \
+                      /        |        \
+                   zlib      gzip       ZIP
+                 (2-byte    (10-byte   (file archive
+                  header,    header,    format with
+                  adler32)   crc32)     directory)
+                    |          |
+                 HTTP       tar.gz
+               Content-     (tar + gzip)
+               Encoding
+
+  All use the SAME DEFLATE algorithm internally.
+  Only the wrapper differs: headers, checksums, metadata.</code></pre>
+</div>
+
+<p>Your shard format uses CRC32C (Castagnoli) checksums &mdash; same idea, better error detection, hardware-accelerated on modern CPUs via the <code>SSE4.2</code> instruction set.</p>
+
+<div class="power hack">
+<div class="power-label">Hack: Why DEFLATE Survives</div>
+<p>DEFLATE is not the best compressor by any modern metric. Zstd beats it on ratio AND speed. But DEFLATE is <em>everywhere</em>: every browser, every OS, every runtime. PNG requires it, HTTP supports it, ZIP uses it. That install base is an unbreakable moat. When you need "works on literally any device," DEFLATE is your answer.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>// 06 &mdash; Zstandard: The Modern Beast</h2>
+
+<p class="drop-cap">Yann Collet released Zstandard (zstd) at Facebook in 2015, and it immediately made DEFLATE feel ancient. Zstd compresses better than gzip at every level while decompressing 3-5x faster. The secret weapon: <strong>Finite State Entropy (FSE)</strong>, a practical implementation of Asymmetric Numeral Systems (tANS) that replaces Huffman with something fundamentally better.</p>
+
+<h3>tANS: Beyond Huffman</h3>
+
+<p>Huffman's problem is integer bit lengths. A symbol with probability 0.3 should cost 1.74 bits, but Huffman rounds to 1 or 2. tANS (table-based ANS) assigns <em>fractional bits</em> by encoding information into a single integer state that evolves as symbols are processed.</p>
+
+<div class="diagram">
+<span class="diagram-label">Huffman vs tANS</span>
+<pre><code>  Symbol probs: A=0.5, B=0.3, C=0.2
+
+  Huffman codes:
+    A: 0      (1 bit)     optimal = 1.00 bits   EXACT
+    B: 10     (2 bits)    optimal = 1.74 bits   wasting 0.26
+    C: 11     (2 bits)    optimal = 2.32 bits   gaining 0.32
+
+  Huffman average: 0.5*1 + 0.3*2 + 0.2*2 = 1.50 bits/sym
+  Entropy:         1.49 bits/sym
+  Waste:           0.7%   (small here, worse with skewed distributions)
+
+  tANS: encodes symbols into a state integer
+    Effectively assigns ~1.74 bits to B and ~2.32 bits to C
+    Average converges to entropy as message grows
+    No rounding waste.</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">Why tANS Is Fast</div>
+<p>Arithmetic coding also achieves optimal compression but requires multiply and divide per symbol. tANS replaces all math with a table lookup. Encode: <code>new_state = table[old_state][symbol]</code>. Decode: <code>symbol = table[state]</code>. Cache-friendly. Branch-free. Vectorizable. Asymptotically optimal AND as fast as Huffman decoding.</p>
+</div>
+
+<h3>Zstd Architecture</h3>
+
+<div class="diagram">
+<span class="diagram-label">Zstd Frame/Block Format</span>
+<pre><code>  +------------------------------------------------------------+
+  | FRAME                                                       |
+  | +----------+----------+--------+--------+--------------+   |
+  | |  Magic   |  Frame   | Block  | Block  |   Content    |   |
+  | | FD2FB528 |  Header  |   1    |   2    |   Checksum   |   |
+  | | (4 bytes)| (2-14 B) |        |        |  (0 or 4 B)  |   |
+  | +----------+----------+--------+--------+--------------+   |
+  +------------------------------------------------------------+
+
+  Each block:
+  +------+-------------------------------------------------+
+  | Hdr  |              Block Data                         |
+  | (3B) |  +--------+----------+---------+                |
+  | last |  |Literals| Lit Len  |Sequences|                |
+  | type |  |(Huffman|  (FSE)   |(offset +|                |
+  | size |  | or raw)|          | length, |                |
+  |      |  |        |          | FSE)    |                |
+  |      |  +--------+----------+---------+                |
+  +------+-------------------------------------------------+</code></pre>
+</div>
+
+<h3>Dictionary Compression</h3>
+
+<p>Zstd's killer feature for small data: <strong>pre-trained dictionaries</strong>. LZ77 needs history to find matches. For a 500-byte JSON payload, there is almost no history. A dictionary pre-loads the window with common patterns from similar data.</p>
+
+<pre><code><span class="cm">// Train a dictionary from samples:</span>
+<span class="cm">// $ zstd --train samples/*.json -o my.dict</span>
+
+<span class="cm">// Compress with dictionary</span>
+<span class="ty">ZSTD_CCtx</span> *cctx = <span class="fn">ZSTD_createCCtx</span>();
+<span class="ty">ZSTD_CDict</span> *cdict = <span class="fn">ZSTD_createCDict</span>(dict_buf, dict_size, <span class="nm">3</span>);
+
+<span class="ty">size_t</span> compressed = <span class="fn">ZSTD_compress_usingCDict</span>(
+    cctx, dst, dst_cap, src, src_size, cdict
+);
+<span class="cm">// 200-byte JSON: 40-70% compression with dict</span>
+<span class="cm">// Without dict: maybe 5-10% at that size</span>
+<span class="label">C &mdash; zstd dictionary</span></code></pre>
+
+<h3>Compression Levels: Speed vs Ratio</h3>
+
+<div class="diagram">
+<span class="diagram-label">Zstd Level Tradeoff (Silesia Corpus, ~200MB)</span>
+<pre><code>  Level  Ratio   Compress    Decompress
+  -----  -----   --------    ----------
+    1    2.88x   510 MB/s    1580 MB/s     faster than gzip -1, better ratio
+    3    3.15x   390 MB/s    1520 MB/s     default level
+    5    3.22x   210 MB/s    1500 MB/s
+    9    3.35x    85 MB/s    1480 MB/s     roughly gzip -9 ratio
+   15    3.50x    18 MB/s    1460 MB/s
+   19    3.55x     5 MB/s    1440 MB/s     ultra territory
+   22    3.57x     2 MB/s    1420 MB/s     maximum squeeze
+
+  Decompression barely changes across levels!
+  Compressor works harder; decoder stays fast.
+
+  Ratio
+  3.6|                                           ****
+  3.5|                               ************
+  3.4|                         ******
+  3.3|                    *****
+  3.2|              ******
+  3.1|         *****
+  3.0|    *****
+  2.9|****
+     +---+------+------+------+------+------+--- Speed (MB/s)
+         2      18     85    210    390    510</code></pre>
+</div>
+
+<div class="power hack">
+<div class="power-label">Shard: CompressZstd = 0x01</div>
+<p>Your shard format uses <code>CompressZstd</code> (0x01) as its primary compression. When <code>SetCompression(CompressZstd)</code> is called, each tensor entry is zstd-compressed independently. You can decompress individual tensors without decompressing the entire file &mdash; critical for model serving. Per-entry compression also enables parallel decompression across cores.</p>
+</div>
+
+<div class="ticker">tANS = FRACTIONAL BITS &bull; DICTIONARY = SMALL DATA &bull; DECOMPRESS > 1 GB/s ALWAYS</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch7">
+<h2>// 07 &mdash; LZ4: Speed Is a Feature</h2>
+
+<p class="drop-cap">Yann Collet (yes, the same person who built zstd) created LZ4 in 2011 with a radical thesis: what if we optimized purely for speed and accepted worse compression ratios? LZ4 decompresses at 3-4 GB/s on a single core. That is often faster than reading from an SSD. At that point, storing data compressed and decompressing on-the-fly is faster than storing it uncompressed. Compression becomes a <em>performance optimization</em>, not a space optimization.</p>
+
+<h3>Why LZ4 Is So Fast</h3>
+
+<p>LZ4's speed comes from what it does NOT do:</p>
+
+<table>
+<tr><th>Feature</th><th>DEFLATE / Zstd</th><th>LZ4</th></tr>
+<tr><td>Entropy coding</td><td>Huffman / FSE</td><td>None &mdash; raw bytes</td></tr>
+<tr><td>Bit-level ops</td><td>Everywhere</td><td>Almost none &mdash; byte-aligned</td></tr>
+<tr><td>Hash chains</td><td>Multiple probes</td><td>Single probe (greedy)</td></tr>
+<tr><td>Match optimization</td><td>Lazy matching</td><td>First match wins</td></tr>
+<tr><td>Decoder complexity</td><td>State machines</td><td>memcpy + branch</td></tr>
+</table>
+
+<h3>The Sequence Format</h3>
+
+<div class="diagram">
+<span class="diagram-label">LZ4 Sequence</span>
+<pre><code>  +--------+------------------+--------+------------------+
+  | Token  |    Literals      | Offset | (extra match len)|
+  |(1 byte)| (0-N bytes)      |(2 byte)|                  |
+  +--------+------------------+--------+------------------+
+
+  Token byte layout:
+  +---+---+---+---+---+---+---+---+
+  | L | L | L | L | M | M | M | M |
+  +---+---+---+---+---+---+---+---+
+   high nibble = literal length (0-15)
+   low nibble  = match length - 4 (0-15, matches are 4-19)
+
+  If nibble == 15, read additional bytes until one is &lt; 255.
+  Length = 15 + sum of additional bytes.</code></pre>
+</div>
+
+<pre><code><span class="cm">// LZ4 decoder core -- the entire hot loop</span>
+<span class="kw">while</span> (ip &lt; iend) {
+    <span class="ty">uint8_t</span> token = *ip++;
+
+    <span class="cm">// 1. Copy literals</span>
+    <span class="ty">int</span> lit_len = token &gt;&gt; <span class="nm">4</span>;
+    <span class="kw">if</span> (lit_len == <span class="nm">15</span>) {
+        <span class="ty">uint8_t</span> s;
+        <span class="kw">do</span> { s = *ip++; lit_len += s; } <span class="kw">while</span> (s == <span class="nm">255</span>);
+    }
+    <span class="fn">memcpy</span>(op, ip, lit_len);     <span class="cm">// bulk copy -- CPU loves this</span>
+    ip += lit_len;
+    op += lit_len;
+
+    <span class="kw">if</span> (ip &gt;= iend) <span class="kw">break</span>;      <span class="cm">// last sequence has no match</span>
+
+    <span class="cm">// 2. Read offset (2 bytes, little-endian)</span>
+    <span class="ty">uint16_t</span> offset = ip[<span class="nm">0</span>] | (ip[<span class="nm">1</span>] &lt;&lt; <span class="nm">8</span>);
+    ip += <span class="nm">2</span>;
+    <span class="ty">uint8_t</span> *match = op - offset;
+
+    <span class="cm">// 3. Copy match</span>
+    <span class="ty">int</span> match_len = (token &amp; <span class="nm">0x0F</span>) + <span class="nm">4</span>;  <span class="cm">// min match = 4</span>
+    <span class="kw">if</span> (match_len == <span class="nm">19</span>) {
+        <span class="ty">uint8_t</span> s;
+        <span class="kw">do</span> { s = *ip++; match_len += s; } <span class="kw">while</span> (s == <span class="nm">255</span>);
+    }
+    <span class="cm">// Can't use memcpy -- source and dest may overlap</span>
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; match_len; i++)
+        op[i] = match[i];
+    op += match_len;
+}
+<span class="label">C &mdash; LZ4 decoder</span></code></pre>
+
+<div class="power">
+<div class="power-label">Shard: CompressLZ4 = 0x02</div>
+<p>Your shard format offers <code>CompressLZ4</code> (0x02) alongside zstd. LZ4 gives ~2x ratio (vs zstd's ~3x) but decompresses 2-3x faster. For model inference where tensors stream into GPU memory, the bottleneck is the PCIe bus, not the disk. LZ4's near-memcpy decompression means the CPU is never the bottleneck.</p>
+</div>
+
+<h3>LZ4 vs Zstd: When to Choose What</h3>
+
+<div class="vs">
+<div class="vs-col">
+<h4>Choose LZ4 When</h4>
+<p>Decompression speed is critical. Real-time systems, game assets, database pages, log shipping, in-memory caches. Anywhere CPU cost of decompression matters more than storage savings.</p>
+</div>
+<div class="vs-col">
+<h4>Choose Zstd When</h4>
+<p>Storage or bandwidth matters. Archives, network transfer, cold storage, model distribution. Anywhere you compress once and decompress occasionally, or where 30-50% better ratio saves real money.</p>
+</div>
+</div>
+
+<div class="ticker">LZ4 DECODE: ~4 GB/s &bull; NO ENTROPY CODING &bull; BYTE-ALIGNED &bull; SIMPLER = FASTER</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch8">
+<h2>// 08 &mdash; Delta Coding &amp; Transforms</h2>
+
+<p class="drop-cap">Here is a secret separating good compression engineers from great ones: the best compression often comes not from a better compressor but from transforming data before feeding it in. Preprocessing is where the real gains hide.</p>
+
+<h3>Delta Coding</h3>
+
+<p>Instead of absolute values, store differences between consecutive values. If data changes slowly (time series, sorted integers), deltas cluster near zero and compress beautifully.</p>
+
+<div class="diagram">
+<span class="diagram-label">Delta Coding: Timestamps</span>
+<pre><code>  Original timestamps (64-bit):
+  +------------+------------+------------+------------+
+  | 1709856000 | 1709856060 | 1709856120 | 1709856185 |
+  +------------+------------+------------+------------+
+  Entropy: HIGH (large varied values)
+
+  Delta-encoded:
+  +------------+------+------+------+
+  | 1709856000 |  60  |  60  |  65  |
+  +------------+------+------+------+
+  Entropy: LOW (small values near 60)
+
+  After delta, zstd or LZ4 crushes this.</code></pre>
+</div>
+
+<pre><code><span class="cm">// Delta encode in-place</span>
+<span class="kw">void</span> <span class="fn">delta_encode</span>(<span class="ty">int32_t</span> *data, <span class="ty">size_t</span> n) {
+    <span class="kw">for</span> (<span class="ty">size_t</span> i = n - <span class="nm">1</span>; i &gt; <span class="nm">0</span>; i--)
+        data[i] -= data[i - <span class="nm">1</span>];
+}
+
+<span class="cm">// Delta decode (prefix sum)</span>
+<span class="kw">void</span> <span class="fn">delta_decode</span>(<span class="ty">int32_t</span> *data, <span class="ty">size_t</span> n) {
+    <span class="kw">for</span> (<span class="ty">size_t</span> i = <span class="nm">1</span>; i &lt; n; i++)
+        data[i] += data[i - <span class="nm">1</span>];
+}
+<span class="label">C &mdash; delta coding</span></code></pre>
+
+<h3>XOR Delta for Floating Point</h3>
+
+<p>Regular delta does not work well on floats because IEEE 754 layout means nearby values can differ in many bits. XOR delta is better: XOR consecutive values, and if the floats are similar, most bits become zero.</p>
+
+<pre><code><span class="cm">// XOR delta for float arrays</span>
+<span class="kw">void</span> <span class="fn">xor_delta_encode</span>(<span class="ty">float</span> *data, <span class="ty">size_t</span> n) {
+    <span class="ty">uint32_t</span> *bits = (<span class="ty">uint32_t</span> *)data;
+    <span class="kw">for</span> (<span class="ty">size_t</span> i = n - <span class="nm">1</span>; i &gt; <span class="nm">0</span>; i--)
+        bits[i] ^= bits[i - <span class="nm">1</span>];
+}
+
+<span class="cm">// Decode: XOR is its own inverse</span>
+<span class="kw">void</span> <span class="fn">xor_delta_decode</span>(<span class="ty">float</span> *data, <span class="ty">size_t</span> n) {
+    <span class="ty">uint32_t</span> *bits = (<span class="ty">uint32_t</span> *)data;
+    <span class="kw">for</span> (<span class="ty">size_t</span> i = <span class="nm">1</span>; i &lt; n; i++)
+        bits[i] ^= bits[i - <span class="nm">1</span>];
+}
+<span class="label">C &mdash; XOR delta</span></code></pre>
+
+<h3>Burrows-Wheeler Transform</h3>
+
+<p>The BWT rearranges bytes so characters from similar contexts cluster together, making output extremely compressible. <code>bzip2</code> is built on BWT.</p>
+
+<div class="diagram">
+<span class="diagram-label">BWT of "BANANA$"</span>
+<pre><code>  Step 1: All rotations        Step 2: Sort lexicographically
+    BANANA$                      $BANANA
+    ANANA$B                      A$BANAN
+    NANA$BA                      ANA$BAN
+    ANA$BAN                      ANANA$B
+    NA$BANA                      BANANA$
+    A$BANAN                      NA$BANA
+    $BANANA                      NANA$BA
+
+  Step 3: Take the last column
+    $BANAN[A]          BWT output: "ANNB$AA"
+    A$BANA[N]
+    ANA$BA[N]          The A's and N's have CLUSTERED!
+    ANANA$[B]          Original scattered: B-A-N-A-N-A
+    BANANA[$]          BWT groups:         A-N-N-B-$-A-A
+    NA$BAN[A]
+    NANA$B[A]          RLE on this is much better.</code></pre>
+</div>
+
+<h3>Move-to-Front Transform</h3>
+
+<p>After BWT clusters similar bytes, MTF converts repeated bytes into zeros. Maintain a list of all symbols; for each input byte, output its position, then move it to front. Repeated bytes output 0, 0, 0...</p>
+
+<div class="diagram">
+<span class="diagram-label">BWT + MTF Pipeline (this is how bzip2 works)</span>
+<pre><code>  Original:     "BANANA$"       (varied, hard to compress)
+       |
+       v  BWT
+  Rotated:      "ANNB$AA"       (similar chars cluster)
+       |
+       v  MTF
+  Fronted:      [0,2,0,3,4,1,0] (small numbers, many zeros)
+       |
+       v  Huffman
+  Compressed:   tiny bitstream</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">Zen: Transforms Don't Compress</div>
+<p>BWT and MTF produce output the exact same size as input. They <em>rearrange</em> data to make it more compressible by the next stage. The best way to compress data is often not a better compressor but a better representation. Remember this when designing binary formats.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch9">
+<h2>// 09 &mdash; Quantization: Lossy on Purpose</h2>
+
+<p class="drop-cap">Everything so far has been lossless &mdash; you get back exactly what you put in. But sometimes you do not need exact values. A neural network weight of <code>0.0312478</code> works just as well at <code>0.03125</code>. An audio sample of <code>0.7831</code> sounds identical at <code>0.78</code>. Quantization trades precision for size, and when done right the loss is imperceptible. When done wrong, your model hallucinates or your audio sounds like a dial-up modem.</p>
+
+<h3>Scalar Quantization</h3>
+
+<div class="diagram">
+<span class="diagram-label">8-bit Quantization</span>
+<pre><code>  Float range: [-1.0 ......................... +1.0]
+                 |                               |
+  Quantize to:   0   32   64   96  128  160  192  224  255
+                 |    |    |    |    |    |    |    |    |
+                -1.0      -0.5      0.0      +0.5     +1.0
+
+  scale = (max - min) / 255 = 2.0 / 255 = 0.00784
+  zero_point = 128
+
+  Quantize:   q = round((x - min) / scale)
+  Dequantize: x = q * scale + min
+
+  float 0.5 -> q = round(191.3) = 191
+  q 191     -> x = 191 * 0.00784 - 1.0 = 0.498
+  Error:     0.002 (0.4% relative)</code></pre>
+</div>
+
+<h3>Going Lower: 4-bit, 3-bit, 2-bit, 1-bit</h3>
+
+<h4>Bit Packing Layouts</h4>
+
+<p><strong>8-bit (INT8)</strong> &mdash; 256 levels, 1 weight per byte:</p>
+<div class="mem-row">
+<div class="mc g">b7</div><div class="mc g">b6</div><div class="mc g">b5</div><div class="mc g">b4</div><div class="mc g">b3</div><div class="mc g">b2</div><div class="mc g">b1</div><div class="mc g">b0</div>
+</div>
+<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.3rem">1 weight = 1 byte. 7B model = 7 GB.</p>
+
+<p><strong>4-bit (QINT4)</strong> &mdash; 16 levels, 2 weights per byte:</p>
+<div class="mem-row">
+<div class="mc c">w1</div><div class="mc c">w1</div><div class="mc c">w1</div><div class="mc c">w1</div><div class="mc m">w0</div><div class="mc m">w0</div><div class="mc m">w0</div><div class="mc m">w0</div>
+</div>
+<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.3rem">2 weights/byte. 7B model = 3.5 GB. Shard: <code>DTypeQINT4 = 0x10</code></p>
+
+<p><strong>3-bit (QINT3)</strong> &mdash; 8 levels, 8 weights per 3 bytes:</p>
+<div class="mem-row">
+<div class="mc o">w2</div><div class="mc o">w2</div><div class="mc c">w1</div><div class="mc c">w1</div><div class="mc c">w1</div><div class="mc m">w0</div><div class="mc m">w0</div><div class="mc m">w0</div>
+</div>
+<div class="mem-row">
+<div class="mc y">w5</div><div class="mc o">w4</div><div class="mc o">w4</div><div class="mc o">w4</div><div class="mc g">w3</div><div class="mc g">w3</div><div class="mc g">w3</div><div class="mc y">w5</div>
+</div>
+<div class="mem-row">
+<div class="mc r">w7</div><div class="mc r">w7</div><div class="mc r">w7</div><div class="mc b">w6</div><div class="mc b">w6</div><div class="mc b">w6</div><div class="mc y">w5</div><div class="mc y">w5</div>
+</div>
+<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.3rem">8 weights in 3 bytes = 3 bits/weight. Shard: <code>DTypeQINT3 = 0x12</code></p>
+
+<p><strong>2-bit (QINT2)</strong> &mdash; 4 levels, 4 weights per byte:</p>
+<div class="mem-row">
+<div class="mc r">w3</div><div class="mc r">w3</div><div class="mc o">w2</div><div class="mc o">w2</div><div class="mc c">w1</div><div class="mc c">w1</div><div class="mc m">w0</div><div class="mc m">w0</div>
+</div>
+<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.3rem">4 weights/byte. 7B model = 1.75 GB. Shard: <code>DTypeQINT2 = 0x11</code></p>
+
+<p><strong>Ternary</strong> &mdash; {-1, 0, +1} only, packed 5 per byte (3<sup>5</sup>=243 &lt; 256):</p>
+<div class="mem-row">
+<div class="mc p wide">t4</div><div class="mc p wide">t3</div><div class="mc p wide">t2</div><div class="mc p wide">t1</div><div class="mc p wide">t0</div><div class="mc d">pad</div><div class="mc d">pad</div><div class="mc d">pad</div>
+</div>
+<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.3rem">5 weights/byte via base-3 encoding. Shard: <code>DTypeTernary = 0x13</code></p>
+
+<p><strong>Binary</strong> &mdash; {0, 1} only, 8 weights per byte:</p>
+<div class="mem-row">
+<div class="mc w">w7</div><div class="mc w">w6</div><div class="mc w">w5</div><div class="mc w">w4</div><div class="mc w">w3</div><div class="mc w">w2</div><div class="mc w">w1</div><div class="mc w">w0</div>
+</div>
+<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.3rem">8 weights/byte. 7B model = 875 MB. Shard: <code>DTypeBinary = 0x14</code></p>
+
+<h3>Vector Quantization and K-Means</h3>
+
+<p>Scalar quantization handles each value independently. Vector quantization groups values and quantizes entire vectors using a codebook built with K-means clustering.</p>
+
+<div class="diagram">
+<span class="diagram-label">Vector Quantization</span>
+<pre><code>  Step 1: Group weights into vectors (e.g. d=4)
+    [0.12, 0.15, 0.11, 0.14]  [0.82, 0.79, 0.85, 0.80]  ...
+
+  Step 2: K-means finds K=256 centroids (codebook)
+    Centroid 0: [0.13, 0.14, 0.12, 0.13]
+    Centroid 1: [0.81, 0.80, 0.83, 0.81]
+    ...
+
+  Step 3: Replace each vector with nearest centroid INDEX
+    [0.12, 0.15, 0.11, 0.14] -> index 0  (1 byte for 16 bytes!)
+    [0.82, 0.79, 0.85, 0.80] -> index 1
+
+  With K=256, d=4: 16x compression
+  Codebook overhead: 256 * 4 * 4 = 4KB (negligible)</code></pre>
+</div>
+
+<h3>GGUF K-Quants</h3>
+
+<p>The GGUF format (llama.cpp) implements sophisticated K-quant schemes with nested super-block scales:</p>
+
+<div class="diagram">
+<span class="diagram-label">GGUF Q4_K Block (256 weights)</span>
+<pre><code>  Super-block:
+  +-------------+--------------+----------------------------------+
+  | scale (f16) |  min (f16)   | 8 sub-blocks of 32 weights each  |
+  |  (2 bytes)  |  (2 bytes)   |                                  |
+  +-------------+--------------+----------------------------------+
+
+  Each sub-block:
+  +--------+--------+--------------------------------+
+  | sc (6b)| mn (6b)| 32 weights * 4 bits = 16 bytes |
+  +--------+--------+--------------------------------+
+
+  Dequantize weight i in sub-block j:
+    d  = super_scale        (f16->f32)
+    m  = super_min          (f16->f32)
+    sc = sub_scales[j]      (6-bit)
+    mn = sub_mins[j]        (6-bit)
+    w  = quant[i]           (4-bit, 0-15)
+
+    float_weight = d * sc * w - m * mn
+
+  Effective: ~4.5 bits/weight (4 data + scale overhead)
+  Quality: nearly indistinguishable from FP16</code></pre>
+</div>
+
+<div class="power wild">
+<div class="power-label">Wild: Why Super-Block Scales Matter</div>
+<p>One scale for 256 weights is too coarse &mdash; outliers get crushed. Per-weight scales double storage. K-quants use hierarchical scales: coarse super-block + fine 6-bit sub-block adjustments. The 6-bit sub-scales cost 0.375 bits/weight overhead but preserve the dynamic range that keeps model quality intact.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch10">
+<h2>// 10 &mdash; The Weight Compression Problem</h2>
+
+<p class="drop-cap">Neural network weights are uniquely challenging. They are not text (no repeating patterns). Not images (no spatial coherence at byte level). They are billions of floating-point numbers drawn from bell-curve distributions with occasional outliers that carry critical information. Crush the outliers, model goes stupid. Preserve every bit, a 70B model is 140 GB. The entire field of model compression navigates this tension.</p>
+
+<h3>Weight Distributions</h3>
+
+<div class="diagram">
+<span class="diagram-label">Typical Weight Distribution (Transformer Layer)</span>
+<pre><code>  Count
+    |
+    |            ****
+    |          ********
+    |        ************
+    |       **************
+    |      ****************
+    |     ******************
+    |    ********************
+    |   **********************
+    |  ************************
+    | ****************************                  *  outliers!
+    |*********************************         *    *
+    +------------------------------------------------------- Value
+         -0.5         0.0         +0.5        +2.0
+
+  1. Roughly Gaussian centered near zero
+  2. Most weights in [-0.5, +0.5]
+  3. Rare outliers at 3-5x the standard deviation
+  4. Outliers are disproportionately important
+  5. Different layers have different distributions</code></pre>
+</div>
+
+<h3>Per-Channel vs Per-Tensor Scales</h3>
+
+<div class="vs">
+<div class="vs-col">
+<h4>Per-Tensor (one scale)</h4>
+<p>One scale for the entire matrix. Simple. Fast. But if one channel has range [-0.1, 0.1] and another [-5.0, 5.0], the small channel loses all precision. Insufficient for 4-bit.</p>
+</div>
+<div class="vs-col">
+<h4>Per-Channel</h4>
+<p>Each output channel gets its own scale. Captures per-channel variance. Your shard format does this via <code>AddQuantizedTensor(name, data, scales, dims...)</code> where scales has one entry per channel, stored as <code>{name}.scales</code>.</p>
+</div>
+</div>
+
+<h3>Group Quantization</h3>
+
+<div class="diagram">
+<span class="diagram-label">Group Quantization (group_size=32)</span>
+<pre><code>  One channel of 4096 weights:
+  +----------------+----------------+----------------+---
+  |  Group 0 (32)  |  Group 1 (32)  |  Group 2 (32)  |
+  |  scale_0       |  scale_1       |  scale_2       |
+  +----------------+----------------+----------------+---
+
+  4096 / 32 = 128 groups per channel
+  Each group: 32 weights * 4 bits = 16 bytes data
+            + 1 scale (FP16 = 2 bytes)
+  Total: ~18 bytes / 32 weights = 4.5 bits/weight
+
+  Smaller groups = better quality, more overhead
+    group_size=32:   4.5 bits/weight, best quality
+    group_size=64:   4.25 bits/weight, good
+    group_size=128:  4.125 bits/weight, acceptable</code></pre>
+</div>
+
+<h3>GPTQ, AWQ, GGUF Compared</h3>
+
+<table>
+<tr><th>Method</th><th>Approach</th><th>Quality</th><th>Speed</th></tr>
+<tr><td>GPTQ</td><td>Second-order (Hessian) rounding. Compensates errors via inverse Hessian. Needs calibration data.</td><td>Excellent at 4-bit</td><td>Custom CUDA kernels, GPU-only</td></tr>
+<tr><td>AWQ</td><td>Activation-aware. Protects "salient" weights (large activations) during quantization.</td><td>Slightly better than GPTQ</td><td>Similar to GPTQ</td></tr>
+<tr><td>GGUF</td><td>Super-block nested scales. Mixed quant types per file (important layers get more bits).</td><td>Competitive</td><td>CPU-optimized (AVX2/NEON)</td></tr>
+</table>
+
+<div class="power hack">
+<div class="power-label">Shard: The Quantized Tensor Pipeline</div>
+<p><code>AddQuantizedTensor(name, data, scales, dims...)</code> stores quantized INT8 weights with per-channel FP32 scales in a companion <code>{name}.scales</code> tensor. For group-level scales, extend by storing scales as a 2D tensor: <code>[num_channels, num_groups]</code>. The current design handles the common case cleanly.</p>
+</div>
+
+<h3>Mixed Precision</h3>
+
+<p>Not all layers are equal. Smart strategies assign different bit widths per layer:</p>
+
+<div class="diagram">
+<span class="diagram-label">Mixed Precision Strategy</span>
+<pre><code>  Layer Type          Precision     Why
+  ----------          ---------     ---
+  Embedding           FP16/INT8     Lookup table, precision matters
+  Attention QKV       Q5/Q6_K       Sensitive to quant noise
+  Attention Output    Q4_K          More robust
+  MLP Gate/Up         Q4_K          Large, robust
+  MLP Down            Q5_K          Slightly sensitive
+  LayerNorm           FP32          Tiny, precision critical
+  LM Head             FP16/Q6_K     Final output, quality matters
+
+  GGUF handles this natively -- different quant types per tensor.
+  Your shard format can too: each entry has its own DType.</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch11">
+<h2>// 11 &mdash; The Decision Tree</h2>
+
+<p class="drop-cap">You now have a full arsenal. The hard part is knowing when to use what. Here is a practical decision framework for choosing compression in binary formats, data pipelines, and model serving.</p>
+
+<h3>The Flowchart</h3>
+
+<div class="diagram">
+<span class="diagram-label">Compression Decision Flowchart</span>
+<pre><code>  START: What are you compressing?
+    |
+    +-- Neural network weights?
+    |     +-- Inference only?  -> Quantize (Q4_K/Q5_K) + zstd
+    |     +-- Training?        -> FP16/BF16, maybe zstd level 1
+    |     +-- Distribution?    -> Quantize + zstd level 19
+    |
+    +-- Time series / numeric arrays?
+    |     +-- Integers?        -> Delta encode + zstd
+    |     +-- Floats?          -> XOR delta + zstd
+    |     +-- Sorted?          -> Delta-of-delta + varint + zstd
+    |
+    +-- Text / JSON / logs?
+    |     +-- Small (&lt;1KB)?    -> Zstd with dictionary
+    |     +-- Streaming?       -> Zstd streaming mode
+    |     +-- Web delivery?    -> Brotli (HTTP) or zstd
+    |
+    +-- Real-time / low latency?
+    |     +-- Database pages?  -> LZ4
+    |     +-- Game assets?     -> LZ4 or Oodle
+    |     +-- Network RPC?     -> LZ4 or zstd level 1
+    |
+    +-- Archival / cold storage?
+          +-- Zstd level 19-22 + preprocessing transforms</code></pre>
+</div>
+
+<h3>Algorithm Summary</h3>
+
+<div class="power">
+<div class="power-label">RLE</div>
+<p><strong>Use:</strong> Long runs (bitmaps, sparse arrays). <strong>Avoid:</strong> Varied data. <strong>Ratio:</strong> 2-100x on runs, 0.5x worst case. <strong>Speed:</strong> Extremely fast. <strong>Complexity:</strong> ~20 lines of C.</p>
+</div>
+
+<div class="power zen">
+<div class="power-label">Huffman</div>
+<p><strong>Use:</strong> Simple, decent compression. Foundation of DEFLATE, JPEG. <strong>Avoid:</strong> Large alphabets, very skewed distributions (use ANS). <strong>Ratio:</strong> Near entropy, wastes up to 1 bit/symbol. <strong>Speed:</strong> Fast with canonical codes.</p>
+</div>
+
+<div class="power hack">
+<div class="power-label">DEFLATE (gzip/zlib)</div>
+<p><strong>Use:</strong> Universal compatibility. PNG, HTTP fallback, ZIP. <strong>Avoid:</strong> When speed or ratio matters more than compat. <strong>Ratio:</strong> 2-4x. <strong>Speed:</strong> ~150 MB/s compress, ~400 MB/s decompress. <strong>Status:</strong> Legacy but immortal.</p>
+</div>
+
+<div class="power wild">
+<div class="power-label">Zstandard (CompressZstd = 0x01)</div>
+<p><strong>Use:</strong> Best general-purpose choice for new formats. Your shard default. <strong>Avoid:</strong> Sub-microsecond latency requirements (use LZ4). <strong>Ratio:</strong> 2.5-3.5x. <strong>Speed:</strong> ~400 MB/s compress, ~1500 MB/s decompress. <strong>Killer:</strong> Dictionary mode for small payloads.</p>
+</div>
+
+<div class="power danger">
+<div class="power-label">LZ4 (CompressLZ4 = 0x02)</div>
+<p><strong>Use:</strong> Decompression speed is king. Hot-path data. Your shard speed option. <strong>Avoid:</strong> When storage cost dominates. <strong>Ratio:</strong> 2-2.5x. <strong>Speed:</strong> ~500 MB/s compress, ~4000 MB/s decompress. <strong>Killer:</strong> Faster than SSD read.</p>
+</div>
+
+<div class="power">
+<div class="power-label">Quantization (QINT4/QINT2/QINT3/Ternary/Binary)</div>
+<p><strong>Use:</strong> Model weights for inference. <strong>Avoid:</strong> Training, lossless-required contexts. <strong>Ratio:</strong> 2x (INT8) to 32x (binary). <strong>Key:</strong> Always use per-channel or per-group scales. Always measure perplexity.</p>
+</div>
+
+<h3>The Shard Compression Stack</h3>
+
+<div class="diagram">
+<span class="diagram-label">Shard Format Pipeline</span>
+<pre><code>  Model weights (FP32/FP16)
+    |
+    +-- Quantize? --------------------+
+    |     DTypeQINT4 (0x10)           | .scales companion tensor
+    |     DTypeQINT2 (0x11)           | via AddQuantizedTensor()
+    |     DTypeQINT3 (0x12)           |
+    |     DTypeTernary (0x13)         |
+    |     DTypeBinary (0x14)          |
+    v                                 v
+  Raw/quantized bytes           Scale tensor (FP32)
+    |                                 |
+    +-- SetCompression()              +-- SetCompression()
+    |     CompressNone (0x00)         |
+    |     CompressZstd (0x01)         |
+    |     CompressLZ4  (0x02)         |
+    v                                 v
+  Compressed entry              Compressed entry
+    |                                 |
+    +----------+----------------------+
+               |
+               v
+         Shard file with CRC32C per entry</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">The Full Pipeline</div>
+<p>Quantization and compression are complementary. Quantization reduces dynamic range (lossy, massive). Compression removes remaining redundancy (lossless, moderate). A Q4_K tensor compressed with zstd is typically 20-30% smaller than uncompressed Q4_K, because quantized values still have distributional patterns LZ77+FSE can exploit. Always do both.</p>
+</div>
+
+<div class="ticker">ENTROPY = FLOOR &bull; LZ77 = COPY HISTORY &bull; tANS = FRACTIONAL BITS &bull; QUANTIZE + COMPRESS = BOTH</div>
+
+<p style="text-align:center;color:var(--text-dim);margin-top:4rem;font-style:italic;">Every byte you save is a byte the bus does not have to move, the disk does not have to store, and the network does not have to transmit. Compression is not an optimization &mdash; it is a multiplier on everything else you build.</p>
+
+</section>
+
+</div>
+</body>
+</html>

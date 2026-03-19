@@ -1,0 +1,2505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hash Tables — The Deep Dive</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav a.active { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  section { margin-bottom: 5rem; padding-top: 1rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .mem-row {
+    display: flex;
+    gap: 1px;
+    margin: 0.4rem 0;
+    flex-wrap: wrap;
+  }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  .glitch {
+    position: relative;
+    display: inline-block;
+  }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ HASH TABLES</span>
+  <a href="#ch1">core idea</a>
+  <a href="#ch2">hash functions</a>
+  <a href="#ch3">collisions</a>
+  <a href="#ch4">go maps</a>
+  <a href="#ch5">swiss tables</a>
+  <a href="#ch6">perfect hashing</a>
+  <a href="#ch7">bloom filters</a>
+  <a href="#ch8">consistent hashing</a>
+  <a href="#ch9">cache &amp; perf</a>
+  <a href="#ch10">build your own</a>
+  <a href="#ch11">shard lookup</a>
+  <a href="#ch12">reference</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1><span class="glitch" data-text="HASH TABLES">HASH TABLES</span></h1>
+  <div class="subtitle">The data structure that makes modern software possible. Every database query, every dictionary lookup, every cache hit &mdash; it all starts with a hash.<span class="blink">_</span></div>
+</div>
+
+<!-- ============================================================ -->
+<section id="ch1">
+<h2>// 01. the core idea</h2>
+
+<p class="drop-cap">Take any key. Run it through a function that spits out a number. Use that number as an index into an array. That is a hash table. Three operations, each averaging O(1). Insert, lookup, delete &mdash; all constant time. No binary search. No tree traversal. Just compute, index, done. This is why hash tables power everything from Python dictionaries to database indexes to DNS caches.</p>
+
+<p>The idea is deceptively simple: you have an array of <strong>buckets</strong>. A <strong>hash function</strong> takes your key and produces an integer. You take that integer modulo the array size to get a bucket index. Store the key-value pair there. To look it up later, hash the key again, go to that bucket, and there it is.</p>
+
+<div class="diagram">
+<span class="diagram-label">Hash Table Fundamentals</span>
+<pre><code>  Key: "tensor_weights"
+         |
+         v
+  +---------------+
+  | hash("tensor  |     hash value: 0x7A3F...
+  |  _weights")   |-------------------+
+  +---------------+                   |
+                                      v
+                              index = hash % 8 = 3
+                                      |
+   Bucket Array                       v
+  +-----------+
+  |  0: --    |
+  +-----------+
+  |  1: --    |
+  +-----------+
+  |  2: --    |
+  +-----------+
+  |  3: ###   | &lt;-- ("tensor_weights", [f32 x 1024])
+  +-----------+
+  |  4: --    |
+  +-----------+
+  |  5: --    |
+  +-----------+
+  |  6: --    |
+  +-----------+
+  |  7: --    |
+  +-----------+</code></pre>
+</div>
+
+<p>But there is an inevitable problem: <strong>collisions</strong>. Two different keys can hash to the same bucket index. If "tensor_weights" hashes to bucket 3 and "bias_vector" also hashes to bucket 3, you have a collision. Every hash table must handle this, and the strategy it picks defines its personality.</p>
+
+<h3>The Load Factor</h3>
+
+<p>The <strong>load factor</strong> is the ratio of stored elements to total buckets:</p>
+
+<pre><code><span class="cm">// The load factor equation</span>
+<span class="ty">alpha</span> = n / m
+
+<span class="cm">// where:</span>
+<span class="cm">//   n = number of stored key-value pairs</span>
+<span class="cm">//   m = number of buckets in the array</span>
+<span class="cm">//   alpha = load factor (0.0 to 1.0+ for chaining)</span></code></pre>
+
+<p>When the load factor exceeds a threshold, performance degrades. Most implementations resize at around 0.7 to 0.75. Go maps famously use a 6.5 load factor &mdash; but that is 6.5 entries per <em>bucket</em> (each bucket holds 8 slots), so the effective per-slot load factor is about 0.81.</p>
+
+<div class="power">
+<div class="power-label">Insight</div>
+<p>O(1) average, O(n) worst case. The average assumes a good hash function distributing keys uniformly. The worst case happens when every key hashes to the same bucket &mdash; your hash table degenerates into a linked list. This is not theoretical: it is the basis of HashDoS attacks.</p>
+</div>
+
+<h3>The Complexity Breakdown</h3>
+
+<table>
+<tr><th>Operation</th><th>Average</th><th>Worst Case</th><th>Why</th></tr>
+<tr><td>Insert</td><td>O(1)</td><td>O(n)</td><td>Amortized O(1) including resize cost</td></tr>
+<tr><td>Lookup</td><td>O(1)</td><td>O(n)</td><td>All keys in one bucket = linear scan</td></tr>
+<tr><td>Delete</td><td>O(1)</td><td>O(n)</td><td>Must find the key first</td></tr>
+<tr><td>Resize</td><td>O(n)</td><td>O(n)</td><td>Rehash every element into new array</td></tr>
+</table>
+
+<p>The "amortized O(1)" for insert deserves explanation. When you hit the load factor threshold, you allocate a new array (usually 2x the size) and rehash every existing entry. That single resize is O(n). But since you only resize after n insertions, the cost per insertion averages out to O(1). This is the same argument that makes <code>std::vector::push_back</code> amortized O(1) in C++.</p>
+
+<h3>Why Powers of Two?</h3>
+
+<p>Most hash table implementations use a capacity that is a power of two. The reason is performance: <code>hash % m</code> requires an expensive division instruction, but <code>hash &amp; (m-1)</code> is a single bitwise AND when m is a power of two. On modern CPUs, integer division takes 20-40 cycles. Bitwise AND takes 1 cycle. At millions of lookups per second, this matters.</p>
+
+<pre><code><span class="cm">// Slow: integer modulo (idiv instruction, ~26 cycles on x86)</span>
+<span class="ty">uint32_t</span> idx = hash % capacity;
+
+<span class="cm">// Fast: bitwise AND (1 cycle, only works when capacity is power of 2)</span>
+<span class="ty">uint32_t</span> idx = hash &amp; (capacity - <span class="nm">1</span>);
+
+<span class="cm">// Example: capacity = 16 (0b10000), mask = 15 (0b01111)</span>
+<span class="cm">// hash = 0x7A3F = 0b0111101000111111</span>
+<span class="cm">// hash &amp; 0xF   = 0b1111 = 15</span></code></pre>
+
+<p>The downside: a power-of-two capacity only uses the low bits of the hash. If the hash function has poor low-bit entropy (common with multiplicative hashes), you get more collisions. This is why the hash function's quality matters &mdash; good avalanche means all bits carry information.</p>
+
+<h3>The Universal Hashing Guarantee</h3>
+
+<p>A family of hash functions H is <strong>universal</strong> if for any two distinct keys x and y, the probability that a randomly chosen h from H satisfies h(x) = h(y) is at most 1/m. This guarantees that no adversary can craft inputs that always collide, because the hash function is chosen randomly at table creation time. Carter and Wegman proved this in 1979, laying the theoretical foundation for hash-based data structures.</p>
+
+<div class="diagram">
+<span class="diagram-label">Birthday Paradox and Collision Probability</span>
+<pre><code>  With m buckets and n inserts, P(at least one collision):
+
+  P = 1 - (m! / (m^n * (m-n)!))
+
+  Approximation: P ~ 1 - e^(-n^2 / (2m))
+
+  m = 365 (birthday problem):  n=23 --&gt; P = 50.7%
+  m = 1024 buckets:            n=38 --&gt; P ~ 50%
+  m = 65536 buckets:           n=302 -&gt; P ~ 50%
+  m = 2^64 (xxHash output):   n=5.1 billion --&gt; P ~ 50%
+
+  For your shard index with ~100 entries and 2^64 hash space:
+  P(collision) ~ 100^2 / (2 * 2^64) ~ 2.7 * 10^-16
+  Effectively impossible.</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch2">
+<h2>// 02. hash functions &mdash; the blenders</h2>
+
+<p class="drop-cap">A hash function takes arbitrary data and produces a fixed-size integer. A good hash function has the <strong>avalanche effect</strong>: flip one input bit and roughly 50% of the output bits change. This ensures similar keys scatter across different buckets rather than clustering together. A bad hash function creates hot spots. A good one creates uniform randomness.</p>
+
+<div class="diagram">
+<span class="diagram-label">Avalanche Effect</span>
+<pre><code>  Input A: "hello"  --&gt;  hash = 0x4F2A8B7C  01001111 00101010 10001011 01111100
+  Input B: "hellp"  --&gt;  hash = 0xD1E53A01  11010001 11100101 00111010 00000001
+                                             ^^  ^^   ^^^ ^  ^ ^^ ^^   ^ ^^^^ ^
+                                                17 of 32 bits flipped = 53%
+
+  One character changed, ~50% of output bits changed.
+  THAT is the avalanche effect.</code></pre>
+</div>
+
+<h3>FNV-1a: The Simple Workhorse</h3>
+
+<p>Fowler-Noll-Vo 1a is the hash function you can implement from memory. Three lines of code. Process each byte: XOR it in, then multiply. The "1a" variant does XOR-then-multiply (the original FNV-1 does multiply-then-XOR; 1a has better avalanche properties).</p>
+
+<pre><code><span class="label">C</span>
+<span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stddef.h&gt;</span>
+
+<span class="cm">// FNV-1a 64-bit</span>
+<span class="cm">// Offset basis and prime are mathematically chosen</span>
+<span class="cm">// to minimize collisions across byte sequences.</span>
+<span class="pp">#define</span> <span class="nm">FNV_OFFSET</span>  <span class="nm">0xcbf29ce484222325ULL</span>
+<span class="pp">#define</span> <span class="nm">FNV_PRIME</span>   <span class="nm">0x100000001b3ULL</span>
+
+<span class="ty">uint64_t</span> <span class="fn">fnv1a_64</span>(<span class="kw">const</span> <span class="ty">uint8_t</span> *data, <span class="ty">size_t</span> len) {
+    <span class="ty">uint64_t</span> hash = <span class="nm">FNV_OFFSET</span>;
+    <span class="kw">for</span> (<span class="ty">size_t</span> i = <span class="nm">0</span>; i &lt; len; i++) {
+        hash ^= data[i];        <span class="cm">// XOR byte into hash</span>
+        hash *= <span class="nm">FNV_PRIME</span>;      <span class="cm">// multiply by prime</span>
+    }
+    <span class="kw">return</span> hash;
+}</code></pre>
+
+<div class="power zen">
+<div class="power-label">DeepData Connection</div>
+<p>Your DeepData VectorDB uses FNV-64a for shard routing. The <code>hashToShard()</code> function in <code>distributed.go</code> hashes collection+key with FNV-1a and maps the result to a shard index. Same algorithm, three lines of core logic. The <code>testHashID</code> test helper also uses FNV-64a.</p>
+</div>
+
+<p>FNV-1a processes one byte at a time. For short keys (under 32 bytes) it is competitive. For long keys, it gets destroyed by SIMD-aware hash functions.</p>
+
+<div class="diagram">
+<span class="diagram-label">FNV-1a Bit Diffusion (Step by Step)</span>
+<pre><code>  Input: "AB" (0x41, 0x42)
+
+  Step 0: hash = 0xcbf29ce484222325   (offset basis)
+
+  Step 1: hash ^= 0x41
+           hash = 0xcbf29ce484222364
+           hash *= 0x100000001b3
+           hash = 0xaf63bd4c8601b7cc   (multiply spreads bits)
+
+  Step 2: hash ^= 0x42
+           hash = 0xaf63bd4c8601b78e
+           hash *= 0x100000001b3
+           hash = 0x089be8a8ab1e4b56   (final result)
+
+  Each XOR injects 8 new bits.
+  Each multiply diffuses them across the full 64-bit word.
+  After len(key) iterations, all bits are thoroughly mixed.</code></pre>
+</div>
+
+<h3>xxHash: The Speed Demon</h3>
+
+<p>xxHash processes <strong>32 bytes at a time</strong> using 4 parallel accumulators. Each accumulator multiplies by a prime, rotates left, and multiplies by another prime. After all 32-byte stripes are consumed, the accumulators are merged. With AVX2, xxHash64 achieves roughly <strong>31 GB/s</strong> on modern hardware.</p>
+
+<div class="diagram">
+<span class="diagram-label">xxHash64 Internal Pipeline</span>
+<pre><code>  Input data (32 bytes per stripe):
+  +--------+--------+--------+--------+
+  | 8 bytes| 8 bytes| 8 bytes| 8 bytes|
+  | lane 0 | lane 1 | lane 2 | lane 3 |
+  +---+----+---+----+---+----+---+----+
+      |        |        |        |
+      v        v        v        v
+  +------+ +------+ +------+ +------+
+  | acc0 | | acc1 | | acc2 | | acc3 |  4 parallel accumulators
+  | += d | | += d | | += d | | += d |
+  | *P2  | | *P2  | | *P2  | | *P2  |
+  | ROL  | | ROL  | | ROL  | | ROL  |  (multiply-add-rotate)
+  | *P1  | | *P1  | | *P1  | | *P1  |
+  +--+---+ +--+---+ +--+---+ +--+---+
+     |        |        |        |
+     +----+---+----+---+----+---+
+          |        |        |
+          v        v        v
+      +---------------------------+
+      | Merge: ROL(acc0,1)        |
+      |      + ROL(acc1,7)        |
+      |      + ROL(acc2,12)       |
+      |      + ROL(acc3,18)       |  --&gt;  64-bit hash
+      | + length + finalizer      |
+      +---------------------------+</code></pre>
+</div>
+
+<div class="power wild">
+<div class="power-label">Shard Connection</div>
+<p>Your shard v2 format uses xxHash64 for entry name hashing. In each <code>IndexEntry</code>, bytes 0-7 store the xxHash64 of the tensor name string. During lookup, the reader hashes the query name and scans the index for a matching hash before verifying against the actual string from the string table. This two-phase design (hash match then string verify) avoids full string comparisons 99.99% of the time.</p>
+</div>
+
+<h3>SipHash: The Security Guard</h3>
+
+<p>SipHash is a <strong>keyed</strong> pseudorandom function (PRF). It takes a 128-bit secret key and produces output that is indistinguishable from random to anyone who does not know the key. This matters because of <strong>HashDoS</strong>.</p>
+
+<p>The attack is simple: if you know the hash function, you can precompute thousands of keys that all hash to the same bucket. Send those keys to a web server and its hash table degenerates to O(n) per lookup. A single request with 10,000 colliding keys turns an O(1) lookup into O(10,000). Send a few thousand such requests and you have a denial of service.</p>
+
+<div class="power danger">
+<div class="power-label">The Cloudflare Parallel</div>
+<p>In July 2019, Cloudflare went down for 27 minutes because a regex rule caused catastrophic backtracking &mdash; an algorithmic complexity attack on the regex engine. HashDoS is the same class of vulnerability: normal input is O(1), adversarial input is O(n). SipHash defends hash tables the way timeouts defend regex engines: by removing the adversary's ability to predict worst-case behavior.</p>
+</div>
+
+<p>SipHash is used by <strong>Rust's HashMap</strong> (default hasher), <strong>Python 3.4+</strong> (dict), and many language runtimes. The standard variant is SipHash-2-4: 2 rounds per message block, 4 finalization rounds. SipHash-1-3 is faster but offers weaker security margins.</p>
+
+<pre><code><span class="label">Pseudocode</span>
+<span class="cm">// SipHash-2-4 core round</span>
+<span class="cm">// v0..v3 are 64-bit state words, initialized from 128-bit key</span>
+<span class="kw">macro</span> <span class="fn">sipround</span>():
+    v0 += v1;  v1 = <span class="fn">rotl</span>(v1, <span class="nm">13</span>);  v1 ^= v0;  v0 = <span class="fn">rotl</span>(v0, <span class="nm">32</span>)
+    v2 += v3;  v3 = <span class="fn">rotl</span>(v3, <span class="nm">16</span>);  v3 ^= v2
+    v0 += v3;  v3 = <span class="fn">rotl</span>(v3, <span class="nm">21</span>);  v3 ^= v0
+    v2 += v1;  v1 = <span class="fn">rotl</span>(v1, <span class="nm">17</span>);  v1 ^= v2;  v2 = <span class="fn">rotl</span>(v2, <span class="nm">32</span>)
+
+<span class="cm">// Per 8-byte message block: 2 rounds</span>
+<span class="cm">// Finalization: 4 rounds</span>
+<span class="cm">// Output: v0 ^ v1 ^ v2 ^ v3</span></code></pre>
+
+<h3>CRC32C: Hardware Speed</h3>
+
+<p>CRC32 is a cyclic redundancy check &mdash; technically an error-detection code, not a hash function. But CRC32C (Castagnoli polynomial) is special because Intel's SSE4.2 instruction set includes a dedicated <code>crc32</code> instruction that computes it in hardware. One instruction per 8 bytes. That is roughly <strong>20+ GB/s</strong> with zero pipeline stalls.</p>
+
+<pre><code><span class="label">C</span>
+<span class="pp">#include</span> <span class="st">&lt;nmmintrin.h&gt;</span>  <span class="cm">// SSE4.2</span>
+
+<span class="cm">// Hardware CRC32C: one instruction per 8 bytes</span>
+<span class="ty">uint32_t</span> <span class="fn">crc32c_hw</span>(<span class="kw">const</span> <span class="ty">uint8_t</span> *data, <span class="ty">size_t</span> len) {
+    <span class="ty">uint32_t</span> crc = <span class="nm">0xFFFFFFFF</span>;
+    <span class="kw">while</span> (len &gt;= <span class="nm">8</span>) {
+        crc = <span class="fn">_mm_crc32_u64</span>(crc, *(<span class="ty">uint64_t</span>*)data);
+        data += <span class="nm">8</span>;
+        len -= <span class="nm">8</span>;
+    }
+    <span class="kw">while</span> (len--) {
+        crc = <span class="fn">_mm_crc32_u8</span>(crc, *data++);
+    }
+    <span class="kw">return</span> crc ^ <span class="nm">0xFFFFFFFF</span>;
+}</code></pre>
+
+<div class="power">
+<div class="power-label">Shard Connection</div>
+<p>Your shard format uses CRC32C Castagnoli for data integrity checksums. The <code>ComputeChecksum()</code> function in <code>shard_format.go</code> runs CRC32C over each data section to detect corruption. This is not collision resistance (CRC32 is trivially invertible) &mdash; it is error detection, which is exactly what a checksum needs.</p>
+</div>
+
+<h3>MurmurHash3: The Researcher's Favorite</h3>
+
+<p>MurmurHash3 uses a <strong>multiply-rotate-XOR</strong> pattern with an annealed finalizer. The finalizer is critical: it mixes bits so thoroughly that the measured avalanche bias is only <strong>0.25%</strong> (perfect would be 0%). The name comes from the core operations: <strong>mu</strong>ltiply and <strong>r</strong>otate.</p>
+
+<pre><code><span class="label">C</span>
+<span class="cm">// MurmurHash3 finalizer (fmix64)</span>
+<span class="cm">// This is the magic sauce. Each multiply-XOR-shift</span>
+<span class="cm">// step increases diffusion until all bits are mixed.</span>
+<span class="ty">uint64_t</span> <span class="fn">fmix64</span>(<span class="ty">uint64_t</span> k) {
+    k ^= k &gt;&gt; <span class="nm">33</span>;
+    k *= <span class="nm">0xff51afd7ed558ccdULL</span>;
+    k ^= k &gt;&gt; <span class="nm">33</span>;
+    k *= <span class="nm">0xc4ceb9fe1a85ec53ULL</span>;
+    k ^= k &gt;&gt; <span class="nm">33</span>;
+    <span class="kw">return</span> k;
+}</code></pre>
+
+<p>MurmurHash3 comes in two variants: a 32-bit version for hash tables, and a 128-bit version for when you need extremely low collision probability (e.g., deduplication). Apache HBase, Cassandra, and Elasticsearch all use it.</p>
+
+<h3>aHash: AES-NI Powered Hashing</h3>
+
+<p>The default hasher in Rust's <code>hashbrown</code> crate (which backs <code>std::collections::HashMap</code> since Rust 1.36). aHash uses AES-NI instructions &mdash; the same hardware acceleration used for AES encryption &mdash; to mix data. A single <code>AESENC</code> instruction provides excellent diffusion in one cycle. With AES-NI, aHash achieves roughly <strong>40 GB/s</strong> on bulk data while providing strong enough guarantees to resist HashDoS.</p>
+
+<pre><code><span class="label">Conceptual</span>
+<span class="cm">// aHash uses AESENC for mixing (conceptual, not exact)</span>
+<span class="cm">// Each AESENC instruction provides 1 round of AES:</span>
+<span class="cm">//   SubBytes + ShiftRows + MixColumns + AddRoundKey</span>
+<span class="cm">// This gives near-perfect diffusion in 1 CPU cycle.</span>
+
+<span class="cm">// For short keys (&lt;=16 bytes):</span>
+<span class="cm">//   load key into 128-bit register</span>
+<span class="cm">//   2 x AESENC with secret key material</span>
+<span class="cm">//   fold to 64-bit result</span>
+
+<span class="cm">// For long keys:</span>
+<span class="cm">//   process 64 bytes per loop iteration</span>
+<span class="cm">//   4 parallel AESENC lanes</span>
+<span class="cm">//   merge and finalize</span></code></pre>
+
+<div class="power zen">
+<div class="power-label">The Hardware Advantage</div>
+<p>AES-NI is available on every x86 CPU since ~2010 (Intel Westmere, AMD Bulldozer). Using encryption hardware for hashing is a hack in the best sense: you get cryptographic-grade bit mixing at hardware speed. aHash is not cryptographically secure (the key is not long enough), but it is secure enough to prevent HashDoS while being faster than any software-only hash function.</p>
+</div>
+
+<h3>Choosing a Hash Function: Decision Tree</h3>
+
+<div class="diagram">
+<span class="diagram-label">Hash Function Decision Tree</span>
+<pre><code>  Do you need to resist adversarial input?
+  |
+  +-- YES: Is AES-NI available?
+  |        |
+  |        +-- YES --&gt; aHash (~40 GB/s, strong)
+  |        +-- NO  --&gt; SipHash-2-4 (~2 GB/s, proven PRF)
+  |
+  +-- NO:  Is the data large (>64 bytes)?
+           |
+           +-- YES --&gt; xxHash64 (~31 GB/s, best bulk throughput)
+           +-- NO:  Do you need hardware acceleration?
+                    |
+                    +-- YES --&gt; CRC32C (~20 GB/s, SSE4.2)
+                    +-- NO  --&gt; FNV-1a (~3 GB/s, simplest)</code></pre>
+</div>
+
+<h3>Hash Function Comparison</h3>
+
+<table>
+<tr><th>Function</th><th>Output</th><th>Speed</th><th>Security</th><th>Use Case</th></tr>
+<tr><td>FNV-1a</td><td>32/64-bit</td><td>~3 GB/s</td><td>None</td><td>Short keys, simplicity</td></tr>
+<tr><td>xxHash64</td><td>64-bit</td><td>~31 GB/s</td><td>None</td><td>Checksums, file hashing</td></tr>
+<tr><td>SipHash-2-4</td><td>64/128-bit</td><td>~2 GB/s</td><td>PRF</td><td>Hash tables (anti-DoS)</td></tr>
+<tr><td>CRC32C</td><td>32-bit</td><td>~20 GB/s</td><td>None</td><td>Checksums (HW accel)</td></tr>
+<tr><td>MurmurHash3</td><td>32/128-bit</td><td>~8 GB/s</td><td>None</td><td>Distributed systems</td></tr>
+<tr><td>AES-based (aHash)</td><td>64-bit</td><td>~40 GB/s</td><td>Strong</td><td>Rust hashbrown default</td></tr>
+</table>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch3">
+<h2>// 03. collision resolution &mdash; the strategies</h2>
+
+<p class="drop-cap">Collisions are not bugs. They are a mathematical certainty. By the birthday paradox, in a table with m buckets, you will likely see a collision after only sqrt(m) insertions. A 1024-bucket table? Expect a collision by insertion 32. The question is never "will collisions happen?" but "how do you handle them?"</p>
+
+<p>There are two fundamental families of collision resolution: <strong>closed addressing</strong> (separate chaining &mdash; each bucket can hold unlimited items via external storage) and <strong>open addressing</strong> (all items live in the main array, collisions resolved by probing alternate slots). Most modern high-performance implementations use open addressing because of cache locality.</p>
+
+<div class="diagram">
+<span class="diagram-label">The Two Families</span>
+<pre><code>  CLOSED ADDRESSING              OPEN ADDRESSING
+  (Separate Chaining)            (Probing)
+  +---------+                    +---------+
+  | bucket  |--&gt; [node]--&gt;...   | slot 0  |  all data lives in
+  +---------+                    +---------+  the main array
+  | bucket  |--&gt; [node]          | slot 1  |
+  +---------+                    +---------+  collision? try
+  | bucket  |--&gt; null            | slot 2  |  the next slot
+  +---------+                    +---------+  (linear, quadratic,
+                                 | slot 3  |   double hash, etc.)
+  External storage               +---------+
+  Pointers everywhere            No pointers
+  Cache-unfriendly               Cache-friendly</code></pre>
+</div>
+
+<h3>Separate Chaining</h3>
+
+<p>The simplest strategy: each bucket holds a linked list. Collision? Just append to the list. Lookup walks the list comparing keys. Delete removes a node. Easy to implement, hard to make fast.</p>
+
+<div class="diagram">
+<span class="diagram-label">Separate Chaining</span>
+<pre><code>  Buckets          Chains
+  +------+
+  |  0   |--&gt; null
+  +------+
+  |  1   |--&gt; [K1:V1] --&gt; [K5:V5] --&gt; null
+  +------+
+  |  2   |--&gt; [K2:V2] --&gt; null
+  +------+
+  |  3   |--&gt; [K3:V3] --&gt; [K7:V7] --&gt; [K9:V9] --&gt; null
+  +------+
+  |  4   |--&gt; null
+  +------+
+  |  5   |--&gt; [K4:V4] --&gt; null
+  +------+
+  |  6   |--&gt; null
+  +------+
+  |  7   |--&gt; [K6:V6] --&gt; [K8:V8] --&gt; null
+  +------+
+
+  Load factor can exceed 1.0 (more items than buckets).
+  Each chain is a separate allocation = pointer chasing = cache misses.</code></pre>
+</div>
+
+<div class="power danger">
+<div class="power-label">The Cache Problem</div>
+<p>Every node in the chain is a separate heap allocation. Following a pointer to the next node means jumping to an arbitrary memory address. On modern hardware, an L1 cache hit costs 1ns but a RAM access costs 100ns. A chain of length 4 means 4 potential cache misses = 400ns. This is why open addressing dominates in performance-critical code.</p>
+</div>
+
+<h3>Linear Probing</h3>
+
+<p>No pointers, no linked lists. If your bucket is occupied, try the next one. Then the next. Wrap around at the end. Everything lives in a single contiguous array &mdash; great for cache locality.</p>
+
+<div class="diagram">
+<span class="diagram-label">Linear Probing</span>
+<pre><code>  Insert "fox" -&gt; hash % 8 = 3 (occupied!)
+  Try slot 4... occupied. Try slot 5... empty! Store here.
+
+  +-----+-----+-----+-----+-----+-----+-----+-----+
+  |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |
+  |     | cat |     | dog | ant | fox |     |     |
+  +-----+-----+-----+-----+-----+-----+-----+-----+
+                       ^           ^
+               hash("fox")%8=3    landed here
+               occupied!          after 2 probes
+
+  PRIMARY CLUSTERING: filled slots clump together.
+  A cluster of size k has probability proportional to k
+  of growing further, because any hash landing in [3..5]
+  will extend the cluster. Clusters breed clusters.</code></pre>
+</div>
+
+<h3>Quadratic Probing</h3>
+
+<p>Instead of probing slot i+1, i+2, i+3, probe slot i+1, i+4, i+9 (offsets are 1, 4, 9, 16... squares). This breaks up primary clusters but introduces <strong>secondary clustering</strong>: keys that hash to the same initial slot follow the same probe sequence.</p>
+
+<div class="diagram">
+<span class="diagram-label">Quadratic Probing</span>
+<pre><code>  hash("fox") % 16 = 5 (occupied!)
+
+  Linear probing:    5, 6, 7, 8, 9, 10, ...     (sequential)
+  Quadratic probing: 5, 6, 9, 14, 5+16=5, ...   (i^2 jumps)
+                        +1 +4 +9  +16
+
+  +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |10 |11 |12 |13 |14 |15 |
+  |   |   |   |   |   |OCC| ? |   |   | ? |   |   |   |   | ? |   |
+  +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+                        ^   ^           ^                   ^
+                   start=5  +1^2       +2^2                +3^2
+
+  Caveat: table size MUST be prime (or power-of-2 with triangular numbers)
+  to guarantee all slots are visited.</code></pre>
+</div>
+
+<h3>Double Hashing</h3>
+
+<p>Use two independent hash functions. If h1(key) is occupied, probe at h1(key) + i*h2(key). Each key gets its own unique probe stride. No clustering at all &mdash; but you pay for two hash evaluations per probe.</p>
+
+<pre><code><span class="label">Pseudocode</span>
+<span class="fn">probe</span>(key, i) = (h1(key) + i * h2(key)) % m
+
+<span class="cm">// h2(key) must never return 0 (infinite loop!)</span>
+<span class="cm">// Common choice: h2(key) = 1 + (key % (m-1))</span></code></pre>
+
+<h3>Robin Hood Hashing</h3>
+
+<p>The most elegant open-addressing strategy. The idea: track each element's <strong>probe distance</strong> (how far it is from its ideal bucket). During insertion, if you encounter an element whose probe distance is <em>less</em> than yours, <strong>steal its slot</strong> and let it continue probing. You are robbing from the rich (low probe distance) and giving to the poor (high probe distance).</p>
+
+<div class="diagram">
+<span class="diagram-label">Robin Hood Hashing &mdash; Steal from the Rich</span>
+<pre><code>  Insert key K with ideal slot 2. Probing...
+
+  Slot:  0     1     2     3     4     5     6     7
+  Key:   -     -     A     B     C     -     -     -
+  Dist:  -     -     0     1     0     -     -     -
+
+  K wants slot 2, but A is there (dist=0). K's dist=0. Equal, keep going.
+  K tries slot 3. B is there (dist=1). K's dist=1. Equal, keep going.
+  K tries slot 4. C is there (dist=0). K's dist=2. K &gt; C, SWAP!
+
+  After swap:
+  Slot:  0     1     2     3     4     5     6     7
+  Key:   -     -     A     B     K     C     -     -
+  Dist:  -     -     0     1     2     1     -     -
+
+  Now C continues probing from slot 5 with dist=1.
+  C finds slot 5 empty, done.
+
+  Result: maximum probe distance is minimized.
+  Variance of probe distances approaches 0 as table fills.
+  Expected max probe distance: O(log log n).</code></pre>
+</div>
+
+<div class="power hack">
+<div class="power-label">Why It Matters</div>
+<p>Robin Hood hashing was used by Rust's standard HashMap before they switched to Swiss Tables (hashbrown). The variance reduction means worst-case lookups are dramatically better than linear probing, even though average-case performance is similar. Deletion is also clean: use backward-shift deletion instead of tombstones.</p>
+</div>
+
+<h3>Cuckoo Hashing</h3>
+
+<p>Guaranteed O(1) worst-case lookup. Use two hash functions and two tables. Each key lives in <em>exactly one</em> of its two possible slots. Insertion might evict an existing key, which then moves to its alternate slot, which might evict another key, and so on. If the eviction chain gets too long, rehash everything.</p>
+
+<div class="diagram">
+<span class="diagram-label">Cuckoo Hashing &mdash; Two Tables, No Chains</span>
+<pre><code>  Table 1 (h1)              Table 2 (h2)
+  +-----+------+            +-----+------+
+  |  0  |      |            |  0  |  C   |
+  +-----+------+            +-----+------+
+  |  1  |  A   | &lt;------+   |  1  |      |
+  +-----+------+        |   +-----+------+
+  |  2  |      |        |   |  2  |  D   |
+  +-----+------+        |   +-----+------+
+  |  3  |  B   |        |   |  3  |      |
+  +-----+------+        |   +-----+------+
+                        |
+  Insert E: h1(E)=1 -&gt; occupied by A!
+  Evict A -&gt; move A to h2(A)=3 in Table 2
+  Place E in Table 1, slot 1.
+
+  Table 1 (after)           Table 2 (after)
+  +-----+------+            +-----+------+
+  |  0  |      |            |  0  |  C   |
+  +-----+------+            +-----+------+
+  |  1  |  E   |            |  1  |      |
+  +-----+------+            +-----+------+
+  |  2  |      |            |  2  |  D   |
+  +-----+------+            +-----+------+
+  |  3  |  B   |            |  3  |  A   |
+  +-----+------+            +-----+------+
+
+  Lookup: check h1(key), check h2(key). Done.
+  Always exactly 2 lookups. GUARANTEED O(1).
+
+  Downside: only ~50% load factor (with 2 tables).
+  Bucketized cuckoo (4 slots per bucket): up to 95%.</code></pre>
+</div>
+
+<h3>Hopscotch Hashing</h3>
+
+<p>Each bucket has a <strong>neighborhood bitmap</strong> (typically 32 bits). The bitmap indicates which of the next 32 slots contain keys that belong to this bucket. Lookup checks only the bitmap &mdash; no probing. A single bitmap comparison is one instruction. Works at 90%+ load factors with near-constant lookup time.</p>
+
+<div class="diagram">
+<span class="diagram-label">Hopscotch Hashing &mdash; Neighborhood Bitmaps</span>
+<pre><code>  Bucket 3's bitmap: 10010100 (neighborhood = 8 slots)
+  Meaning: keys belonging to bucket 3 are at offsets 0, 3, and 5.
+
+  Slot:   3     4     5     6     7     8     9    10
+  Key:   K3a   K7    K1   K3b    K5   K3c    K2    K8
+  Bitmap bits for bucket 3:
+          1     0     0     1     0     1     0     0
+
+  Lookup("key_for_bucket_3"):
+    1. Read bitmap for bucket 3: 10010100
+    2. Check slots 3, 6, 9 only (bits set in bitmap)
+    3. Compare keys at those 3 positions
+    4. Done. No probing beyond the neighborhood.
+
+  Property: wait-free lookups (no retries needed).
+  Works well for concurrent hash tables.</code></pre>
+</div>
+
+<h3>Tombstones vs. Backward Shift</h3>
+
+<p>When you delete from an open-addressing table, you cannot simply mark the slot as empty. If you do, subsequent lookups for keys that probed past this slot will stop too early and falsely report "not found." There are two solutions:</p>
+
+<div class="vs">
+<div class="vs-col">
+<h4>Tombstones</h4>
+<p>Mark deleted slots with a special sentinel value. Lookups skip tombstones but insertions can reuse them. Problem: tombstones accumulate over time. After many insert/delete cycles, the table fills with dead slots that slow down every lookup. Periodic "rehash to clean" is needed.</p>
+<p>Used by: Swiss Tables, Python dict, most textbook implementations.</p>
+</div>
+<div class="vs-col">
+<h4>Backward Shift</h4>
+<p>When you delete a slot, shift all subsequent displaced elements back one position. This keeps the table clean &mdash; no dead slots ever accumulate. More complex delete logic, but lookups are always optimal.</p>
+<p>Used by: Robin Hood hashing, some custom high-performance tables.</p>
+</div>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Tombstone Accumulation Problem</span>
+<pre><code>  After 10,000 insert/delete cycles at 50% load:
+
+  Tombstone approach:
+  [  X  ][data][ X  ][ X  ][data][ X  ][data][ X  ][ X  ][data]
+  30-40% of slots are tombstones. Probe sequences walk through
+  dead slots. Average probe length: 3.2 (should be 1.5).
+
+  Backward-shift approach:
+  [data][data][    ][data][data][    ][data][data][    ][    ]
+  No tombstones. Table is always clean. Average probe length: 1.5.
+  Exactly what you'd expect for 50% load factor.</code></pre>
+</div>
+
+<h3>Collision Strategy Comparison</h3>
+
+<table>
+<tr><th>Strategy</th><th>Lookup</th><th>Insert</th><th>Max Load</th><th>Cache</th><th>Notes</th></tr>
+<tr><td>Separate Chaining</td><td>O(1+a)</td><td>O(1)</td><td>&gt;1.0</td><td>Bad</td><td>Simple, pointer-heavy</td></tr>
+<tr><td>Linear Probing</td><td>O(1/(1-a))</td><td>O(1/(1-a))</td><td>~0.7</td><td>Great</td><td>Primary clustering</td></tr>
+<tr><td>Quadratic</td><td>O(1/(1-a))</td><td>O(1/(1-a))</td><td>~0.7</td><td>Good</td><td>Secondary clustering</td></tr>
+<tr><td>Double Hash</td><td>O(1/(1-a))</td><td>O(1/(1-a))</td><td>~0.7</td><td>Good</td><td>No clustering, 2x hash</td></tr>
+<tr><td>Robin Hood</td><td>O(log log n)</td><td>O(log log n)</td><td>~0.9</td><td>Great</td><td>Low variance</td></tr>
+<tr><td>Cuckoo</td><td>O(1) worst</td><td>Amort O(1)</td><td>~0.5</td><td>OK</td><td>Guaranteed constant</td></tr>
+<tr><td>Hopscotch</td><td>O(1) exp</td><td>O(1) amort</td><td>~0.9</td><td>Great</td><td>Bitmap neighborhoods</td></tr>
+</table>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch4">
+<h2>// 04. go maps &mdash; under the hood</h2>
+
+<p class="drop-cap">Go's built-in <code>map[K]V</code> is one of the most-used hash tables in production software. Before Go 1.24, it used a unique design: <strong>8-slot buckets</strong> with a tophash acceleration array. Starting with Go 1.24, it switched to Swiss Tables. Understanding both designs reveals how hash table engineering has evolved.</p>
+
+<h3>Pre-1.24: The Bucket Design</h3>
+
+<div class="diagram">
+<span class="diagram-label">Go Map Bucket (Pre-1.24)</span>
+<pre><code>  Each bucket holds 8 key-value pairs + metadata.
+
+  +----------------------------------------------+
+  | bucket (bmap)                                 |
+  +-----------------------------------------------+
+  | tophash [8]uint8    &lt;- top 8 bits of hash     |
+  | +----+----+----+----+----+----+----+----+     |
+  | | A3 | 7F | 02 | -- | B1 | -- | E4 | 55 |     |
+  | +----+----+----+----+----+----+----+----+     |
+  |                                               |
+  | keys [8]K                                     |
+  | +------+------+------+------+------+--...     |
+  | | key0 | key1 | key2 |      | key4 |          |
+  | +------+------+------+------+------+--...     |
+  |                                               |
+  | values [8]V                                   |
+  | +------+------+------+------+------+--...     |
+  | | val0 | val1 | val2 |      | val4 |          |
+  | +------+------+------+------+------+--...     |
+  |                                               |
+  | overflow *bmap  &lt;- chain to next bucket       |
+  +-----------------------------------------------+
+
+  Layout trick: keys are grouped together, then values.
+  NOT key0-val0-key1-val1. This avoids padding waste
+  when sizeof(key) != sizeof(value).</code></pre>
+</div>
+
+<p>The <strong>tophash array</strong> is the accelerator. Before comparing any keys (which might be expensive strings), Go checks the top 8 bits of the hash against the tophash entries. Only on a tophash match does it do a full key comparison. Since 8 tophash bytes fit in a single cache line, scanning all 8 is essentially free.</p>
+
+<h4>Load Factor: 6.5</h4>
+
+<p>Go uses a load factor of 6.5 &mdash; meaning it resizes when the average bucket has 6.5 of its 8 slots filled (81.25% full). This is higher than most implementations because the 8-slot bucket design tolerates more collisions before performance degrades.</p>
+
+<h4>Incremental Resizing</h4>
+
+<p>When a resize is triggered, Go does not rehash everything at once. Instead, it allocates the new (2x) bucket array and migrates buckets lazily &mdash; a few buckets per insert/delete operation. During migration, both old and new arrays are live, and lookups check both. This avoids the latency spike of a full rehash.</p>
+
+<h4>Iteration Randomization</h4>
+
+<p>Go deliberately randomizes map iteration order. Each <code>range</code> over a map starts at a random bucket and a random slot within that bucket. This is not a security feature &mdash; it is a <strong>correctness enforcement</strong>. If iteration order were deterministic, programmers would accidentally depend on it, and then resizing or internal changes would break their code.</p>
+
+<h4>Same-Size Growth</h4>
+
+<p>Go has a subtle optimization: if a map has many overflow buckets but the count has not actually grown (lots of insertions and deletions), it can trigger a "same-size growth." Instead of doubling the bucket count, it allocates a new array of the <em>same</em> size and rehashes everything. This cleans up overflow chains caused by churn without wasting memory on a larger table that is not needed.</p>
+
+<pre><code><span class="label">Go runtime (simplified)</span>
+<span class="cm">// From runtime/map.go (pre-1.24)</span>
+<span class="cm">// Two conditions trigger growth:</span>
+
+<span class="cm">// 1. Too full: count/buckets > 6.5</span>
+<span class="cm">//    Action: double the bucket count (2x)</span>
+
+<span class="cm">// 2. Too many overflows: noverflow >= 1&lt;&lt;(B&amp;15)</span>
+<span class="cm">//    Action: same-size rehash (cleanup only)</span></code></pre>
+
+<div class="diagram">
+<span class="diagram-label">Go Map Memory Layout (Pre-1.24)</span>
+<pre><code>  hmap struct (header)
+  +------------------+
+  | count: 42        |  number of entries
+  | B: 3             |  log2(buckets) = 3, so 8 buckets
+  | hash0: 0xF39A... |  random seed per map instance
+  | buckets ---------|-----+
+  | oldbuckets: nil  |     |
+  +------------------+     |
+                           v
+  Bucket array [8]bmap:
+  +--------+--------+--------+--------+--------+--------+--------+--------+
+  | bmap 0 | bmap 1 | bmap 2 | bmap 3 | bmap 4 | bmap 5 | bmap 6 | bmap 7 |
+  +--------+--------+--------+--------+--------+--------+--------+--------+
+      |
+      v
+  bmap 0:
+  [tophash x8][key0][key1]...[key7][val0][val1]...[val7][overflow ptr]
+
+  Total per bucket (string keys, int values):
+  8 + 8*16 + 8*8 = 8 + 128 + 64 = 200 bytes
+  Plus overflow bucket if &gt;8 collisions.</code></pre>
+</div>
+
+<h3>Map Internals: What Happens During Resize</h3>
+
+<div class="diagram">
+<span class="diagram-label">Go Map Incremental Resize (Pre-1.24)</span>
+<pre><code>  State: growing from 8 buckets to 16 buckets
+
+  oldbuckets (being evacuated):
+  +----+----+----+----+----+----+----+----+
+  | B0 | B1 | B2 | B3 | B4 | B5 | B6 | B7 |
+  +----+----+----+----+----+----+----+----+
+    ok   ok  LIVE LIVE LIVE LIVE LIVE LIVE
+    ^--- already evacuated
+
+  buckets (new, double size):
+  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+  | B0 | B1 | B2 | B3 | B4 | B5 | B6 | B7 | B8 | B9 |B10 |B11 |B12 |B13 |B14 |B15 |
+  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+   new  new                                  new  new
+   ^--- received entries from old B0, B1
+
+  On each insert/delete: evacuate the NEXT old bucket.
+  Lookup: check new bucket first, then old bucket (if not yet evacuated).
+
+  nevacuate counter: 2 (next: evacuate old B2)
+
+  Each old bucket's entries go to one of two new buckets:
+  old B[i] --&gt; new B[i]  or  new B[i + oldsize]
+  (determined by the new bit in the hash)</code></pre>
+</div>
+
+<p>This incremental approach spreads the O(n) cost of rehashing across subsequent operations. The worst case for a single insert during resize is O(1) amortized &mdash; you evacuate at most one old bucket (8 entries) per operation. The downside: during resize, every lookup must check both tables, roughly doubling the lookup cost until migration completes.</p>
+
+<h3>Go 1.24: Swiss Tables Arrive</h3>
+
+<p>Go 1.24 (February 2025) replaced the bucket design with <strong>Swiss Tables</strong>, the hash table design from Google's Abseil library. The key change: instead of 8-slot buckets with overflow chains, Go now uses groups of 8 or 16 slots with SIMD metadata probing. No more overflow pointers. No more tophash arrays. Just flat arrays with control bytes.</p>
+
+<div class="power">
+<div class="power-label">Real-World Impact</div>
+<p>Datadog reported saving <strong>hundreds of gigabytes of RAM</strong> across their fleet after upgrading to Go 1.24. The Swiss Table design eliminates overflow bucket allocations and packs metadata more efficiently. For workloads with millions of small maps, the overhead reduction is massive.</p>
+</div>
+
+<div class="vs">
+<div class="vs-col">
+<h4>Pre-1.24 Buckets</h4>
+<p>8 slots per bucket + overflow chain</p>
+<p>tophash[8] for fast rejection</p>
+<p>Load factor: 6.5 per bucket</p>
+<p>Incremental resize (lazy migration)</p>
+<p>Overflow pointers = heap allocations</p>
+</div>
+<div class="vs-col">
+<h4>1.24+ Swiss Tables</h4>
+<p>Groups of 8/16 with control bytes</p>
+<p>H2 metadata for SIMD matching</p>
+<p>Load factor: ~7/8 (87.5%)</p>
+<p>Full rehash on resize</p>
+<p>Flat array = zero extra allocations</p>
+</div>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>// 05. swiss tables &mdash; the SIMD revolution</h2>
+
+<p class="drop-cap">Swiss Tables, developed at Google and first released in 2017 as part of the Abseil C++ library, represent the biggest leap in hash table design in decades. The core insight: use SIMD instructions to probe <strong>16 slots simultaneously</strong> in a single CPU operation. What linear probing does in a loop, Swiss Tables do in three instructions.</p>
+
+<h3>The Control Byte</h3>
+
+<p>Every slot has a 1-byte <strong>control byte</strong> (also called metadata byte). This byte encodes the slot state:</p>
+
+<div class="diagram">
+<span class="diagram-label">Control Byte Layout</span>
+<pre><code>  Bit layout:  [H2_6 H2_5 H2_4 H2_3 H2_2 H2_1 H2_0 CTRL]
+
+  If high bit = 0:
+    Slot is OCCUPIED. Lower 7 bits = H2 hash (bits 57-63 of full hash).
+
+  If high bit = 1:
+    0xFF = EMPTY   (11111111) -- slot has never been used
+    0x80 = DELETED (10000000) -- slot was occupied, now tombstoned
+
+  +--------------------------------------------------------------+
+  | Group of 16 control bytes (128 bits = 1 SSE register)        |
+  +------+------+------+------+------+------+------+------+------+
+  | 0x3A | 0xFF | 0x7C | 0xFF | 0x3A | 0x12 | 0xFF | 0x80 | ... |
+  | occ  | empt | occ  | empt | occ  | occ  | empt | del  |     |
+  +------+------+------+------+------+------+------+------+------+</code></pre>
+</div>
+
+<h3>The SIMD Match Operation</h3>
+
+<p>This is where the magic happens. To find a key in a group of 16 slots:</p>
+
+<div class="diagram">
+<span class="diagram-label">SIMD Probing: 3 Instructions, 16 Slots</span>
+<pre><code>  Step 1: Broadcast the H2 byte to all 16 lanes
+
+  H2 of search key: 0x3A
+  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+  | 3A | 3A | 3A | 3A | 3A | 3A | 3A | 3A | 3A | 3A | 3A | 3A | 3A | 3A | 3A | 3A |
+  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+
+  Step 2: _mm_cmpeq_epi8(broadcast, control_bytes)
+  Compare all 16 bytes simultaneously. Result: 0xFF where match, 0x00 where not.
+
+  Control bytes:
+  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+  | 3A | FF | 7C | FF | 3A | 12 | FF | 80 | 55 | 3A | FF | 22 | FF | 3A | 44 | FF |
+  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+
+  SIMD comparison result:
+  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+  | FF | 00 | 00 | 00 | FF | 00 | 00 | 00 | 00 | FF | 00 | 00 | 00 | FF | 00 | 00 |
+  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+
+  Step 3: _mm_movemask_epi8 --&gt; extract to bitmask
+  Result: 0b0010_0100_0001_0001 = 0x2411
+
+  Bit positions 0, 4, 9, 13 have potential matches.
+  Now check ONLY those 4 slots for full key equality.</code></pre>
+</div>
+
+<pre><code><span class="label">C / SSE</span>
+<span class="pp">#include</span> <span class="st">&lt;emmintrin.h&gt;</span>  <span class="cm">// SSE2</span>
+
+<span class="cm">// Find slots in a group that might contain our key</span>
+<span class="ty">uint16_t</span> <span class="fn">match_h2</span>(<span class="kw">const</span> <span class="ty">uint8_t</span> *ctrl, <span class="ty">uint8_t</span> h2) {
+    <span class="ty">__m128i</span> needle = <span class="fn">_mm_set1_epi8</span>(h2);
+    <span class="ty">__m128i</span> haystack = <span class="fn">_mm_loadu_si128</span>((<span class="ty">__m128i</span>*)ctrl);
+    <span class="ty">__m128i</span> cmp = <span class="fn">_mm_cmpeq_epi8</span>(needle, haystack);
+    <span class="kw">return</span> (<span class="ty">uint16_t</span>)<span class="fn">_mm_movemask_epi8</span>(cmp);
+}
+
+<span class="cm">// Find empty slots (0xFF control bytes)</span>
+<span class="ty">uint16_t</span> <span class="fn">match_empty</span>(<span class="kw">const</span> <span class="ty">uint8_t</span> *ctrl) {
+    <span class="ty">__m128i</span> empty = <span class="fn">_mm_set1_epi8</span>((<span class="ty">char</span>)<span class="nm">0xFF</span>);
+    <span class="ty">__m128i</span> haystack = <span class="fn">_mm_loadu_si128</span>((<span class="ty">__m128i</span>*)ctrl);
+    <span class="ty">__m128i</span> cmp = <span class="fn">_mm_cmpeq_epi8</span>(empty, haystack);
+    <span class="kw">return</span> (<span class="ty">uint16_t</span>)<span class="fn">_mm_movemask_epi8</span>(cmp);
+}</code></pre>
+
+<h3>Why H2 Filtering Works So Well</h3>
+
+<p>The H2 hash uses 7 bits, giving 128 possible values. The probability of a false H2 match (different key, same H2) is 1/128 = <strong>0.78%</strong>. In a group of 16 slots at 87.5% load (14 occupied), the expected number of false matches is 14 * (1/128) = <strong>0.109</strong>. That means 89% of lookups will check exactly one key. 10% will check two. Almost none will check three.</p>
+
+<div class="power hack">
+<div class="power-label">The Math</div>
+<p>With 7-bit H2, each non-matching slot has a 1/128 chance of a false positive. For a full group of 16 at 87.5% load: expected false matches = 14/128 = 0.109. This means Swiss Tables eliminate <strong>99.2%</strong> of unnecessary key comparisons. The SIMD check costs ~3 cycles. A key comparison (string equality) costs 10-100 cycles. This is why Swiss Tables are fast: they almost never do the expensive operation.</p>
+</div>
+
+<h3>Swiss Tables vs. Traditional Open Addressing</h3>
+
+<table>
+<tr><th>Property</th><th>Linear Probing</th><th>Swiss Tables</th></tr>
+<tr><td>Slots checked per probe</td><td>1</td><td>16 (SIMD)</td></tr>
+<tr><td>Metadata</td><td>None</td><td>1 byte per slot</td></tr>
+<tr><td>Key comparisons</td><td>1 per slot</td><td>~0.1 per group</td></tr>
+<tr><td>Max load factor</td><td>~70%</td><td>~87.5%</td></tr>
+<tr><td>Clustering</td><td>Primary</td><td>None (triangular)</td></tr>
+<tr><td>SIMD required</td><td>No</td><td>SSE2 (fallback: portable)</td></tr>
+<tr><td>Deletion</td><td>Tombstone or shift</td><td>Tombstone (0x80)</td></tr>
+<tr><td>Memory overhead</td><td>~30% empty slots</td><td>~12.5% empty + 1B/slot</td></tr>
+</table>
+
+<h3>Triangular Probing</h3>
+
+<p>Swiss Tables do not use linear probing for inter-group probing. They use <strong>triangular probing</strong>: the sequence of groups to check is group + 0, group + 1, group + 3, group + 6, group + 10, ... (triangular numbers: i*(i+1)/2). This eliminates primary clustering at the group level while being cheaper than double hashing (no second hash computation &mdash; just increment a counter and add it to the offset).</p>
+
+<pre><code><span class="label">C</span>
+<span class="cm">// Swiss Table group probing sequence</span>
+<span class="ty">uint32_t</span> group = H1 % num_groups;
+<span class="ty">uint32_t</span> offset = <span class="nm">0</span>;
+<span class="ty">uint32_t</span> step = <span class="nm">1</span>;
+
+<span class="kw">while</span> (<span class="kw">true</span>) {
+    <span class="cm">// Check group at current position</span>
+    <span class="ty">uint16_t</span> mask = <span class="fn">match_h2</span>(&amp;ctrl[group * <span class="nm">16</span>], h2);
+    <span class="kw">if</span> (mask) { <span class="cm">/* check candidates */</span> }
+
+    <span class="cm">// Check for empty slot (terminates search)</span>
+    <span class="kw">if</span> (<span class="fn">match_empty</span>(&amp;ctrl[group * <span class="nm">16</span>])) <span class="kw">break</span>;
+
+    <span class="cm">// Triangular probing: 0, 1, 3, 6, 10, 15, ...</span>
+    offset += step;
+    step++;
+    group = (group + offset) % num_groups;
+}</code></pre>
+
+<div class="diagram">
+<span class="diagram-label">Swiss Table Memory Layout &mdash; Hot/Cold Split</span>
+<pre><code>  HOT PATH (fits in cache):
+  +--------------------------------------------------------+
+  | Control bytes: 16 per group, packed contiguously        |
+  | Group 0: [3A FF 7C FF 3A 12 FF 80 55 3A FF 22 FF ...] |
+  | Group 1: [...]                                          |
+  | Group 2: [...]                                          |
+  +--------------------------------------------------------+
+           ^ SIMD loads only touch this array
+
+  COLD PATH (accessed only on H2 match):
+  +--------------------------------------------------------+
+  | Slots array: [key0|val0] [key1|val1] [key2|val2]...    |
+  +--------------------------------------------------------+
+           ^ Only accessed after SIMD narrows candidates
+
+  Separating metadata from data means the hot path
+  stays in L1 cache. A 10,000-entry table has only
+  10,000 control bytes = ~10 KB of metadata.
+  L1 cache is typically 32-48 KB. It all fits.</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>// 06. perfect hashing</h2>
+
+<p class="drop-cap">When you know all your keys upfront &mdash; at compile time or at file-write time &mdash; you can build a hash function with <strong>zero collisions</strong>. No probing. No chaining. No wasted slots. One hash, one lookup, guaranteed. This is <strong>perfect hashing</strong>, and it turns O(1)-average into O(1)-worst-case.</p>
+
+<h3>Minimal Perfect Hash Functions (MPHF)</h3>
+
+<p>A perfect hash function maps n keys to distinct slots with no collisions. A <strong>minimal</strong> perfect hash function maps n keys to exactly {0, 1, 2, ..., n-1} &mdash; no gaps, no waste. Every slot is used. The lookup array is exactly as large as the key set.</p>
+
+<div class="diagram">
+<span class="diagram-label">Regular vs. Perfect vs. Minimal Perfect</span>
+<pre><code>  Keys: {A, B, C, D}
+
+  Regular hash (with collisions):
+  +---+---+---+---+---+---+---+---+
+  | A |   |B,D|   |   | C |   |   |  8 slots, 1 collision
+  +---+---+---+---+---+---+---+---+
+
+  Perfect hash (no collisions):
+  +---+---+---+---+---+---+---+---+
+  |   | A |   | B |   | C | D |   |  8 slots, 0 collisions, 4 wasted
+  +---+---+---+---+---+---+---+---+
+
+  Minimal perfect hash (no collisions, no gaps):
+  +---+---+---+---+
+  | C | A | D | B |  4 slots, 0 collisions, 0 waste
+  +---+---+---+---+
+  f(A)=1, f(B)=3, f(C)=0, f(D)=2</code></pre>
+</div>
+
+<h3>The CHD Algorithm</h3>
+
+<p>The space required to represent an MPHF has a theoretical lower bound of <strong>n * log2(e) = ~1.44 bits per key</strong>. In practice, CHD achieves about 2.07 bits/key, and more recent algorithms like RecSplit achieve 1.56 bits/key (very close to optimal).</p>
+
+<div class="diagram">
+<span class="diagram-label">MPHF Space Efficiency</span>
+<pre><code>  Algorithm        Bits/Key    Construction     Lookup
+  ----------------+----------+-----------------+--------
+  Theoretical min  1.44       -                 -
+  RecSplit         1.56       O(n)              O(1)
+  CHD              2.07       O(n) expected     O(1)
+  BPZ (BMZ)        2.62       O(n)              O(1)
+  FCH              4.0+       O(n log n)        O(1)
+
+  For 1M keys:
+  CHD   = 2.07 Mbit = 259 KB
+  Total including offsets array (8 bytes/key) = 8.26 MB
+  Compare: Go map for 1M entries ~ 50-80 MB</code></pre>
+</div>
+
+<p>CHD (Compress, Hash, Displace) by Belazzougui, Botelho, and Dietzfelbinger (2009) constructs an MPHF in O(n) expected time using about 2.07 bits per key. The idea:</p>
+
+<ol style="margin: 1rem 0 1rem 2rem;">
+<li>Hash each key to a bucket using a first hash function</li>
+<li>Sort buckets by size (densest first)</li>
+<li>For each bucket, find a displacement value d such that hash2(key, d) maps all keys in this bucket to unused slots</li>
+<li>Store the displacement values in a compact array</li>
+</ol>
+
+<pre><code><span class="label">Pseudocode</span>
+<span class="cm">// CHD construction</span>
+<span class="kw">for</span> each bucket b (sorted by size, largest first):
+    <span class="kw">for</span> d = <span class="nm">0</span>, <span class="nm">1</span>, <span class="nm">2</span>, ...:
+        slots = { <span class="fn">hash2</span>(key, d) <span class="kw">for</span> key <span class="kw">in</span> b }
+        <span class="kw">if</span> all slots are unused <span class="kw">and</span> no duplicates:
+            displacements[b] = d
+            mark slots as used
+            <span class="kw">break</span>
+
+<span class="cm">// CHD lookup: O(1), two hash evals + one array read</span>
+<span class="fn">lookup</span>(key):
+    bucket = <span class="fn">h1</span>(key) % num_buckets
+    d = displacements[bucket]
+    slot = <span class="fn">h2</span>(key, d) % n
+    <span class="kw">return</span> values[slot]</code></pre>
+
+<h3>gperf: Compile-Time Perfect Hashing</h3>
+
+<p>GNU <code>gperf</code> generates perfect hash functions for known key sets at compile time. Feed it a list of keywords and it outputs C code. This is how GCC and Clang recognize language keywords: instead of a trie or binary search, they use a perfect hash to map "if", "else", "while", "return" etc. directly to token IDs.</p>
+
+<pre><code><span class="label">gperf input</span>
+<span class="cm">%{</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+<span class="cm">%}</span>
+<span class="kw">struct</span> <span class="ty">keyword</span> { <span class="kw">const</span> <span class="ty">char</span> *name; <span class="ty">int</span> token; };
+%%
+if,        <span class="nm">TOKEN_IF</span>
+else,      <span class="nm">TOKEN_ELSE</span>
+while,     <span class="nm">TOKEN_WHILE</span>
+for,       <span class="nm">TOKEN_FOR</span>
+return,    <span class="nm">TOKEN_RETURN</span>
+struct,    <span class="nm">TOKEN_STRUCT</span>
+%%</code></pre>
+
+<div class="power wild">
+<div class="power-label">Shard Opportunity</div>
+<p>Your shard v2 format has a fixed set of tensor names per file. At write time, all entry names are known. A perfect hash index could be computed at write time and stored as a new shard section. At read time, lookup would be: hash(name) to get an index, read the offset from a flat array, done. No <code>map[uint64][]int</code>, no collision handling, no hash verification against the string table. True O(1) with zero false positives.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch7">
+<h2>// 07. bloom filters</h2>
+
+<p class="drop-cap">Not a hash table, but hash tables' most useful cousin. A Bloom filter answers one question: "Is this element <em>possibly</em> in the set, or <em>definitely not</em>?" False positives are possible. False negatives are impossible. And the whole thing is a single bit array that uses almost no memory.</p>
+
+<h3>How It Works</h3>
+
+<div class="diagram">
+<span class="diagram-label">Bloom Filter: Insert &amp; Query</span>
+<pre><code>  Bit array (m = 16 bits), k = 3 hash functions
+  Initially all zeros:
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   0 1 2 3 4 5 6 7 8 9 ...    15
+
+  INSERT "cat": h1=2, h2=5, h3=11  (set those bits)
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |0|0|1|0|0|1|0|0|0|0|0|1|0|0|0|0|
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+  INSERT "dog": h1=5, h2=9, h3=14  (set those bits)
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |0|0|1|0|0|1|0|0|0|1|0|1|0|0|1|0|
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+  QUERY "cat": check bits 2, 5, 11 --&gt; all 1 --&gt; POSSIBLY IN SET
+  QUERY "fox": h1=3, h2=7, h3=11  --&gt; bit 3 is 0 --&gt; DEFINITELY NOT
+  QUERY "rat": h1=5, h2=9, h3=2   --&gt; all 1 --&gt; FALSE POSITIVE!
+           (all bits happen to be set by other insertions)</code></pre>
+</div>
+
+<h3>The Math</h3>
+
+<pre><code><span class="cm">// False positive probability</span>
+p = (1 - e^(-kn/m))^k
+
+<span class="cm">// Optimal number of hash functions</span>
+k_opt = ln(2) * (m/n) = 0.693 * (m/n)
+
+<span class="cm">// Practical rule of thumb:</span>
+<span class="cm">//   10 bits per element, k=7  --&gt; 0.82% false positive rate</span>
+<span class="cm">//   15 bits per element, k=10 --&gt; 0.03% false positive rate</span>
+<span class="cm">//   20 bits per element, k=14 --&gt; 0.001% false positive rate</span></code></pre>
+
+<table>
+<tr><th>Bits/Element</th><th>Optimal k</th><th>False Positive Rate</th><th>Memory for 1M Elements</th></tr>
+<tr><td>8</td><td>6</td><td>2.16%</td><td>1 MB</td></tr>
+<tr><td>10</td><td>7</td><td>0.82%</td><td>1.25 MB</td></tr>
+<tr><td>12</td><td>8</td><td>0.31%</td><td>1.5 MB</td></tr>
+<tr><td>15</td><td>10</td><td>0.03%</td><td>1.875 MB</td></tr>
+<tr><td>20</td><td>14</td><td>0.001%</td><td>2.5 MB</td></tr>
+</table>
+
+<div class="power">
+<div class="power-label">Where They Show Up</div>
+<p>LevelDB/RocksDB use Bloom filters to avoid disk reads. Before reading an SSTable from disk, check the Bloom filter: if the key is definitely not there, skip the I/O entirely. Chrome uses them for safe browsing (check URL against known-malicious set without sending the URL to Google). Cassandra, HBase, and most LSM-tree databases use them. A 10 MB Bloom filter can represent 1 million keys with under 1% false positives.</p>
+</div>
+
+<h3>Counting Bloom Filters</h3>
+
+<p>Standard Bloom filters do not support deletion. If you clear a bit, you might be clearing it for multiple keys. <strong>Counting Bloom filters</strong> replace each bit with a small counter (typically 4 bits). Insert increments, delete decrements. Counter overflow is handled by saturating at the maximum value (never wrapping to zero).</p>
+
+<div class="diagram">
+<span class="diagram-label">Counting Bloom Filter</span>
+<pre><code>  Standard:   [0][1][0][1][1][0][0][1]   &lt;- 1-bit cells, no deletion
+  Counting:   [0][2][0][1][3][0][0][1]   &lt;- 4-bit counters, deletion OK
+
+  Delete "cat" (positions 1, 4, 7):
+  Before: [0][2][0][1][3][0][0][1]
+  After:  [0][1][0][1][2][0][0][0]
+
+  Cost: 4x the memory (4 bits per cell instead of 1).
+  For 1M elements at 10 bits/element: 5 MB instead of 1.25 MB.</code></pre>
+</div>
+
+<h3>Bloom Filter Variants</h3>
+
+<h4>Partitioned Bloom Filters</h4>
+
+<p>Instead of one large bit array, divide the bits into k partitions (one per hash function). Each hash function operates on its own partition. This makes the math simpler and allows better cache behavior, since each partition is smaller and more likely to be cache-resident.</p>
+
+<h4>Scalable Bloom Filters</h4>
+
+<p>Standard Bloom filters have a fixed capacity. If you insert more elements than planned, the false positive rate degrades rapidly. <strong>Scalable Bloom filters</strong> (Almeida et al., 2007) solve this by creating a chain of Bloom filters with geometrically decreasing false positive rates. When the current filter is full, allocate a new one with a tighter FP target. Query checks all filters in the chain. The total FP rate converges to a bounded value.</p>
+
+<div class="diagram">
+<span class="diagram-label">Scalable Bloom Filter Chain</span>
+<pre><code>  Filter 0: capacity 1000, FP rate = 1%
+  Filter 1: capacity 2000, FP rate = 0.5%   (allocated when filter 0 fills)
+  Filter 2: capacity 4000, FP rate = 0.25%  (allocated when filter 1 fills)
+
+  Insert: always into the latest filter.
+  Query: check ALL filters (OR the results).
+         If ANY filter says "maybe" --&gt; possibly present.
+         If ALL filters say "no"    --&gt; definitely absent.
+
+  Total FP rate &lt;= sum of geometric series = bounded.</code></pre>
+</div>
+
+<h4>Blocked Bloom Filters</h4>
+
+<p>Cache-line aligned Bloom filters. Each "block" is exactly 64 bytes (one cache line). All k bits for a given element live in the same block. This guarantees exactly <strong>one cache miss per query</strong>, regardless of k. The trade-off: slightly higher FP rate than standard Bloom filters at the same memory, but 2-3x faster in practice because of the cache behavior.</p>
+
+<pre><code><span class="label">C</span>
+<span class="cm">// Blocked Bloom Filter: one cache line per block</span>
+<span class="pp">#define</span> <span class="nm">BLOCK_BYTES</span>  <span class="nm">64</span>
+<span class="pp">#define</span> <span class="nm">BLOCK_BITS</span>   (<span class="nm">BLOCK_BYTES</span> * <span class="nm">8</span>)  <span class="cm">// 512 bits per block</span>
+
+<span class="ty">void</span> <span class="fn">bloom_insert</span>(<span class="ty">uint8_t</span> *filter, <span class="ty">uint64_t</span> hash) {
+    <span class="ty">uint32_t</span> block = (hash &gt;&gt; <span class="nm">32</span>) % num_blocks;
+    <span class="ty">uint8_t</span> *blk = filter + block * <span class="nm">BLOCK_BYTES</span>;
+
+    <span class="cm">// Set k=4 bits within this single cache line</span>
+    blk[(hash &gt;&gt; <span class="nm">0</span>) &amp; <span class="nm">0x1FF</span> / <span class="nm">8</span>] |= <span class="nm">1</span> &lt;&lt; ((hash &gt;&gt; <span class="nm">0</span>) &amp; <span class="nm">7</span>);
+    blk[(hash &gt;&gt; <span class="nm">9</span>) &amp; <span class="nm">0x1FF</span> / <span class="nm">8</span>] |= <span class="nm">1</span> &lt;&lt; ((hash &gt;&gt; <span class="nm">9</span>) &amp; <span class="nm">7</span>);
+    blk[(hash &gt;&gt; <span class="nm">18</span>) &amp; <span class="nm">0x1FF</span> / <span class="nm">8</span>] |= <span class="nm">1</span> &lt;&lt; ((hash &gt;&gt; <span class="nm">18</span>) &amp; <span class="nm">7</span>);
+    blk[(hash &gt;&gt; <span class="nm">27</span>) &amp; <span class="nm">0x1FF</span> / <span class="nm">8</span>] |= <span class="nm">1</span> &lt;&lt; ((hash &gt;&gt; <span class="nm">27</span>) &amp; <span class="nm">7</span>);
+}</code></pre>
+
+<details>
+<summary>Cuckoo Filters &mdash; A Modern Alternative</summary>
+<div class="det">
+<p>Cuckoo filters (Fan et al., 2014) store fingerprints in a cuckoo hash table. They support deletion (unlike standard Bloom filters), use less space at low false positive rates, and offer faster lookups. For false positive rates below 3%, cuckoo filters use less space per element than Bloom filters.</p>
+
+<pre><code><span class="cm">// Cuckoo filter: 12 bits/element at 0.1% FP rate</span>
+<span class="cm">// Bloom filter:  14.4 bits/element at 0.1% FP rate</span>
+<span class="cm">// Cuckoo filter supports deletion. Bloom does not.</span></code></pre>
+</div>
+</details>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch8">
+<h2>// 08. consistent hashing</h2>
+
+<p class="drop-cap">Regular hashing assigns keys to buckets with <code>hash(key) % n</code>. Add or remove a bucket and <em>every</em> key gets remapped. In a distributed system with 100 servers, losing one server means rehashing and redistributing nearly all data. Consistent hashing fixes this: adding or removing a node remaps only <strong>K/N</strong> keys on average (K keys, N nodes).</p>
+
+<h3>The Ring</h3>
+
+<div class="diagram">
+<span class="diagram-label">Consistent Hash Ring</span>
+<pre><code>  Hash space mapped to a circle (0 to 2^64 - 1, wrapping):
+
+                       0 / 2^64
+                    .----+----.
+                  /    N1  |    \
+                /          |      \
+              N4           |       N2
+              /            |         \
+             |             |          |
+             |   &lt;-- K3    |   K1 --&gt; |
+             |             |          |
+              \            |         /
+               N3          |       /
+                \          |     /
+                  \        |   /
+                    '----+----'
+                       2^63
+
+  Each node Ni is placed on the ring at position hash(Ni).
+  Each key Kj is placed on the ring at position hash(Kj).
+  Key Kj is assigned to the FIRST node clockwise from its position.
+
+  K1 --&gt; N2 (nearest clockwise)
+  K3 --&gt; N3 (nearest clockwise)
+
+  Remove N2: only keys between N1 and N2 move (to N3).
+  All other keys stay on their current nodes.</code></pre>
+</div>
+
+<h3>Virtual Nodes</h3>
+
+<p>With only 4 physical nodes, the ring partitions are likely uneven &mdash; one node might own 40% of the ring, another only 10%. <strong>Virtual nodes</strong> fix this: each physical node gets 100-200 positions on the ring (e.g., hash("node1-0"), hash("node1-1"), ..., hash("node1-149")). With 150 virtual nodes per physical node, the distribution converges to near-uniform.</p>
+
+<div class="power zen">
+<div class="power-label">DeepData Connection</div>
+<p>Your DeepData VectorDB uses FNV-64a for shard routing in <code>hashToShard()</code> from <code>distributed.go</code>. The function hashes the collection name + key and maps to a shard index. This is a simpler modular scheme (hash % numShards) rather than a consistent hash ring. For fixed shard counts this works fine, but if dynamic shard addition/removal is ever needed, a consistent hash ring would minimize data movement.</p>
+</div>
+
+<h3>Jump Hash</h3>
+
+<p>Google's Jump Consistent Hash (2014) achieves uniform distribution across n buckets with zero memory overhead. The entire algorithm is 7 lines:</p>
+
+<pre><code><span class="label">C</span>
+<span class="cm">// Jump Consistent Hash -- Lamping &amp; Veach, 2014</span>
+<span class="cm">// Returns a bucket in [0, num_buckets) for the given key.</span>
+<span class="ty">int32_t</span> <span class="fn">jump_hash</span>(<span class="ty">uint64_t</span> key, <span class="ty">int32_t</span> num_buckets) {
+    <span class="ty">int64_t</span> b = -<span class="nm">1</span>, j = <span class="nm">0</span>;
+    <span class="kw">while</span> (j &lt; num_buckets) {
+        b = j;
+        key = key * <span class="nm">2862933555777941757ULL</span> + <span class="nm">1</span>;
+        j = (b + <span class="nm">1</span>) * ((<span class="ty">double</span>)(<span class="nm">1LL</span> &lt;&lt; <span class="nm">31</span>) /
+            ((<span class="ty">double</span>)((key &gt;&gt; <span class="nm">33</span>) + <span class="nm">1</span>)));
+    }
+    <span class="kw">return</span> (<span class="ty">int32_t</span>)b;
+}
+<span class="cm">// O(ln n) time, O(1) space. Perfectly uniform.</span>
+<span class="cm">// Downside: only supports sequential bucket IDs (no arbitrary removal).</span></code></pre>
+
+<h3>Maglev Hashing</h3>
+
+<p>Google's Maglev load balancer uses a consistent hashing scheme optimized for equal distribution. Each backend generates a permutation of the lookup table, then backends take turns filling slots in a round-robin fashion. The result is a lookup table where every backend owns approximately the same number of slots, and removing a backend only disrupts the entries it owned.</p>
+
+<div class="diagram">
+<span class="diagram-label">Maglev Hashing &mdash; Permutation-Based Fill</span>
+<pre><code>  Lookup table size M = 7 (prime), 3 backends
+
+  Backend A permutation: [3, 0, 4, 1, 5, 2, 6]
+  Backend B permutation: [0, 2, 4, 6, 1, 3, 5]
+  Backend C permutation: [1, 3, 5, 0, 2, 4, 6]
+
+  Round-robin fill:
+  Turn 1: A fills slot 3     [_, _, _, A, _, _, _]
+  Turn 2: B fills slot 0     [B, _, _, A, _, _, _]
+  Turn 3: C fills slot 1     [B, C, _, A, _, _, _]
+  Turn 4: A fills slot 4     [B, C, _, A, A, _, _]  (0 taken, skip to 4)
+  Turn 5: B fills slot 2     [B, C, B, A, A, _, _]  (0 taken, skip to 2)
+  Turn 6: C fills slot 5     [B, C, B, A, A, C, _]  (1,3 taken, skip to 5)
+  Turn 7: A fills slot 5     [B, C, B, A, A, C, A]  (1 taken, skip to 6...wait)
+
+  Result: A=3, B=2, C=2 slots. Near-perfect distribution.</code></pre>
+</div>
+
+<h3>Rendezvous (Highest Random Weight) Hashing</h3>
+
+<p>An alternative to ring-based consistent hashing. For each key, compute a score for every node: score = hash(key, node_id). Assign the key to whichever node has the highest score. Simple, uniform, and naturally handles node addition/removal. The downside: O(n) per lookup (must evaluate all nodes). For small cluster sizes (under 100 nodes), this is fine.</p>
+
+<pre><code><span class="label">Pseudocode</span>
+<span class="fn">assign</span>(key, nodes):
+    best_node = <span class="kw">null</span>
+    best_score = -<span class="nm">1</span>
+    <span class="kw">for</span> node <span class="kw">in</span> nodes:
+        score = <span class="fn">hash</span>(key + node.id)
+        <span class="kw">if</span> score &gt; best_score:
+            best_score = score
+            best_node = node
+    <span class="kw">return</span> best_node</code></pre>
+
+<h3>Consistent Hashing Strategy Comparison</h3>
+
+<table>
+<tr><th>Algorithm</th><th>Lookup</th><th>Memory</th><th>Uniformity</th><th>Node Removal</th></tr>
+<tr><td>Ring (Karger 1997)</td><td>O(log n)</td><td>O(n * v)</td><td>Needs vnodes</td><td>Remaps K/N keys</td></tr>
+<tr><td>Jump Hash (2014)</td><td>O(ln n)</td><td>O(1)</td><td>Perfect</td><td>Sequential only</td></tr>
+<tr><td>Maglev (2016)</td><td>O(1)</td><td>O(M)</td><td>Near-perfect</td><td>Remaps ~K/N keys</td></tr>
+<tr><td>Rendezvous (HRW)</td><td>O(n)</td><td>O(1)</td><td>Perfect</td><td>Remaps K/N keys</td></tr>
+<tr><td>Multi-probe (2015)</td><td>O(k log n)</td><td>O(n)</td><td>Good w/ k probes</td><td>Remaps K/N keys</td></tr>
+</table>
+
+<div class="power">
+<div class="power-label">When to Use Which</div>
+<p><strong>Jump Hash</strong>: best when nodes are numbered 0..n-1 and you only add/remove from the end (e.g., scaling up a shard cluster). <strong>Maglev</strong>: best for load balancers where O(1) lookup is critical and the lookup table fits in memory. <strong>Ring with vnodes</strong>: most flexible, handles arbitrary node addition/removal, but O(log n) lookup. <strong>Rendezvous</strong>: simplest implementation, best when n is small (under 100 nodes).</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch9">
+<h2>// 09. cache &amp; performance</h2>
+
+<p class="drop-cap">Hash table performance on modern hardware is dominated by one thing: <strong>cache behavior</strong>. The theoretical O(1) assumes constant-time memory access. In reality, memory access varies by 100x depending on whether the data is in L1 cache or main RAM. Understanding the memory hierarchy is the difference between a hash table that does 200M lookups/sec and one that does 20M.</p>
+
+<h3>The Memory Hierarchy</h3>
+
+<div class="diagram">
+<span class="diagram-label">Memory Latency Hierarchy</span>
+<pre><code>  +--------------------------------------------+
+  |  L1 Cache    32-48 KB    ~1  ns   ~4 cyc   |  &lt;-- Swiss Table ctrl bytes
+  +--------------------------------------------+
+  |  L2 Cache    256 KB      ~4  ns  ~12 cyc   |  &lt;-- Small hash tables
+  +--------------------------------------------+
+  |  L3 Cache    8-32 MB    ~12  ns  ~40 cyc   |  &lt;-- Medium tables, hot entries
+  +--------------------------------------------+
+  |  Main RAM    16-128 GB  ~100 ns ~300 cyc   |  &lt;-- Pointer chasing lands here
+  +--------------------------------------------+
+  |  NVMe SSD    1-8 TB   ~10,000 ns           |  &lt;-- On-disk hash tables
+  +--------------------------------------------+
+
+  Key insight: a pointer chase (linked list node follow)
+  is a RANDOM memory access. If the node isn't cached,
+  you pay the full ~100 ns. That's 100x penalty vs L1.
+
+  Chaining with 3-node avg chain = 3 x 100 ns = 300 ns
+  Linear probing with 3-slot scan = 1 x 4 ns  =   4 ns (sequential, prefetched)
+
+  That is a 75x difference for the same number of comparisons.</code></pre>
+</div>
+
+<h3>Cache Lines</h3>
+
+<p>A cache line is <strong>64 bytes</strong> on x86. When the CPU reads one byte from RAM, it actually fetches 64 bytes. Any data structure that keeps related data within 64 bytes gets those extra bytes "for free." This is why:</p>
+
+<ul style="margin: 1rem 0 1rem 2rem;">
+<li>Go's tophash array (8 bytes) fits in <strong>one eighth</strong> of a cache line</li>
+<li>Swiss Table control bytes (16 bytes per group) fit in <strong>one quarter</strong> of a cache line</li>
+<li>A linked list node is typically 32-48 bytes but spans 2 cache lines if misaligned</li>
+</ul>
+
+<h3>SoA vs. AoS</h3>
+
+<div class="vs">
+<div class="vs-col">
+<h4>Array of Structures (AoS)</h4>
+<pre><code><span class="cm">// Cache-unfriendly for</span>
+<span class="cm">// metadata-only scans</span>
+<span class="kw">struct</span> <span class="ty">Entry</span> {
+  <span class="ty">uint8_t</span>  ctrl;
+  <span class="ty">uint64_t</span> key;
+  <span class="ty">uint64_t</span> val;
+};
+<span class="cm">// Scanning ctrl bytes</span>
+<span class="cm">// pulls in key+val too</span>
+<span class="cm">// 17 bytes useful,</span>
+<span class="cm">// 24 bytes w/ padding</span></code></pre>
+</div>
+<div class="vs-col">
+<h4>Structure of Arrays (SoA)</h4>
+<pre><code><span class="cm">// Cache-friendly: scan</span>
+<span class="cm">// ctrl without touching</span>
+<span class="cm">// keys or values</span>
+<span class="ty">uint8_t</span>  ctrl[N];
+<span class="ty">uint64_t</span> keys[N];
+<span class="ty">uint64_t</span> vals[N];
+
+<span class="cm">// Scanning ctrl: 64</span>
+<span class="cm">// entries per cache</span>
+<span class="cm">// line (64B / 1B)</span></code></pre>
+</div>
+</div>
+
+<div class="power">
+<div class="power-label">Why Swiss Tables Win</div>
+<p>Swiss Tables use SoA layout: control bytes are stored in a separate contiguous array from keys and values. During a lookup, the SIMD match only touches the control byte array. In a table with 10,000 entries, the control array is 10 KB &mdash; it fits entirely in L1. The keys and values (potentially 160 KB) stay cold in L3 or RAM until actually needed, which happens only after the SIMD match narrows candidates to 0-2 slots.</p>
+</div>
+
+<h3>Prefetching</h3>
+
+<p>Modern CPUs have hardware prefetchers that detect sequential access patterns and fetch the next cache line before you need it. This is why linear probing is fast even at high load factors: the CPU predicts you will read the next slot and prefetches it. Chaining, quadratic probing, and double hashing produce random access patterns that defeat the prefetcher.</p>
+
+<pre><code><span class="label">C</span>
+<span class="cm">// Manual software prefetch (GCC/Clang)</span>
+<span class="fn">__builtin_prefetch</span>(&amp;table-&gt;slots[<span class="fn">h1</span>(key) % table-&gt;cap], <span class="nm">0</span>, <span class="nm">3</span>);
+<span class="cm">// arg2: 0=read, 1=write</span>
+<span class="cm">// arg3: 0=no temporal locality, 3=high temporal locality</span>
+
+<span class="cm">// Batch lookups: prefetch the NEXT key's slot while</span>
+<span class="cm">// processing the CURRENT key's comparison.</span>
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; n; i++) {
+    <span class="kw">if</span> (i + <span class="nm">1</span> &lt; n)
+        <span class="fn">__builtin_prefetch</span>(&amp;table-&gt;slots[<span class="fn">hash</span>(keys[i+<span class="nm">1</span>]) % cap]);
+    <span class="fn">process</span>(table, keys[i]);
+}</code></pre>
+
+<h3>Benchmark Numbers: Real-World Lookups</h3>
+
+<table>
+<tr><th>Implementation</th><th>Ops/sec (M)</th><th>ns/op</th><th>Notes</th></tr>
+<tr><td>std::unordered_map (GCC)</td><td>~45</td><td>~22</td><td>Separate chaining, allocator-heavy</td></tr>
+<tr><td>absl::flat_hash_map</td><td>~180</td><td>~5.5</td><td>Swiss Tables, SSE2</td></tr>
+<tr><td>robin_hood::unordered_map</td><td>~160</td><td>~6.2</td><td>Robin Hood, backward shift</td></tr>
+<tr><td>Go map (pre-1.24)</td><td>~60</td><td>~16</td><td>8-slot buckets + tophash</td></tr>
+<tr><td>Go map (1.24+)</td><td>~100</td><td>~10</td><td>Swiss Tables (estimated)</td></tr>
+<tr><td>Rust HashMap (hashbrown)</td><td>~190</td><td>~5.2</td><td>Swiss Tables + aHash</td></tr>
+</table>
+
+<p>These numbers are for 64-bit integer keys at 75% load factor on a modern x86-64 CPU. String keys are slower due to variable-length comparison. The 4x gap between <code>std::unordered_map</code> and <code>absl::flat_hash_map</code> is almost entirely cache effects.</p>
+
+<h3>NUMA Effects</h3>
+
+<p>On multi-socket servers, memory access time depends on which CPU socket allocated the memory. Accessing RAM on your local socket costs ~100 ns, but accessing RAM on a remote socket costs ~150-300 ns (NUMA penalty). A large hash table allocated on socket 0 and accessed from socket 1 pays this penalty on every cache miss. Production systems pin hash tables to specific NUMA nodes using <code>numactl --membind</code> or <code>mbind()</code> system calls.</p>
+
+<h3>TLB Pressure</h3>
+
+<p>Large hash tables also suffer from <strong>TLB misses</strong>. The Translation Lookaside Buffer caches virtual-to-physical address mappings. With 4 KB pages, a 1 GB hash table needs 262,144 page table entries. The TLB typically holds 1,000-2,000 entries. Random access patterns (common in hash tables) cause frequent TLB misses, each costing 10-50 ns. The fix: <strong>huge pages</strong> (2 MB or 1 GB). A 1 GB table with 2 MB pages needs only 512 TLB entries &mdash; easily fits.</p>
+
+<pre><code><span class="label">Linux</span>
+<span class="cm"># Allocate with huge pages (transparent)</span>
+<span class="cm"># Add to /etc/sysctl.conf:</span>
+vm.nr_hugepages = <span class="nm">512</span>
+
+<span class="cm"># Or use madvise in your program:</span>
+<span class="fn">madvise</span>(table, size, MADV_HUGEPAGE);
+
+<span class="cm"># Or allocate explicitly with mmap:</span>
+<span class="ty">void</span> *p = <span class="fn">mmap</span>(<span class="kw">NULL</span>, size,
+    PROT_READ | PROT_WRITE,
+    MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB,
+    -<span class="nm">1</span>, <span class="nm">0</span>);</code></pre>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch10">
+<h2>// 10. build your own &mdash; robin hood in C</h2>
+
+<p class="drop-cap">Enough theory. Let us build a Robin Hood hash table from scratch in C. It supports insert, lookup, and delete (with backward-shift deletion, no tombstones). The key insight is tracking the <strong>probe distance</strong> of each element &mdash; how far it is from its ideal slot. On insert, if we find an element with a shorter probe distance, we swap and continue inserting the displaced element.</p>
+
+<pre><code><span class="label">C</span>
+<span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdbool.h&gt;</span>
+
+<span class="pp">#define</span> <span class="nm">FNV_OFFSET</span> <span class="nm">0xcbf29ce484222325ULL</span>
+<span class="pp">#define</span> <span class="nm">FNV_PRIME</span>  <span class="nm">0x100000001b3ULL</span>
+<span class="pp">#define</span> <span class="nm">LOAD_MAX</span>   <span class="nm">0.85</span>
+
+<span class="kw">typedef struct</span> {
+    <span class="ty">uint64_t</span> key;
+    <span class="ty">uint64_t</span> value;
+    <span class="ty">uint32_t</span> dist;     <span class="cm">// probe distance from ideal slot</span>
+    <span class="ty">bool</span>     occupied;
+} <span class="ty">Slot</span>;
+
+<span class="kw">typedef struct</span> {
+    <span class="ty">Slot</span>     *slots;
+    <span class="ty">uint32_t</span> cap;      <span class="cm">// capacity (power of 2)</span>
+    <span class="ty">uint32_t</span> count;    <span class="cm">// number of occupied slots</span>
+    <span class="ty">uint32_t</span> mask;     <span class="cm">// cap - 1 (for fast modulo)</span>
+} <span class="ty">RHMap</span>;
+
+<span class="cm">/* ---- Hash function ---- */</span>
+<span class="kw">static</span> <span class="ty">uint64_t</span> <span class="fn">rh_hash</span>(<span class="ty">uint64_t</span> key) {
+    <span class="ty">uint64_t</span> h = <span class="nm">FNV_OFFSET</span>;
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; <span class="nm">8</span>; i++) {
+        h ^= (key &gt;&gt; (i * <span class="nm">8</span>)) &amp; <span class="nm">0xFF</span>;
+        h *= <span class="nm">FNV_PRIME</span>;
+    }
+    <span class="kw">return</span> h;
+}
+
+<span class="cm">/* ---- Forward declaration ---- */</span>
+<span class="kw">static</span> <span class="ty">void</span> <span class="fn">rh_resize</span>(<span class="ty">RHMap</span> *m);
+
+<span class="cm">/* ---- Create ---- */</span>
+<span class="ty">RHMap</span> *<span class="fn">rh_create</span>(<span class="ty">uint32_t</span> initial_cap) {
+    <span class="ty">RHMap</span> *m = <span class="fn">calloc</span>(<span class="nm">1</span>, <span class="kw">sizeof</span>(<span class="ty">RHMap</span>));
+    m-&gt;cap   = initial_cap;
+    m-&gt;mask  = initial_cap - <span class="nm">1</span>;
+    m-&gt;slots = <span class="fn">calloc</span>(initial_cap, <span class="kw">sizeof</span>(<span class="ty">Slot</span>));
+    <span class="kw">return</span> m;
+}
+
+<span class="cm">/* ---- Insert ---- */</span>
+<span class="ty">void</span> <span class="fn">rh_insert</span>(<span class="ty">RHMap</span> *m, <span class="ty">uint64_t</span> key, <span class="ty">uint64_t</span> value) {
+    <span class="kw">if</span> ((<span class="ty">double</span>)m-&gt;count / m-&gt;cap &gt;= <span class="nm">LOAD_MAX</span>)
+        <span class="fn">rh_resize</span>(m);
+
+    <span class="ty">uint32_t</span> idx = <span class="fn">rh_hash</span>(key) &amp; m-&gt;mask;
+    <span class="ty">Slot</span> incoming = {
+        .key = key, .value = value,
+        .dist = <span class="nm">0</span>, .occupied = <span class="kw">true</span>
+    };
+
+    <span class="kw">for</span> (;;) {
+        <span class="ty">Slot</span> *s = &amp;m-&gt;slots[idx];
+
+        <span class="cm">// Empty slot: place here</span>
+        <span class="kw">if</span> (!s-&gt;occupied) {
+            *s = incoming;
+            m-&gt;count++;
+            <span class="kw">return</span>;
+        }
+
+        <span class="cm">// Same key: update value</span>
+        <span class="kw">if</span> (s-&gt;key == incoming.key) {
+            s-&gt;value = incoming.value;
+            <span class="kw">return</span>;
+        }
+
+        <span class="cm">// Robin Hood: steal from the rich</span>
+        <span class="kw">if</span> (incoming.dist &gt; s-&gt;dist) {
+            <span class="ty">Slot</span> tmp = *s;
+            *s = incoming;
+            incoming = tmp;
+        }
+
+        incoming.dist++;
+        idx = (idx + <span class="nm">1</span>) &amp; m-&gt;mask;
+    }
+}
+
+<span class="cm">/* ---- Lookup ---- */</span>
+<span class="ty">bool</span> <span class="fn">rh_get</span>(<span class="ty">RHMap</span> *m, <span class="ty">uint64_t</span> key, <span class="ty">uint64_t</span> *out) {
+    <span class="ty">uint32_t</span> idx  = <span class="fn">rh_hash</span>(key) &amp; m-&gt;mask;
+    <span class="ty">uint32_t</span> dist = <span class="nm">0</span>;
+
+    <span class="kw">for</span> (;;) {
+        <span class="ty">Slot</span> *s = &amp;m-&gt;slots[idx];
+
+        <span class="kw">if</span> (!s-&gt;occupied || dist &gt; s-&gt;dist)
+            <span class="kw">return</span> <span class="kw">false</span>;  <span class="cm">// not here</span>
+
+        <span class="kw">if</span> (s-&gt;key == key) {
+            *out = s-&gt;value;
+            <span class="kw">return</span> <span class="kw">true</span>;
+        }
+
+        dist++;
+        idx = (idx + <span class="nm">1</span>) &amp; m-&gt;mask;
+    }
+}
+
+<span class="cm">/* ---- Delete (backward shift) ---- */</span>
+<span class="ty">bool</span> <span class="fn">rh_delete</span>(<span class="ty">RHMap</span> *m, <span class="ty">uint64_t</span> key) {
+    <span class="ty">uint32_t</span> idx  = <span class="fn">rh_hash</span>(key) &amp; m-&gt;mask;
+    <span class="ty">uint32_t</span> dist = <span class="nm">0</span>;
+
+    <span class="cm">// Find the key</span>
+    <span class="kw">for</span> (;;) {
+        <span class="ty">Slot</span> *s = &amp;m-&gt;slots[idx];
+        <span class="kw">if</span> (!s-&gt;occupied || dist &gt; s-&gt;dist)
+            <span class="kw">return</span> <span class="kw">false</span>;
+        <span class="kw">if</span> (s-&gt;key == key)
+            <span class="kw">break</span>;
+        dist++;
+        idx = (idx + <span class="nm">1</span>) &amp; m-&gt;mask;
+    }
+
+    <span class="cm">// Backward-shift: pull displaced entries back</span>
+    <span class="kw">for</span> (;;) {
+        <span class="ty">uint32_t</span> next = (idx + <span class="nm">1</span>) &amp; m-&gt;mask;
+        <span class="ty">Slot</span> *sn = &amp;m-&gt;slots[next];
+
+        <span class="cm">// Stop if next slot empty or at ideal position</span>
+        <span class="kw">if</span> (!sn-&gt;occupied || sn-&gt;dist == <span class="nm">0</span>) {
+            m-&gt;slots[idx].occupied = <span class="kw">false</span>;
+            m-&gt;count--;
+            <span class="kw">return</span> <span class="kw">true</span>;
+        }
+
+        <span class="cm">// Shift back and decrease probe distance</span>
+        m-&gt;slots[idx] = *sn;
+        m-&gt;slots[idx].dist--;
+        idx = next;
+    }
+}
+
+<span class="cm">/* ---- Resize ---- */</span>
+<span class="kw">static</span> <span class="ty">void</span> <span class="fn">rh_resize</span>(<span class="ty">RHMap</span> *m) {
+    <span class="ty">uint32_t</span> old_cap = m-&gt;cap;
+    <span class="ty">Slot</span> *old = m-&gt;slots;
+
+    m-&gt;cap  *= <span class="nm">2</span>;
+    m-&gt;mask  = m-&gt;cap - <span class="nm">1</span>;
+    m-&gt;count = <span class="nm">0</span>;
+    m-&gt;slots = <span class="fn">calloc</span>(m-&gt;cap, <span class="kw">sizeof</span>(<span class="ty">Slot</span>));
+
+    <span class="kw">for</span> (<span class="ty">uint32_t</span> i = <span class="nm">0</span>; i &lt; old_cap; i++) {
+        <span class="kw">if</span> (old[i].occupied)
+            <span class="fn">rh_insert</span>(m, old[i].key, old[i].value);
+    }
+    <span class="fn">free</span>(old);
+}
+
+<span class="cm">/* ---- Destroy ---- */</span>
+<span class="ty">void</span> <span class="fn">rh_destroy</span>(<span class="ty">RHMap</span> *m) {
+    <span class="fn">free</span>(m-&gt;slots);
+    <span class="fn">free</span>(m);
+}</code></pre>
+
+<div class="power">
+<div class="power-label">Key Design Decisions</div>
+<p><strong>Backward-shift deletion</strong> instead of tombstones: when we delete, we pull subsequent displaced entries back toward their ideal position. This means no tombstone accumulation, no periodic rehashes to clean up, and lookups never traverse dead slots. The tradeoff is slightly more complex delete logic, but the lookup path stays clean forever.</p>
+</div>
+
+<div class="power hack">
+<div class="power-label">Probe Distance Invariant</div>
+<p>In Robin Hood hashing, the maximum probe distance is O(log log n) with high probability. For a table with 1 million entries at 85% load, the expected maximum probe distance is about 6. Compare this to linear probing where the maximum can be O(sqrt(n)) ~ 1000. Robin Hood compresses the variance so tightly that every lookup takes nearly the same time.</p>
+</div>
+
+<h3>Usage Example</h3>
+
+<pre><code><span class="label">C</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="ty">RHMap</span> *m = <span class="fn">rh_create</span>(<span class="nm">16</span>);
+
+    <span class="cm">// Insert some tensor name hashes</span>
+    <span class="fn">rh_insert</span>(m, <span class="nm">0x7A3FE8910C42B5D7ULL</span>, <span class="nm">0</span>);  <span class="cm">// "weights" -&gt; entry 0</span>
+    <span class="fn">rh_insert</span>(m, <span class="nm">0x1122334455667788ULL</span>, <span class="nm">1</span>);  <span class="cm">// "bias"    -&gt; entry 1</span>
+    <span class="fn">rh_insert</span>(m, <span class="nm">0xAABBCCDDEEFF0011ULL</span>, <span class="nm">2</span>);  <span class="cm">// "norm"    -&gt; entry 2</span>
+
+    <span class="cm">// Lookup</span>
+    <span class="ty">uint64_t</span> val;
+    <span class="kw">if</span> (<span class="fn">rh_get</span>(m, <span class="nm">0x1122334455667788ULL</span>, &amp;val)) {
+        <span class="fn">printf</span>(<span class="st">"Found: entry %lu\n"</span>, val);  <span class="cm">// "Found: entry 1"</span>
+    }
+
+    <span class="cm">// Delete</span>
+    <span class="fn">rh_delete</span>(m, <span class="nm">0x7A3FE8910C42B5D7ULL</span>);
+
+    <span class="cm">// Verify deletion</span>
+    <span class="kw">if</span> (!<span class="fn">rh_get</span>(m, <span class="nm">0x7A3FE8910C42B5D7ULL</span>, &amp;val)) {
+        <span class="fn">printf</span>(<span class="st">"Correctly deleted\n"</span>);
+    }
+
+    <span class="fn">rh_destroy</span>(m);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre>
+
+<h3>Optimizations Left as Exercises</h3>
+
+<div class="power">
+<div class="power-label">Further Improvements</div>
+<p><strong>1. String keys:</strong> Replace <code>uint64_t key</code> with a pointer to a string + a cached hash. Only compare full strings on hash match. <strong>2. SIMD probing:</strong> Store probe distances in a separate array and use SSE2 to find the insertion point in a single instruction. <strong>3. Growth policy:</strong> Instead of always doubling, use a growth factor of 1.5x to reduce peak memory. <strong>4. Memory pools:</strong> Pre-allocate slot memory from a pool to avoid per-resize <code>calloc</code> overhead.</p>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Probe Distance Distribution at 85% Load (1M entries)</span>
+<pre><code>  Probe Distance | Linear Probing | Robin Hood
+  ---------------+----------------+-----------
+        0        |   15.0%        |   15.0%
+        1        |   12.8%        |   14.8%
+        2        |   10.9%        |   14.5%
+        3        |    9.2%        |   14.1%
+        4        |    7.8%        |   13.2%
+        5        |    6.7%        |    9.8%
+        6        |    5.7%        |    5.1%
+       7+        |   31.9%        |   13.5%
+  ---------------+----------------+-----------
+    Max dist     |  ~1000         |     ~6
+    Std dev      |   high         |   ~0.8
+
+  Robin Hood: nearly uniform distribution.
+  Linear probing: long tail of suffering.</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch11">
+<h2>// 11. the shard lookup story</h2>
+
+<p class="drop-cap">Your shard v2 format uses a practical two-phase lookup: hash the tensor name with xxHash64, scan the index for a matching 8-byte hash, then verify against the actual name string from the string table. This design is simple, correct, and fast enough for typical shard files with tens to hundreds of entries. But understanding its internals reveals where perfect hashing could take it further.</p>
+
+<h3>Current Lookup Flow</h3>
+
+<div class="diagram">
+<span class="diagram-label">Shard v2 Lookup: How It Works Today</span>
+<pre><code>  Query: "transformer.layer_12.attention.weights"
+                    |
+                    v
+  +------------------------------------+
+  | xxHash64("transformer.layer...")    |
+  | = 0x7A3F_E891_0C42_B5D7            |
+  +----------------+-------------------+
+                   |
+                   v
+  +------------------------------------+
+  | Index Table (in memory)            |
+  | map[uint64][]int                   |
+  |                                    |
+  | 0x7A3F...B5D7 --&gt; [3]             |  &lt;-- hash match at entry 3
+  | 0x1122...AABB --&gt; [0, 7]          |      (collision: two entries)
+  | 0x5566...CCDD --&gt; [1]             |
+  | ...                                |
+  +----------------+-------------------+
+                   |
+                   v
+  +------------------------------------+
+  | Verify: read entry 3's name        |
+  | from string table                  |
+  |                                    |
+  | string_table[entry[3].name_off]    |
+  | = "transformer.layer_12..."        |
+  |                                    |
+  | String match? YES --&gt; return entry |
+  +------------------------------------+
+
+  IndexEntry layout (on disk):
+  +--------+--------+----------+----------+------+
+  | 0-7    | 8-11   | 12-19    | 20-27    | ...  |
+  |xxHash64|name_off|data_off  |data_len  |      |
+  | 8 bytes| 4 bytes| 8 bytes  | 8 bytes  |      |
+  +--------+--------+----------+----------+------+</code></pre>
+</div>
+
+<p>The Go implementation builds a <code>map[uint64][]int</code> at load time: xxHash64 values are keys, and the values are slices of entry indices. The <code>[]int</code> slice handles hash collisions &mdash; if two tensor names produce the same xxHash64 (astronomically unlikely for 64-bit hashes, but the code handles it correctly).</p>
+
+<h3>Why This Design Works</h3>
+
+<table>
+<tr><th>Property</th><th>Analysis</th></tr>
+<tr><td>Collision probability</td><td>xxHash64 = 2^64 outputs. With 1000 entries, P(collision) ~ 2.7 * 10^-14. Effectively zero.</td></tr>
+<tr><td>Memory overhead</td><td>Go map: ~8 bytes/entry for map structure + 24 bytes/entry for []int slice header. 100 entries: ~3.2 KB.</td></tr>
+<tr><td>Lookup speed</td><td>Go map lookup (pre-1.24): hash + tophash scan + key compare. ~50-100 ns typical.</td></tr>
+<tr><td>String verification</td><td>One memory access to string table. Fast for unique prefixes.</td></tr>
+</table>
+
+<h3>What a Perfect Hash Index Could Look Like</h3>
+
+<p>Since all tensor names are known at write time, the shard writer could compute an MPHF and store it as a new section:</p>
+
+<div class="diagram">
+<span class="diagram-label">Hypothetical Perfect Hash Shard Section</span>
+<pre><code>  Query: "transformer.layer_12.attention.weights"
+                    |
+                    v
+  +-------------------------------------+
+  | MPHF("transformer.layer...")         |
+  | --&gt; slot 3 (guaranteed unique)       |
+  | Two hash evals + one array read      |
+  +-----------------+-------------------+
+                    |
+                    v
+  +-------------------------------------+
+  | offsets[3] = 0x0000_1A00             |  &lt;-- direct array index
+  | Read entry at offset 0x1A00         |      no map, no collision
+  +-------------------------------------+
+
+  New shard section layout:
+  +-------------------------------------------+
+  | Section Header                             |
+  | magic: "PHASH\0\0\0"          8 bytes      |
+  | n_entries: uint32              4 bytes      |
+  | n_buckets: uint32              4 bytes      |
+  | seed: uint64                   8 bytes      |
+  | displacements: [n_buckets]u16  variable     |
+  | offsets: [n_entries]uint64     n*8 bytes     |
+  +-------------------------------------------+
+
+  Size for 100 entries: ~8+4+4+8 + ~200 + 800 = ~1024 bytes
+  Replaces: Go map overhead (~3200 bytes) + runtime allocation
+
+  Benefit: Zero allocations at load time. No map. No slices.
+  Just mmap the section and index directly into it.</code></pre>
+</div>
+
+<div class="power wild">
+<div class="power-label">Trade-offs</div>
+<p>A perfect hash index adds complexity to the writer (MPHF construction) but simplifies the reader dramatically. For shard files that are written once and read millions of times (model serving), this is the right trade-off. The MPHF construction takes O(n) expected time and the resulting index is typically 2-3 bits per key. For 1000 tensor entries, the perfect hash overhead would be about 375 bytes &mdash; negligible compared to the tensor data.</p>
+</div>
+
+<h3>Benchmark Estimates</h3>
+
+<table>
+<tr><th>Approach</th><th>Lookup Time</th><th>Memory</th><th>Load Time</th></tr>
+<tr><td>Current (Go map)</td><td>~60 ns</td><td>~3.2 KB / 100 entries</td><td>~10 us (build map)</td></tr>
+<tr><td>Swiss Table (Go 1.24)</td><td>~40 ns</td><td>~2 KB / 100 entries</td><td>~8 us (build map)</td></tr>
+<tr><td>Perfect Hash (MPHF)</td><td>~15 ns</td><td>~1 KB on-disk, 0 alloc</td><td>~0 ns (mmap)</td></tr>
+<tr><td>Linear scan</td><td>~500 ns / 100</td><td>0 overhead</td><td>0 ns</td></tr>
+</table>
+
+<p>For a model server handling 10,000 inference requests per second, each requiring 50 tensor lookups, the difference between 60 ns and 15 ns per lookup means: current = 30 ms/s of CPU time on lookups; perfect hash = 7.5 ms/s. Not make-or-break, but free performance once implemented.</p>
+
+<div class="diagram">
+<span class="diagram-label">Decision Matrix: When to Use What</span>
+<pre><code>  +-------------------+------------------+-------------------+
+  | Constraint        | Best Choice      | Why               |
+  +-------------------+------------------+-------------------+
+  | Dynamic keys,     | Swiss Table      | Fast, low memory, |
+  | general purpose   | (Go 1.24 map)    | good defaults     |
+  +-------------------+------------------+-------------------+
+  | Static keys,      | Perfect Hash     | True O(1), zero   |
+  | read-heavy        | (MPHF)           | runtime alloc     |
+  +-------------------+------------------+-------------------+
+  | Untrusted input   | SipHash +        | Prevent HashDoS   |
+  | from network      | any table        | attacks           |
+  +-------------------+------------------+-------------------+
+  | Probabilistic     | Bloom Filter     | ~1% FP, tiny mem  |
+  | membership test   |                  |                   |
+  +-------------------+------------------+-------------------+
+  | Distributed key   | Consistent Hash  | Minimal remap on  |
+  | assignment        | or Jump Hash     | node change       |
+  +-------------------+------------------+-------------------+
+  | Latency-sensitive | Robin Hood       | Bounded worst     |
+  | real-time         |                  | case O(log log n) |
+  +-------------------+------------------+-------------------+
+  | Guaranteed O(1)   | Cuckoo (bucket-  | 2 lookups max,    |
+  | worst case        | ized, 4-way)     | 95% load factor   |
+  +-------------------+------------------+-------------------+</code></pre>
+</div>
+
+<h3>What Would Change in the Codebase</h3>
+
+<p>Adding a perfect hash section to shard v2 would require changes in three places:</p>
+
+<pre><code><span class="label">Go</span>
+<span class="cm">// 1. Writer: compute MPHF after collecting all entries</span>
+<span class="kw">func</span> (w *<span class="ty">ShardWriter</span>) <span class="fn">Finalize</span>() <span class="ty">error</span> {
+    <span class="cm">// ... existing index writing ...</span>
+
+    <span class="cm">// NEW: build perfect hash from entry names</span>
+    names := <span class="fn">make</span>([]<span class="ty">string</span>, <span class="fn">len</span>(w.entries))
+    <span class="kw">for</span> i, e := <span class="kw">range</span> w.entries {
+        names[i] = e.Name
+    }
+    phash := <span class="fn">buildMPHF</span>(names) <span class="cm">// CHD algorithm</span>
+
+    <span class="cm">// Write PHASH section: displacements + offsets</span>
+    <span class="fn">writeSection</span>(w.buf, <span class="st">"PHASH"</span>, phash)
+}
+
+<span class="cm">// 2. Reader: use MPHF for O(1) lookup</span>
+<span class="kw">func</span> (r *<span class="ty">ShardReader</span>) <span class="fn">Lookup</span>(name <span class="ty">string</span>) (*<span class="ty">Entry</span>, <span class="ty">error</span>) {
+    <span class="kw">if</span> r.phash != <span class="kw">nil</span> {
+        idx := r.phash.<span class="fn">Query</span>(name)
+        <span class="cm">// Still verify name to reject keys not in the shard</span>
+        <span class="kw">if</span> r.entries[idx].Name == name {
+            <span class="kw">return</span> &amp;r.entries[idx], <span class="kw">nil</span>
+        }
+        <span class="kw">return</span> <span class="kw">nil</span>, <span class="fn">ErrNotFound</span>
+    }
+    <span class="cm">// Fallback: existing map lookup for older shard files</span>
+    <span class="kw">return</span> r.<span class="fn">mapLookup</span>(name)
+}</code></pre>
+
+<div class="power">
+<div class="power-label">Backward Compatibility</div>
+<p>The PHASH section would be optional. Older readers that do not understand it would skip it (shard sections are self-describing with magic bytes and lengths). Newer readers would prefer PHASH when present but fall back to the existing <code>map[uint64][]int</code> for shard files that lack it. Zero breaking changes.</p>
+</div>
+
+<div class="power zen">
+<div class="power-label">The Broader Lesson</div>
+<p>Hash tables are not one-size-fits-all. The right choice depends on your constraints: read-heavy vs write-heavy, known keys vs dynamic keys, latency-sensitive vs throughput-sensitive, memory-constrained vs compute-constrained. Separate chaining is simple. Robin Hood is elegant. Swiss Tables are fast. Perfect hashing is optimal &mdash; when you can afford the constraint. Know your workload, pick your weapon.</p>
+</div>
+
+<h3>Historical Timeline</h3>
+
+<div class="diagram">
+<span class="diagram-label">Hash Table Evolution &mdash; 70 Years of Innovation</span>
+<pre><code>  1953  Hans Peter Luhn (IBM)
+        |  First hash table concept, internal memo
+        |
+  1956  Arnold Dumey
+        |  First published description of hashing
+        |
+  1963  W. Wesley Peterson
+        |  Open addressing formalized
+        |
+  1979  Carter &amp; Wegman
+        |  Universal hashing (theoretical foundation)
+        |
+  1985  Cuckoo hashing conceived (Pagh &amp; Rodler published 2004)
+        |
+  1997  FNV hash function published
+        |
+  2004  Pagh &amp; Rodler: Cuckoo Hashing
+        |
+  2005  Herlihy, Shavit, Tzafrir: Hopscotch Hashing
+        |
+  2008  Celis (1986 thesis popularized): Robin Hood Hashing
+        |
+  2009  CHD perfect hashing algorithm
+        |
+  2012  Jean-Philippe Aumasson: SipHash (anti-HashDoS)
+        |
+  2014  Google: Jump Consistent Hash
+        |
+  2016  Google: Maglev Hashing
+        |
+  2017  Google/Abseil: Swiss Tables (SIMD flat hash)
+        |
+  2019  Rust hashbrown crate: Swiss Tables + aHash
+        |
+  2023  Go proposal: Swiss Tables for runtime map
+        |
+  2025  Go 1.24: Swiss Tables ship as default map implementation
+        |
+  2026  Your shard format: xxHash64 index + CRC32C checksums
+        (perfect hash section: proposed)</code></pre>
+</div>
+
+<h3>Common Pitfalls</h3>
+
+<div class="power danger">
+<div class="power-label">Pitfall 1: Hashing Pointers</div>
+<p>Never use pointer addresses as hash keys across runs. ASLR randomizes memory layout between process restarts, so the same logical object gets a different address each time. Your hash table works perfectly within one run and produces completely different results the next. This is a common source of nondeterministic test failures.</p>
+</div>
+
+<div class="power danger">
+<div class="power-label">Pitfall 2: Floating-Point Keys</div>
+<p>IEEE 754 has two representations of zero: +0.0 and -0.0. They compare equal (<code>+0.0 == -0.0</code>) but have different bit patterns. If you hash by bit pattern, +0.0 and -0.0 hash to different buckets, but lookup with <code>==</code> considers them the same key. Similarly, NaN != NaN, so a NaN key can be inserted but never found. Go solves this by assigning a random hash to NaN keys and special-casing zero.</p>
+</div>
+
+<div class="power danger">
+<div class="power-label">Pitfall 3: Mutating Keys</div>
+<p>If you use a mutable object as a hash key and then modify it, its hash changes but its position in the table does not. The key becomes "lost" &mdash; it exists in the table but can never be found because lookups compute a different hash and look in a different bucket. Java's <code>HashMap</code> documentation warns about this explicitly. Rust prevents it at the type level: <code>HashMap</code> keys must implement <code>Eq + Hash</code>, and the borrow checker prevents mutation of borrowed keys.</p>
+</div>
+
+<details>
+<summary>Pitfall 4: Hash Flooding in Real Incidents</summary>
+<div class="det">
+<p>In December 2011, researchers Alexander Klink and Julian Waelde demonstrated HashDoS attacks against PHP, Python, Ruby, Java, and ASP.NET web frameworks at the 28th Chaos Communication Congress. A single HTTP POST request with carefully crafted form parameters could consume minutes of CPU time on the server. The attack sent ~1 MB of data containing thousands of keys that all hashed to the same bucket under the target language's hash function.</p>
+
+<p>The response was swift: Python added SipHash in 3.4 (2014), Ruby switched to SipHash in 1.9.3-p327, Perl randomized hash seeds, and Java 8 added a TreeMap fallback for buckets exceeding 8 entries (converting O(n) chains to O(log n) trees).</p>
+
+<pre><code><span class="cm">// Java 8 HashMap: chain -&gt; tree conversion</span>
+<span class="cm">// When a bucket exceeds TREEIFY_THRESHOLD (8),</span>
+<span class="cm">// the linked list is converted to a red-black tree.</span>
+<span class="cm">// Worst case: O(log n) instead of O(n).</span>
+<span class="cm">// This doesn't prevent the attack but limits damage.</span>
+<span class="kw">static final</span> <span class="ty">int</span> TREEIFY_THRESHOLD = <span class="nm">8</span>;
+<span class="kw">static final</span> <span class="ty">int</span> UNTREEIFY_THRESHOLD = <span class="nm">6</span>;</code></pre>
+</div>
+</details>
+
+<details>
+<summary>The Full Lookup Pipeline: From Key to Value</summary>
+<div class="det">
+<p>Here is every step that happens when you write <code>m["tensor_weights"]</code> in a Swiss Table implementation:</p>
+
+<pre><code><span class="cm">// 1. Compute full hash (64 bits)</span>
+h = <span class="fn">hash</span>(<span class="st">"tensor_weights"</span>)            <span class="cm">// ~3 ns (aHash)</span>
+
+<span class="cm">// 2. Split hash into H1 (bucket index) and H2 (metadata)</span>
+H1 = h &gt;&gt; <span class="nm">7</span>                              <span class="cm">// upper 57 bits</span>
+H2 = h &amp; <span class="nm">0x7F</span>                             <span class="cm">// lower 7 bits</span>
+
+<span class="cm">// 3. Compute starting group</span>
+group = H1 % num_groups                   <span class="cm">// 1 cycle (bitwise AND)</span>
+
+<span class="cm">// 4. Load 16 control bytes (1 cache miss, ~4 ns if in L2)</span>
+ctrl = <span class="fn">load128</span>(&amp;control_bytes[group*<span class="nm">16</span>])
+
+<span class="cm">// 5. SIMD compare H2 against all 16 control bytes (~1 ns)</span>
+mask = <span class="fn">_mm_movemask_epi8</span>(<span class="fn">_mm_cmpeq_epi8</span>(
+    <span class="fn">_mm_set1_epi8</span>(H2), ctrl))
+
+<span class="cm">// 6. For each set bit in mask (usually 0-1 iterations):</span>
+<span class="kw">while</span> (mask) {
+    idx = <span class="fn">__builtin_ctz</span>(mask)             <span class="cm">// 1 cycle</span>
+    <span class="cm">// 7. Load key from slot (1 cache miss if cold, ~100 ns)</span>
+    <span class="kw">if</span> (slots[group*<span class="nm">16</span> + idx].key == <span class="st">"tensor_weights"</span>)
+        <span class="kw">return</span> slots[group*<span class="nm">16</span> + idx].value  <span class="cm">// FOUND</span>
+    mask &amp;= mask - <span class="nm">1</span>                      <span class="cm">// clear lowest bit</span>
+}
+
+<span class="cm">// 8. If not found in this group, probe next (triangular)</span>
+<span class="cm">//    group = (group + probe_seq++) % num_groups</span>
+<span class="cm">//    goto step 4</span>
+
+<span class="cm">// Total for successful lookup (typical):</span>
+<span class="cm">//   hash: 3 ns + group calc: 1 ns + ctrl load: 4 ns</span>
+<span class="cm">//   + SIMD match: 1 ns + key compare: 5 ns = ~14 ns</span></code></pre>
+</div>
+</details>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch12">
+<h2>// appendix: quick reference</h2>
+
+<h3>Hash Function Cheat Sheet</h3>
+
+<pre><code><span class="label">Reference</span>
+<span class="cm">// FNV-1a constants</span>
+<span class="ty">FNV64_OFFSET</span> = <span class="nm">0xcbf29ce484222325</span>
+<span class="ty">FNV64_PRIME</span>  = <span class="nm">0x100000001b3</span>
+<span class="ty">FNV32_OFFSET</span> = <span class="nm">0x811c9dc5</span>
+<span class="ty">FNV32_PRIME</span>  = <span class="nm">0x01000193</span>
+
+<span class="cm">// xxHash64 primes</span>
+<span class="ty">PRIME64_1</span> = <span class="nm">0x9E3779B185EBCA87</span>
+<span class="ty">PRIME64_2</span> = <span class="nm">0xC2B2AE3D27D4EB4F</span>
+<span class="ty">PRIME64_3</span> = <span class="nm">0x165667B19E3779F9</span>
+<span class="ty">PRIME64_4</span> = <span class="nm">0x85EBCA77C2B2AE63</span>
+<span class="ty">PRIME64_5</span> = <span class="nm">0x27D4EB2F165667C5</span>
+
+<span class="cm">// MurmurHash3 finalizer constants</span>
+<span class="ty">MURMUR_C1</span> = <span class="nm">0xff51afd7ed558ccd</span>
+<span class="ty">MURMUR_C2</span> = <span class="nm">0xc4ceb9fe1a85ec53</span>
+
+<span class="cm">// CRC32C (Castagnoli) polynomial</span>
+<span class="ty">CRC32C_POLY</span> = <span class="nm">0x1EDC6F41</span>
+
+<span class="cm">// Swiss Table control byte values</span>
+<span class="ty">CTRL_EMPTY</span>   = <span class="nm">0xFF</span>   <span class="cm">// 1111_1111: never occupied</span>
+<span class="ty">CTRL_DELETED</span> = <span class="nm">0x80</span>   <span class="cm">// 1000_0000: tombstone</span>
+<span class="cm">// CTRL_FULL:  0x00-0x7F  (H2 hash in lower 7 bits)</span></code></pre>
+
+<h3>Formulas</h3>
+
+<pre><code><span class="label">Math</span>
+<span class="cm">// Load factor</span>
+alpha = n / m                        <span class="cm">// n=entries, m=buckets</span>
+
+<span class="cm">// Expected probes (successful lookup, linear probing)</span>
+E[probes] = (1/2) * (1 + 1/(1-alpha))
+
+<span class="cm">// Expected probes (unsuccessful lookup, linear probing)</span>
+E[probes] = (1/2) * (1 + (1/(1-alpha))^2)
+
+<span class="cm">// Birthday paradox collision threshold</span>
+n ~ sqrt(2m * ln(1/(1-p)))           <span class="cm">// p = desired probability</span>
+n ~ sqrt(m)                          <span class="cm">// for p ~ 50%</span>
+
+<span class="cm">// Bloom filter false positive rate</span>
+p = (1 - e^(-kn/m))^k               <span class="cm">// k=hashes, n=entries, m=bits</span>
+
+<span class="cm">// Optimal Bloom filter hash count</span>
+k = (m/n) * ln(2) ~ 0.693 * (m/n)
+
+<span class="cm">// Consistent hashing: keys remapped on node change</span>
+E[remapped] = K / N                  <span class="cm">// K=total keys, N=total nodes</span>
+
+<span class="cm">// Robin Hood max probe distance</span>
+E[max_dist] = O(log log n)           <span class="cm">// with high probability</span>
+
+<span class="cm">// MPHF space lower bound</span>
+bits_per_key &gt;= log2(e) ~ 1.44      <span class="cm">// information-theoretic minimum</span></code></pre>
+
+<h3>Memory Layout Quick Reference</h3>
+
+<div class="diagram">
+<span class="diagram-label">Common Hash Table Memory Layouts</span>
+<pre><code>  Separate Chaining:
+  [bucket ptrs: m*8B] --&gt; [node: key+val+next = 32-48B each]
+  Total: 8m + 40n bytes (approx)
+
+  Linear Probing:
+  [entries: (key+val+tag) * m] = m * (16+1) = 17m bytes
+  Total: 17m bytes, ~70% utilized = ~24n bytes effective
+
+  Swiss Table:
+  [ctrl: m * 1B] + [slots: m * (key+val)] = m + 16m = 17m bytes
+  Total: 17m bytes, ~87.5% utilized = ~19n bytes effective
+
+  Go Map (pre-1.24):
+  [hmap: 48B] + [buckets: m/8 * (8+8K+8V+8)] bytes
+  For K=V=8: m/8 * 200 = 25m bytes
+
+  Robin Hood:
+  [entries: (key+val+dist+occupied) * m] = m * (16+4+1) = 21m bytes
+  Total: 21m bytes, ~85% utilized = ~25n bytes effective</code></pre>
+</div>
+
+</section>
+
+</div><!-- .content -->
+
+<script>
+// Scroll-tracking active nav links
+(function() {
+  var sections = document.querySelectorAll('section[id]');
+  var navLinks = document.querySelectorAll('nav a[href^="#"]');
+
+  function updateActive() {
+    var current = '';
+    var scrollY = window.scrollY + 100;
+
+    sections.forEach(function(section) {
+      if (section.offsetTop <= scrollY) {
+        current = section.getAttribute('id');
+      }
+    });
+
+    navLinks.forEach(function(link) {
+      link.classList.remove('active');
+      if (link.getAttribute('href') === '#' + current) {
+        link.classList.add('active');
+      }
+    });
+  }
+
+  window.addEventListener('scroll', updateActive, { passive: true });
+  updateActive();
+})();
+</script>
+
+</body>
+</html>
