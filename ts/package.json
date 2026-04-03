@@ -9,9 +9,9 @@
   "author": "Neumenon <oss@neumenon.com>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Neumenon/cowrie"
+    "url": "https://github.com/Neumenon/shard"
   },
-  "homepage": "https://github.com/Neumenon/cowrie",
+  "homepage": "https://github.com/Neumenon/shard",
   "keywords": ["shard", "binary-format", "tensor", "machine-learning", "mmap", "zero-copy"],
   "scripts": {
     "build": "tsc",

@@ -49,7 +49,7 @@ def detect_format(path: Union[str, Path]) -> Format:
         with open(path, "rb") as f:
             magic = f.read(4)
         return detect_format_bytes(magic)
-    except:
+    except OSError:
         pass
 
     return Format.UNKNOWN

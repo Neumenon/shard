@@ -46,10 +46,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Neumenon/cowrie"
-Documentation = "https://github.com/Neumenon/cowrie/tree/main/sampleshard-py"
-Repository = "https://github.com/Neumenon/cowrie"
-Issues = "https://github.com/Neumenon/cowrie/issues"
+Homepage = "https://github.com/Neumenon/shard"
+Documentation = "https://github.com/Neumenon/shard/tree/main/sampleshard-py"
+Repository = "https://github.com/Neumenon/shard"
+Issues = "https://github.com/Neumenon/shard/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
