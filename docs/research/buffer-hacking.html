@@ -1183,6 +1183,43 @@ tcp->seq = <span class="fn">htonl</span>(<span class="nm">0xDEADBEEF</span>);
 <p>The diff step above is the key optimization. Instead of redrawing the whole screen (2000 characters), you only send escape codes for the characters that <em>changed</em>. On a 60 FPS game where 90% of the screen is static, this reduces terminal output from 120KB/s to ~12KB/s. Libraries like <code>ncurses</code>, React's virtual DOM, and GPU command buffers all use this same idea: diff the buffers, emit minimal updates.</p>
 </div>
 
+<h3 id="double-buffering-pattern">Double Buffering as a Pattern &mdash; Not Just Graphics</h3>
+
+<p>The terminal renderer above is one instance. But double buffering is bigger than graphics. It appears whenever you need to read old state and write new state without corrupting either.</p>
+
+<p>Consider the classic demoscene <strong>fire effect</strong>. Flames lick upward from the bottom of the screen. Each frame, every pixel is computed from the pixels <em>below</em> it in the previous frame &mdash; average the neighbors, subtract some random cooling. But if you read and write to the same buffer, a pixel at row 10 reads from row 11 which you already overwrote this frame. The fire collapses into garbage.</p>
+
+<p>Two buffers solve it:</p>
+
+<pre><code><span class="cm">/* The fire effect IS double buffering */</span>
+
+<span class="ty">uint8_t</span> buf_A[W * H], buf_B[W * H];
+
+<span class="kw">for</span> (<span class="ty">int</span> y = <span class="nm">0</span>; y < H - <span class="nm">1</span>; y++) {
+    <span class="kw">for</span> (<span class="ty">int</span> x = <span class="nm">0</span>; x < W; x++) {
+        <span class="cm">/* Read neighbors from buf_A (last frame) */</span>
+        <span class="ty">int</span> avg = (buf_A[(y+<span class="nm">1</span>)*W + x-<span class="nm">1</span>] + buf_A[(y+<span class="nm">1</span>)*W + x]
+                 + buf_A[(y+<span class="nm">1</span>)*W + x+<span class="nm">1</span>] + buf_A[(y+<span class="nm">2</span>)*W + x]) >> <span class="nm">2</span>;
+
+        <span class="cm">/* Write cooled value to buf_B (this frame) */</span>
+        <span class="ty">int</span> decay = rand() % cooling;
+        buf_B[y * W + x] = avg > decay ? avg - decay : <span class="nm">0</span>;
+    }
+}
+
+<span class="cm">/* Swap */</span>
+<span class="ty">uint8_t</span> *tmp = buf_A;
+buf_A = buf_B;
+buf_B = tmp;
+<span class="label">fire effect — double buffering for simulation</span></code></pre>
+
+<p>Conway's Game of Life uses the same trick &mdash; read neighbors from generation N, write births and deaths to generation N+1, swap. GPU swap chains are the same pattern at hardware speed. React's virtual DOM diffs two trees the same way. <strong>Read old state, write new state, swap</strong> &mdash; this is one of the most fundamental patterns in computing.</p>
+
+<div class="power zen">
+<div class="power-label">When You Need Double Buffering</div>
+<p>Any time your computation reads from the same data structure it writes to, and the reads depend on seeing the <em>previous</em> state, not partially-updated state. Simulation (fire, Game of Life, physics). Rendering (framebuffer, terminal). State machines (current state → next state). Networking (incoming packet buffer while processing previous batch). If you're seeing corruption or "feedback loops" in your output, you probably need two buffers.</p>
+</div>
+
 </section>
 
 <!-- ============================================================ -->
@@ -1385,7 +1422,92 @@ buf[SIZE] = <span class="st">'\n'</span>;  <span class="cm">// Sentinel — guar
 <span class="cm">// This is slower on anything with a cache. It's a party trick.</span>
 <span class="label">C — XOR swap (party trick)</span></code></pre>
 
-<h3>Trick 5: Memory-Mapped Ring Buffer</h3>
+<h3 id="ring-buffers">Trick 5: Ring Buffers (Circular Queues)</h3>
+
+<p>A ring buffer is an array with a write position and a read position that chase each other in circles. One end produces data, the other consumes it. When a position reaches the end, it wraps to the beginning. This is the fundamental data structure for streaming &mdash; audio, video, network packets, inter-thread communication.</p>
+
+<div class="diagram">
+<span class="diagram-label">Ring Buffer</span>
+<pre><code>
+  Write position advances clockwise →
+
+          ┌──┬──┬──┬──┬──┬──┬──┬──┐
+          │  │██│██│██│██│  │  │  │
+          └──┴──┴──┴──┴──┴──┴──┴──┘
+           ↑  R              W  ↑
+           │  read_pos    write_pos
+           │                    │
+           └── empty ───────────┘
+
+  Available data: write_pos - read_pos
+  Free space:     capacity - available
+</code></pre>
+</div>
+
+<p>The classic problem: what happens when a write <em>crosses the boundary</em>? You want to write 5 bytes starting at position 30 in a 32-byte ring. Bytes 30-31 fit at the end, but bytes 32-34 need to wrap to positions 0-2. Without tricks, you need two <code>memcpy</code> calls:</p>
+
+<pre><code><span class="cm">/* Without tricks: split the write at the boundary */</span>
+<span class="ty">size_t</span> offset = wpos % capacity;
+<span class="ty">size_t</span> first = capacity - offset;       <span class="cm">/* bytes until end */</span>
+<span class="kw">if</span> (first > len) first = len;
+<span class="fn">memcpy</span>(buf + offset, data, first);      <span class="cm">/* tail end */</span>
+<span class="kw">if</span> (len > first)
+    <span class="fn">memcpy</span>(buf, data + first, len - first); <span class="cm">/* wrapped portion */</span>
+<span class="label">ring buffer — the boundary problem</span></code></pre>
+
+<div class="power hack">
+<div class="power-label">Power-of-2 Trick</div>
+<p>If the capacity is a power of 2, you can replace expensive modulo (<code>%</code>) with a bitwise AND: <code>offset = wpos &amp; (capacity - 1)</code>. When capacity is 2<sup>n</sup>, <code>capacity - 1</code> is a bitmask of all 1s. This also means positions never need to wrap explicitly &mdash; they're monotonically increasing unsigned counters, and the bitmask extracts the correct offset automatically. This is why every serious ring buffer implementation requires power-of-2 capacity.</p>
+</div>
+
+<h4 id="spsc">SPSC: Single-Producer, Single-Consumer</h4>
+
+<p>If exactly one thread writes and exactly one thread reads, you don't need locks. The writer only modifies <code>write_pos</code>; the reader only modifies <code>read_pos</code>. Each reads the other's position to compute available space. C11 <code>atomic_store</code>/<code>atomic_load</code> suffice &mdash; no compare-and-swap loops, no mutexes. This is how audio engines, network stacks, and inter-thread queues work at maximum throughput.</p>
+
+<pre><code><span class="cm">/* Lock-free SPSC ring buffer — the positions are the only shared state */</span>
+<span class="ty">_Atomic size_t</span> write_pos;  <span class="cm">/* only writer touches this */</span>
+<span class="ty">_Atomic size_t</span> read_pos;   <span class="cm">/* only reader touches this */</span>
+
+<span class="cm">/* Writer: */</span>
+<span class="ty">size_t</span> avail = capacity - (<span class="fn">atomic_load</span>(&write_pos) - <span class="fn">atomic_load</span>(&read_pos));
+<span class="kw">if</span> (avail >= len) {
+    <span class="fn">memcpy</span>(buf + (wpos & (capacity-<span class="nm">1</span>)), data, len);
+    <span class="fn">atomic_store</span>(&write_pos, wpos + len);
+}
+
+<span class="cm">/* Reader: */</span>
+<span class="ty">size_t</span> have = <span class="fn">atomic_load</span>(&write_pos) - <span class="fn">atomic_load</span>(&read_pos);
+<span class="kw">if</span> (have >= len) {
+    <span class="fn">memcpy</span>(out, buf + (rpos & (capacity-<span class="nm">1</span>)), len);
+    <span class="fn">atomic_store</span>(&read_pos, rpos + len);
+}
+<span class="label">SPSC lock-free ring — no mutex, no CAS</span></code></pre>
+
+<div class="power wild">
+<div class="power-label">Where SPSC Rings Live</div>
+<p><strong>JACK audio</strong> uses lock-free rings between the real-time audio thread and the UI thread. <strong>io_uring</strong> (Linux kernel) uses submission and completion ring buffers shared between user space and kernel. <strong>LMAX Disruptor</strong> (Java trading systems) extends the pattern to multi-producer with CAS loops. The simple SPSC version above handles the vast majority of real-world streaming use cases.</p>
+</div>
+
+<h4 id="backpressure">Backpressure: When the Ring Is Full</h4>
+
+<p>What happens when the producer is faster than the consumer? The ring fills up. You have three choices: <strong>block</strong> (wait until space is available), <strong>drop</strong> (discard the data), or <strong>overwrite</strong> (oldest data lost). Unix pipes choose blocking &mdash; <code>write()</code> to a full pipe sleeps until the reader drains some. This is <strong>backpressure</strong>, and it's the simplest correct flow control:</p>
+
+<pre><code><span class="cm">/* Pipe-based backpressure: write() blocks when pipe is full */</span>
+<span class="cm">/* This IS the timing mechanism for audio synthesis:</span>
+<span class="cm">   - Synthesis thread generates samples</span>
+<span class="cm">   - write(pipe_fd, samples, bytes) pushes to audio player</span>
+<span class="cm">   - If player hasn't drained enough, write() blocks</span>
+<span class="cm">   - Blocking = natural rate limiting = no explicit timer needed */</span>
+
+<span class="kw">while</span> (running) {
+    <span class="fn">generate_audio</span>(buffer, <span class="nm">1024</span>);
+    <span class="fn">write</span>(pipe_fd, buffer, <span class="nm">1024</span> * <span class="kw">sizeof</span>(<span class="ty">int16_t</span>));  <span class="cm">/* blocks when full */</span>
+}
+<span class="label">backpressure via blocking write()</span></code></pre>
+
+<p>Now for the trick that eliminates the two-<code>memcpy</code> boundary problem entirely:</p>
+
+<h3>The mmap Double-Map: Eliminating the Boundary</h3>
 
 <pre><code><span class="cm">// The ULTIMATE ring buffer hack: map the same physical memory TWICE</span>
 <span class="cm">// adjacent in virtual memory. Wrap-around becomes invisible!</span>
@@ -1480,6 +1602,11 @@ buf[SIZE] = <span class="st">'\n'</span>;  <span class="cm">// Sentinel — guar
 <div class="ticker" style="display: block; text-align: center; margin: 3rem auto; max-width: 600px; padding: 1rem;">
   &gt; buffers are the connective tissue of computing.<br>
   &gt; master them and you master the machine._
+</div>
+
+<div class="power zen">
+<div class="power-label">What to Read Next</div>
+<p>If you want to see these buffer patterns composed into a real creative tool — a single-header C library that uses double buffering for terminal rendering, SPSC ring buffers for audio streaming, and the mmap trick for zero-copy thread communication — read the <a href="/hardware/rawbuf/blog/rawbuf-deep-dive.html" style="color:var(--green)">RawBuf Deep Dive</a>. It builds a game engine, a piano synthesizer, and an FFT visualizer from three buffers and a terminal.</p>
 </div>
 
 </section>
