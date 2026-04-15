@@ -4,7 +4,7 @@
  * Usage: ./test_golden <testdata_dir>
  *
  * Expected values are hard-coded from:
- *   cowrie/ucodec/testdata/golden_manifest.json
+ *   ucodec/testdata/golden_manifest.json
  *
  * Verifies:
  *   - Header fields (version, role, flags, alignment, entry_count, offsets)

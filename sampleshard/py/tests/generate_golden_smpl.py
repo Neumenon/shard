@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Generate a golden SampleShard file for cross-language testing.
 
-Writes 5 diverse samples to cowrie/ucodec/testdata/golden_sampleshard.smpl
-and prints each sample for reference. The Go test
-cowrie/ucodec/sampleshard_golden_test.go reads this file and verifies
-byte-level interop.
+Writes 5 diverse samples to ucodec/testdata/golden_sampleshard.smpl and
+prints each sample for reference. The Go sampleshard golden test reads
+this file and verifies byte-level interop.
 
 Sample IDs and content:
   10: int value (42)
@@ -25,9 +24,9 @@ from sampleshard import SampleShardWriter
 
 
 def main():
-    # Output path: cowrie/ucodec/testdata/golden_sampleshard.smpl
+    # Output path: ucodec/testdata/golden_sampleshard.smpl
     repo_root = Path(__file__).resolve().parent.parent.parent.parent
-    out_path = repo_root / "cowrie" / "ucodec" / "testdata" / "golden_sampleshard.smpl"
+    out_path = repo_root / "ucodec" / "testdata" / "golden_sampleshard.smpl"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     samples = {

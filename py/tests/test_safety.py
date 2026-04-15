@@ -1,6 +1,6 @@
 """Cross-language safety tests — verify Python handles Go-generated safety fixtures.
 
-Reads golden safety fixtures from cowrie/ucodec/testdata/safety/ and validates:
+Reads golden safety fixtures from ucodec/testdata/safety/ and validates:
 1. Valid shards: entry count, entry names, data SHA256 all match manifest
 2. Corrupt shards: opening or reading raises an exception (no silent corruption)
 3. Python round-trip: write and read back with SHA256 verification

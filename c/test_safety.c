@@ -7,7 +7,7 @@
  *     entry count overflow, huge string table)
  *
  * Expected values are hard-coded from:
- *   cowrie/ucodec/testdata/safety/safety_manifest.json
+ *   ucodec/testdata/safety/safety_manifest.json
  *
  * Usage: ./test_safety [testdata_dir]
  *   default testdata_dir = ../ucodec/testdata/safety
