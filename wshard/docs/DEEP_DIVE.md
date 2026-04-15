@@ -6,7 +6,9 @@
 2. [The Binary Format — Byte by Byte](#2-the-binary-format--byte-by-byte)
 3. [The Problem It Solves — And Why Nobody Else Has](#3-the-problem-it-solves--and-why-nobody-else-has)
 4. [Cross-Language Interop — One Format, Three Runtimes](#4-cross-language-interop--one-format-three-runtimes)
-5. [Market Position — Physical AI Data Infrastructure](#5-market-position--physical-ai-data-infrastructure)
+5. [DeepData Bridge — Similarity Search Over Episodes](#5-deepdata-bridge--similarity-search-over-episodes)
+
+For market positioning, competitive landscape, and adoption context see [`MARKETING_BRIEF.md`](MARKETING_BRIEF.md).
 
 ---
 
@@ -408,73 +410,9 @@ func nameHash(name string) uint64 {
 
 ---
 
-## 5. Market Position — Physical AI Data Infrastructure
+## 5. DeepData Bridge — Similarity Search Over Episodes
 
-### The Market
-
-World models — AI systems that learn to simulate physical environments — are the current inflection point in AI research and investment.
-
-**Capital deployed (2025-2026):**
-
-| Company | Focus | Raised |
-|---------|-------|--------|
-| World Labs (Fei-Fei Li) | 3D world generation | $1B+ |
-| AMI Labs (Yann LeCun) | Physical reasoning architectures | $1.03B |
-| Runway | Video world models | $315M |
-| Odyssey | Interactive streaming worlds | $27M |
-
-NVIDIA Cosmos, Google DeepMind Genie 3, Waymo World Model, Meta V-JEPA 2, and DreamerV3 (published in Nature, 2025) represent the research frontier. PitchBook projects the world models market in gaming alone at $276B by 2030.
-
-All of these systems consume trajectory data. None of them have standardized how that data is stored.
-
-### The Infrastructure Gap
-
-| Layer | LLMs (solved) | World Models (not solved) |
-|-------|--------------|--------------------------|
-| **Training data format** | Parquet, JSONL, tokenized shards | HDF5, NPZ, RLDS, custom |
-| **Data management** | HuggingFace Datasets, Mosaic Streaming | Nothing purpose-built |
-| **Similarity search** | Vector DBs (Pinecone, Weaviate) | Nothing for trajectories |
-| **Cross-language access** | Arrow, Parquet | Nothing standard |
-| **Streaming collection** | Kafka, Pub/Sub | Custom per-lab |
-
-57% of organizations report their data isn't AI-ready (industry-wide). Trajectory data is worse — there is no Parquet equivalent, no Arrow equivalent, no standard at all.
-
-Teams cobble together:
-- HDF5 for array storage (single-writer, no streaming, Python-only in practice)
-- MP4 for video channels (separate file, separate pipeline)
-- JSON sidecar files for metadata (no checksums, no schema)
-- Custom Python dataloaders that break when the robot changes
-
-### Where WShard Fits
-
-WShard is not competing with model architectures or training frameworks. It operates one layer below — at the data format level.
-
-```
-┌─────────────────────────────────────────────────┐
-│  Training Frameworks                            │
-│  PyTorch DataLoader │ JAX Grain │ TF Data        │
-├─────────────────────────────────────────────────┤
-│  Data Format ← WShard sits here                 │
-│  .wshard files on disk / S3 / NFS               │
-├─────────────────────────────────────────────────┤
-│  Collection                                     │
-│  Robot SDK │ Simulator │ Gym/Gymnasium           │
-└─────────────────────────────────────────────────┘
-```
-
-The closest comparisons:
-
-| Project | Overlap | Difference |
-|---------|---------|------------|
-| **LeRobot v3** (HuggingFace) | Episode datasets, metadata | Publishing format (Parquet+MP4), not training-time binary |
-| **Robo-DM** (UC Berkeley) | Data management for robots | Academic paper, EBML-based, no cross-language library |
-| **MCAP** (Foxglove) | Multi-channel binary format | ROS message-oriented, not tensor-oriented |
-| **Zarr** | Chunked array storage | No episode semantics, no action/reward/done convention |
-| **TFRecord/RLDS** | RL dataset format | TensorFlow dependency, rigid schema, no streaming append |
-
-### The DeepData Bridge
-
-WShard files stay on disk as the authoritative store. For search and retrieval, the `deepdata_bridge` module indexes episode metadata and observation embeddings into DeepData (a vector database):
+WShard files stay on disk as the authoritative store. The `deepdata_bridge` module indexes episode metadata and observation embeddings into DeepData (a vector database) so callers can retrieve episodes by behavioural similarity:
 
 ```python
 from wshard.deepdata_bridge import TrajectoryIngestor, TrajectoryRetriever
@@ -496,28 +434,7 @@ results = retriever.search_similar_episodes(
 # Caller loads wshard file directly for data access
 ```
 
-This enables "find me 1000 successful grasp episodes from environments similar to this one" — the kind of query that robotics teams currently answer with directory-naming conventions and grep.
-
-### Adoption Path
-
-1. **Robotics labs** collecting demonstration data (DROID, Open X-Embodiment scale)
-2. **World model teams** managing synthetic trajectory datasets (Cosmos, DreamGen)
-3. **RL researchers** who outgrow NPZ/HDF5 and need cross-language access
-4. **Industrial digital twins** producing simulation episodes at scale (Siemens, Dassault)
-
-The adoption wedge is format conversion. WShard ships with adapters for DreamerV3 NPZ and HuggingFace datasets:
-
-```python
-from wshard import load, save
-
-# Convert DreamerV3 NPZ to WShard
-ep = load("dreamer_episode.npz")  # auto-detects format
-save(ep, "episode.wshard", compression="zstd")
-
-# Convert back
-ep = load("episode.wshard")
-save(ep, "episode.npz")
-```
+Hits return episode references; the caller reads the `.wshard` file directly for bulk data.
 
 ---
 

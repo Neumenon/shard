@@ -146,7 +146,7 @@ Semantic lane prefixes give meaning to raw data:
 - DeepData bridge for trajectory similarity search
 - 13 data types including bf16
 
-**Implementations:** Python ([`wshard/py/`](wshard/py/)), TypeScript ([`wshard/js/`](wshard/js/)), Go ([`go/shard/`](go/shard/)). 164 cross-language tests.
+**Implementations:** Python ([`wshard/py/`](wshard/py/)), TypeScript ([`wshard/js/`](wshard/js/)), Go ([`go/shard/`](go/shard/)).
 
 **World model targets:** DreamerV3/V4, V-JEPA 2, Genie 3, NVIDIA Cosmos, VERSES AXIOM. No standard trajectory format exists — WShard fills the gap with native support for paired observation/prediction data.
 
@@ -268,12 +268,8 @@ xxHash64("meta/manifest")      = 0x9a191dcd325813d3
 
 | Document | Description |
 |----------|-------------|
-| [WShard Deep Dive](wshard/docs/DEEP_DIVE.md) | Byte-level format spec, cross-language interop, market position |
+| [WShard Deep Dive](wshard/docs/DEEP_DIVE.md) | Byte-level format spec + cross-language interop |
 | [WShard Marketing Brief](wshard/docs/MARKETING_BRIEF.md) | Positioning, messaging, competitive landscape |
-| [Filetype Taxonomy](../docs/specs/FILETYPES.md) | Complete profile registry, decision tree |
-| [World Model Market Guide](../docs/market/WORLD_MODEL_MARKET_GUIDE.md) | WShard across 5 world model categories |
-| [ModelShard Competitive Analysis](../docs/market/MODELSHARD_COMPETITIVE_ANALYSIS.md) | Weight format comparison matrix |
-| [Shard Market Analysis](../docs/shard-market/00-market-analysis.md) | SAM sizing, cost impact by scale |
 
 ## License
 
