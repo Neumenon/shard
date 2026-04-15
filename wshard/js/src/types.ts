@@ -35,7 +35,7 @@ export const COMPRESS_LZ4 = 0x02;
 export const CONTENT_TYPE_UNKNOWN = 0x0000;
 export const CONTENT_TYPE_TENSOR = 0x0001;  // TensorV1 encoded tensor
 export const CONTENT_TYPE_JSON = 0x0002;    // Standard JSON
-export const CONTENT_TYPE_SJSON = 0x0003;   // SJSON binary format
+export const CONTENT_TYPE_COWRIE = 0x0003;  // Cowrie binary format
 export const CONTENT_TYPE_GLYPH = 0x0004;   // GLYPH text format
 export const CONTENT_TYPE_TEXT = 0x0005;    // Plain text (UTF-8)
 export const CONTENT_TYPE_IMAGE = 0x0006;   // Image (PNG, JPEG, etc.)
@@ -452,7 +452,7 @@ export function contentTypeName(ct: number): string {
   switch (ct) {
     case CONTENT_TYPE_TENSOR: return 'tensor';
     case CONTENT_TYPE_JSON: return 'json';
-    case CONTENT_TYPE_SJSON: return 'sjson';
+    case CONTENT_TYPE_COWRIE: return 'cowrie';
     case CONTENT_TYPE_GLYPH: return 'glyph';
     case CONTENT_TYPE_TEXT: return 'text';
     case CONTENT_TYPE_IMAGE: return 'image';
