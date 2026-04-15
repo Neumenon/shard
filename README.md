@@ -21,7 +21,7 @@ One container format, one reader, one toolchain. The **role byte** in the header
 | 0x03 | [GemmShard](#gemmshard) | `.gemm` | Pre-packed BLIS matrix panels for distributed GEMM |
 | 0x04 | [Manifest](#manifest) | `.manifest` | Multi-file coordination — chunked episodes, split models |
 | 0x05 | [WShard](#wshard) | `.wshard` | World model episodes — signal/omen/residual traces |
-| 0x06 | [GraphShard](#graphshard) | `.gshard` | GNN datasets — node/edge tables, features, splits |
+| 0x06 | [UMSH](#umsh) | `.umsh` | Universal Model Shard — variant of MoSH for alternate weight layouts |
 | 0x08 | [ColumnShard](#columnshard) | `.cshard` | Columnar tabular data with row group stats |
 
 ## Languages
@@ -65,7 +65,7 @@ import "github.com/Neumenon/shard/go/shard"
 
 // Write
 w, _ := shard.NewShardStreamWriter("model.mosh", shard.ShardOptions{
-    Role:        shard.RoleModelShard,
+    Role:        shard.ShardRoleMoSH,
     Alignment:   64,
     Compression: shard.CompressionZstd,
     MaxEntries:  1000,
@@ -81,7 +81,7 @@ data, _ := r.ReadEntry("layer.0.weight")
 ## Quick Start (Python)
 
 ```python
-from shard_v2 import ShardWriter, ShardReader
+from shard_format import ShardWriter, ShardReader
 
 # Write
 with ShardWriter("model.mosh", role=0x01, alignment=64) as w:
@@ -172,7 +172,7 @@ llama2-7b.mosh
 - LoRA adapters stored as first-class deltas (not full layers)
 - Streaming index for large models over WAN/object stores
 
-**Implementation:** Go ([`go/shard/`](go/shard/)), Python ([`mosh/`](mosh/) — in progress).
+**Implementation:** Go ([`go/shard/`](go/shard/)).
 
 ---
 
@@ -210,9 +210,9 @@ Multi-file coordination. References to other shard files with range keys. Used f
 
 ---
 
-### GraphShard
+### UMSH
 
-GNN datasets: node tables, edge tables, feature tensors, train/val/test splits. CSR adjacency stored as native entries. Scene graphs for spatial intelligence (World Labs, Luma), factor graphs for active inference (VERSES AXIOM, pymdp).
+Universal Model Shard — variant of MoSH for alternate weight layouts.
 
 **Implementation:** Go ([`go/shard/`](go/shard/)).
 
@@ -243,7 +243,6 @@ shard/
 ├── sampleshard/     SampleShard profile (Python + TypeScript)
 │   ├── py/
 │   └── js/
-├── mosh/            ModelShard profile (in progress)
 ├── ucodec/          Golden test data + safety test fixtures
 └── explainer.html   Interactive format explainer
 ```

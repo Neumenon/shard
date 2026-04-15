@@ -100,7 +100,7 @@ SampleShard uses the `.smpl` extension and the Shard binary format:
 ## Interoperability
 
 Byte-identical across all implementations:
-- **Go**: `cowrie/ucodec.OpenSampleShard()`
+- **Go**: `go/shard` — open via `shard.OpenShard()` with role 0x02
 - **Python**: `sampleshard.SampleShardReader()`
 - **TypeScript**: `@sampleshard/core`
 

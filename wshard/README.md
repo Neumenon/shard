@@ -239,17 +239,15 @@ xxHash64("signal/obs")   = 0x86f8c8413116a0ae
 ## Testing
 
 ```bash
-# Python (33 interop + format tests)
+# Python (103 tests)
 cd wshard/py && python -m pytest tests/ -v
 
 # TypeScript (15 tests)
 cd wshard/js && npm test
 
-# Go (96 tests)
+# Go — wshard lives inside the full shard package
 cd go && go test ./shard/ -v
 ```
-
-164 tests total across three languages.
 
 ## Dependencies
 

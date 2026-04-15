@@ -55,7 +55,7 @@ Each named block is independently addressable. A training loop that only needs `
 | Golden test fixtures | Go generator | 553 | Verified |
 | DeepData trajectory bridge | Python | ~500 | Production |
 
-164 tests across all three languages. All passing.
+Python: 103 tests, TypeScript: 15 tests, all passing. Go wshard is covered by the core shard package's test suite.
 
 ---
 
