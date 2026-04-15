@@ -10,8 +10,8 @@ import (
 
 // fixtureDir returns the path to the corrupt fixture directory.
 func fixtureDir() string {
-	// From shard/go/shard/ -> shard/ucodec/testdata/safety/
-	return filepath.Join("..", "..", "ucodec", "testdata", "safety")
+	// From shard/go/shard/ -> shard/testdata/safety/
+	return filepath.Join("..", "..", "testdata", "safety")
 }
 
 // helper: write a shard with the given entries and return the bytes.

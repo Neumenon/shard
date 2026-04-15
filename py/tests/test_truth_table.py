@@ -6,7 +6,7 @@ import pytest
 
 from shard_format import ShardReader, ShardWriter
 
-SAFETY_DIR = Path(__file__).resolve().parent.parent.parent / "ucodec" / "testdata" / "safety"
+SAFETY_DIR = Path(__file__).resolve().parent.parent.parent / "testdata" / "safety"
 
 
 def write_shard_roundtrip(tmp_path: Path, entries):

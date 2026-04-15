@@ -17,7 +17,7 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const SAFETY_DIR = resolve(__dirname, '../../../ucodec/testdata/safety');
+const SAFETY_DIR = resolve(__dirname, '../../../testdata/safety');
 
 beforeAll(async () => {
   await initXxhash();

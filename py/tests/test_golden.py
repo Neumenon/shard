@@ -11,7 +11,7 @@ from shard_format import (
     compute_xxhash64,
 )
 
-TESTDATA = Path(__file__).resolve().parent.parent.parent / "ucodec" / "testdata"
+TESTDATA = Path(__file__).resolve().parent.parent.parent / "testdata"
 MANIFEST = TESTDATA / "golden_manifest.json"
 
 

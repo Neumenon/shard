@@ -7,10 +7,10 @@
  *     entry count overflow, huge string table)
  *
  * Expected values are hard-coded from:
- *   ucodec/testdata/safety/safety_manifest.json
+ *   testdata/safety/safety_manifest.json
  *
  * Usage: ./test_safety [testdata_dir]
- *   default testdata_dir = ../ucodec/testdata/safety
+ *   default testdata_dir = ../testdata/safety
  */
 
 #include "shard.h"
@@ -540,7 +540,7 @@ static void test_concurrent_reads(const char* testdata) {
 
 int main(int argc, char* argv[]) {
     const char* testdata = (argc > 1) ? argv[1]
-                                      : "../ucodec/testdata/safety";
+                                      : "../testdata/safety";
 
     printf("=== shard safety tests ===\n\n");
 

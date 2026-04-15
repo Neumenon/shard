@@ -65,7 +65,7 @@ func main() {
 		dir = "."
 	}
 	// Always write to the testdata directory relative to where the source lives
-	outDir := filepath.Join("cowrie", "ucodec", "testdata")
+	outDir := "testdata"
 	if _, err := os.Stat(outDir); err != nil {
 		// Try current directory
 		outDir = "testdata"

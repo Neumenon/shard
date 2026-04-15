@@ -4,7 +4,7 @@
  * Usage: ./test_golden <testdata_dir>
  *
  * Expected values are hard-coded from:
- *   ucodec/testdata/golden_manifest.json
+ *   testdata/golden_manifest.json
  *
  * Verifies:
  *   - Header fields (version, role, flags, alignment, entry_count, offsets)
@@ -287,7 +287,7 @@ static void test_xxhash64(void) {
 
 int main(int argc, char* argv[]) {
     const char* testdata = (argc > 1) ? argv[1]
-                                      : "../ucodec/testdata";
+                                      : "../testdata";
 
     printf("=== shard golden tests ===\n\n");
 

@@ -6,10 +6,10 @@ use shard_format::{ShardReader, ShardWriter, ROLE_MOSH};
 
 /// Path to the corrupt fixture directory.
 fn fixture_dir() -> &'static Path {
-    // From shard/rs/tests/ -> shard/ucodec/testdata/safety/
+    // From shard/rs/tests/ -> shard/testdata/safety/
     Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../ucodec/testdata/safety"
+        "/../testdata/safety"
     ))
 }
 

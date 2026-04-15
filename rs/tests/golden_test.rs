@@ -1,6 +1,6 @@
 //! Golden file parity tests.
 //!
-//! Reads the manifest from `../ucodec/testdata/golden_manifest.json` and verifies
+//! Reads the manifest from `../testdata/golden_manifest.json` and verifies
 //! that the Rust Shard reader produces identical results to the Go implementation.
 
 use serde::Deserialize;
@@ -59,9 +59,9 @@ struct GoldenEntry {
 // ============================================================
 
 fn testdata_dir() -> PathBuf {
-    // tests/ is at <crate_root>/tests/, testdata is at ../ucodec/testdata/
+    // tests/ is at <crate_root>/tests/, testdata is at ../testdata/
     let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
-    Path::new(&manifest).join("../ucodec/testdata")
+    Path::new(&manifest).join("../testdata")
 }
 
 fn load_manifest() -> Manifest {

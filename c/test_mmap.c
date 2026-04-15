@@ -481,7 +481,7 @@ static void test_mmap_read_prefix(void) {
  * ============================================================ */
 
 int main(int argc, char* argv[]) {
-    const char* testdata = (argc > 1) ? argv[1] : "../ucodec/testdata";
+    const char* testdata = (argc > 1) ? argv[1] : "../testdata";
 
     printf("=== shard mmap tests ===\n\n");
 

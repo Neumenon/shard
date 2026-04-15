@@ -256,7 +256,7 @@ All implementations agree on:
 - **Compression threshold:** Only compress entries > 256 bytes, only keep if ratio < 0.9
 - **Security limits:** Identical across all 5 languages
 
-Verified by 6 golden files and a shared manifest (`ucodec/testdata/golden_manifest.json`).
+Verified by 6 golden files and a shared manifest (`testdata/golden_manifest.json`).
 
 ```
 CRC32C("hello")                = 0x9a71bb4c

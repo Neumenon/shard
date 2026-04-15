@@ -21,7 +21,7 @@ fn sha256_hex(data: &[u8]) -> String {
 
 fn testdata_dir() -> PathBuf {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
-    Path::new(&manifest).join("../ucodec/testdata")
+    Path::new(&manifest).join("../testdata")
 }
 
 // ============================================================

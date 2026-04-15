@@ -13,7 +13,7 @@
  *   9. empty_input_rejected
  *
  * Usage: ./test_truth_table [testdata_dir]
- *   default testdata_dir = ../ucodec/testdata/safety
+ *   default testdata_dir = ../testdata/safety
  */
 
 #include "shard.h"
@@ -227,7 +227,7 @@ static void test_empty_input_rejected(void) {
  * ============================================================ */
 
 int main(int argc, char** argv) {
-    const char* testdata_dir = "../ucodec/testdata/safety";
+    const char* testdata_dir = "../testdata/safety";
     if (argc > 1) {
         testdata_dir = argv[1];
     }

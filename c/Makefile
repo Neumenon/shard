@@ -1,7 +1,7 @@
 CC      = gcc
 CFLAGS  = -Wall -Wextra -O2 -std=c11 -D_POSIX_C_SOURCE=200809L
 LDLIBS  = -lm -lzstd -llz4
-TESTDATA = ../ucodec/testdata
+TESTDATA = ../testdata
 
 .PHONY: all test clean
 
@@ -41,7 +41,7 @@ test: test_golden test_writer test_metadata test_mmap test_streaming test_compre
 	./test_mmap $(TESTDATA)
 	./test_streaming
 	./test_compression
-	./test_safety ../ucodec/testdata/safety
+	./test_safety ../testdata/safety
 
 clean:
 	rm -f *.o *.a test_golden test_writer test_metadata test_mmap test_streaming test_compression test_safety
