@@ -24,6 +24,7 @@ from .shard_format import (
     ROLE_MANIFEST,
     ROLE_WSHARD,
     ROLE_UMSH,
+    ROLE_COLUMN,
     CONTENT_TYPE_UNKNOWN,
     CONTENT_TYPE_TENSOR,
     CONTENT_TYPE_JSON,

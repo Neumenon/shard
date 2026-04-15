@@ -22,6 +22,7 @@
 #define ROLE_MANIFEST    4
 #define ROLE_WSHARD      5
 #define ROLE_UMSH        6
+#define ROLE_COLUMN      8
 
 /* Alignment */
 #define ALIGN_NONE  0

@@ -57,6 +57,7 @@ pub const ROLE_GEMMPANEL: u8 = 3;
 pub const ROLE_MANIFEST: u8 = 4;
 pub const ROLE_WSHARD: u8 = 5;
 pub const ROLE_UMSH: u8 = 6;
+pub const ROLE_COLUMN: u8 = 8;
 
 // Alignment
 pub const ALIGN_NONE: u8 = 0;

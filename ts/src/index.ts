@@ -235,6 +235,7 @@ export const ROLE_GEMMPANEL = 3;
 export const ROLE_MANIFEST = 4;
 export const ROLE_WSHARD = 5;
 export const ROLE_UMSH = 6;
+export const ROLE_COLUMN = 8;
 
 // ============================================================
 // Constants — Alignment
