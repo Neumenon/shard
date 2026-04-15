@@ -211,11 +211,11 @@ func ComputeChecksum(data []byte) uint32 {
 
 // Errors
 var (
-	ErrHeaderTooShort    = errors.New("ucodec: v2 header too short")
-	ErrIndexCorrupt      = errors.New("ucodec: v2 index corrupt")
-	ErrChecksumMismatch  = errors.New("ucodec: v2 checksum mismatch")
-	ErrCompressionFailed = errors.New("ucodec: v2 compression failed")
-	ErrInvalidAlignment  = errors.New("ucodec: invalid alignment (must be 0, 16, 32, or 64)")
+	ErrHeaderTooShort    = errors.New("shard: header too short")
+	ErrIndexCorrupt      = errors.New("shard: index corrupt")
+	ErrChecksumMismatch  = errors.New("shard: checksum mismatch")
+	ErrCompressionFailed = errors.New("shard: compression failed")
+	ErrInvalidAlignment  = errors.New("shard: invalid alignment (must be 0, 16, 32, or 64)")
 )
 
 // WriteShardHeader writes a v2 header to the given writer.
@@ -854,7 +854,7 @@ func NewShardStreamWriter(path string, role ShardRole, maxEntries int) (*ShardSt
 // Returns ErrInvalidAlignment if the value is not valid, or an error if BeginData was already called.
 func (sw *ShardStreamWriter) SetAlignment(align uint8) error {
 	if sw.begun {
-		return fmt.Errorf("ucodec: cannot set alignment after BeginData")
+		return fmt.Errorf("shard: cannot set alignment after BeginData")
 	}
 	switch align {
 	case AlignNone, Align16, Align32, Align64:

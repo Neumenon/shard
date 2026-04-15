@@ -412,7 +412,6 @@ class WShardStreamWriter:
         meta_wshard = {
             "format": "W-SHARD",
             "wshard_version": "0.1",
-            "container": {"shard_v2_role": ROLE_WSHARD, "shard_v2_version": VERSION},
             "endianness": "little",
             "alignment": 32,
             "streaming": True,

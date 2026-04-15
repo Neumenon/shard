@@ -59,8 +59,8 @@ type ShardSchema struct {
 
 // Errors
 var (
-	ErrInvalidSchemaMagic = errors.New("ucodec: invalid schema magic")
-	ErrSchemaValidation   = errors.New("ucodec: schema validation failed")
+	ErrInvalidSchemaMagic = errors.New("shard: invalid schema magic")
+	ErrSchemaValidation   = errors.New("shard: schema validation failed")
 )
 
 // ValidationError describes a schema validation failure.

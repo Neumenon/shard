@@ -151,12 +151,12 @@ const (
 
 // Errors
 var (
-	ErrInvalidShardMagic  = errors.New("ucodec: invalid shard magic bytes")
-	ErrUnsupportedVersion = errors.New("ucodec: unsupported shard version")
-	ErrInvalidShardHeader = errors.New("ucodec: invalid shard header")
-	ErrShardIndexCorrupt  = errors.New("ucodec: shard index is corrupt")
-	ErrEntryNotFound      = errors.New("ucodec: entry not found in shard")
-	ErrShardClosed        = errors.New("ucodec: shard is closed")
+	ErrInvalidShardMagic  = errors.New("shard: invalid magic bytes")
+	ErrUnsupportedVersion = errors.New("shard: unsupported version")
+	ErrInvalidShardHeader = errors.New("shard: invalid header")
+	ErrShardIndexCorrupt  = errors.New("shard: index is corrupt")
+	ErrEntryNotFound      = errors.New("shard: entry not found")
+	ErrShardClosed        = errors.New("shard: closed")
 )
 
 // ShardIndex is the interface for profile-specific indexes.
