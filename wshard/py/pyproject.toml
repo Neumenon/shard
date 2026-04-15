@@ -47,8 +47,8 @@ bf16 = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/agentscope/agent-go"
-Documentation = "https://github.com/agentscope/agent-go/tree/main/sjson/wshard-py"
+Homepage = "https://github.com/Neumenon/shard"
+Documentation = "https://github.com/Neumenon/shard/tree/main/wshard/py"
 
 [tool.setuptools.packages.find]
 where = ["."]

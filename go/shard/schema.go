@@ -1,4 +1,4 @@
-// Package ucodec provides schema validation for Shard containers.
+// Package shard provides schema validation for Shard containers.
 //
 // # Schema Registry
 //

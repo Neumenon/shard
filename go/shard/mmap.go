@@ -1,4 +1,4 @@
-// Package ucodec provides cross-platform mmap utilities using github.com/edsrzf/mmap-go.
+// Package shard provides cross-platform mmap utilities using github.com/edsrzf/mmap-go.
 package shard
 
 import (

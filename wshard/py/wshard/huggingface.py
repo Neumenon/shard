@@ -779,7 +779,7 @@ W-SHARD (World-Model Episode Shard) is a compact, versioned RL episode format op
 - Cross-framework compatibility (DreamerV3, TD-MPC2, Minari)
 - Signal/Omen/Residual lanes for world model training
 
-Learn more: [W-SHARD Specification](https://github.com/phenomenon0/Agent-GO/blob/main/sjson/wshard/WSHARD_SPEC.md)
+Learn more: [W-SHARD Specification](https://github.com/Neumenon/shard/blob/main/wshard/docs/DEEP_DIVE.md)
 """
 
         return readme

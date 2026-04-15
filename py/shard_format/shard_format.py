@@ -1,7 +1,7 @@
 """
 Shard container format — reader and writer.
 
-Binary-compatible with the Go reference implementation at cowrie/ucodec/shard_format.go.
+Binary-compatible with the Go reference implementation at go/shard/shard_format.go.
 """
 import fnmatch
 import json

@@ -1,7 +1,7 @@
 /**
  * Shard binary container format — TypeScript implementation.
  *
- * Binary-compatible with the Go reference implementation at cowrie/ucodec/shard_format.go.
+ * Binary-compatible with the Go reference implementation at go/shard/shard_format.go.
  *
  * Layout:
  *   [Header 64B] [Index N×48B] [String Table] [padding to alignment] [Data entries]

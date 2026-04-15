@@ -1,4 +1,4 @@
-// Package ucodec provides the unified Shard container format.
+// Package shard provides the unified Shard container format.
 //
 // # What is a Shard?
 //
