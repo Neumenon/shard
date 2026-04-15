@@ -22,7 +22,6 @@ One container format, one reader, one toolchain. The **role byte** in the header
 | 0x04 | [Manifest](#manifest) | `.manifest` | Multi-file coordination — chunked episodes, split models |
 | 0x05 | [WShard](#wshard) | `.wshard` | World model episodes — signal/omen/residual traces |
 | 0x06 | [GraphShard](#graphshard) | `.gshard` | GNN datasets — node/edge tables, features, splits |
-| 0x07 | [TraceShard](#traceshard) | `.tshard` | Model introspection — MoE routing, attention patterns |
 | 0x08 | [ColumnShard](#columnshard) | `.cshard` | Columnar tabular data with row group stats |
 
 ## Languages
@@ -216,14 +215,6 @@ Multi-file coordination. References to other shard files with range keys. Used f
 GNN datasets: node tables, edge tables, feature tensors, train/val/test splits. CSR adjacency stored as native entries. Scene graphs for spatial intelligence (World Labs, Luma), factor graphs for active inference (VERSES AXIOM, pymdp).
 
 **Implementation:** Go ([`go/shard/`](go/shard/)).
-
----
-
-### TraceShard
-
-Sparse model introspection data: MoE expert routing decisions, attention patterns, activation constraints. Sequence-keyed events for offline analysis.
-
-**Status:** Defined (spec complete, implementation pending).
 
 ---
 
