@@ -1,4 +1,7 @@
-# SampleShard TypeScript/JavaScript
+# SampleShard TypeScript/JavaScript — Parked
+
+> **This profile is parked.** It is not built or tested by default.
+> See [`../README.md`](../README.md) for the parked-profile notice.
 
 TypeScript/JavaScript implementation of the SampleShard format for storing training samples.
 
