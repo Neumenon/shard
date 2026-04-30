@@ -51,7 +51,7 @@ func TestShardHeaderRoundtrip(t *testing.T) {
 func TestShardHeaderAllRoles(t *testing.T) {
 	roles := []ShardRole{
 		ShardRoleUnknown, ShardRoleMoSH, ShardRoleSample,
-		ShardRoleGemmPanel, ShardRoleManifest, ShardRoleWShard, ShardRoleUMSH,
+		ShardRoleManifest, ShardRoleWShard, ShardRoleColumn,
 	}
 	for _, role := range roles {
 		h := NewShardHeader(role)
@@ -1521,130 +1521,6 @@ func TestShardMetadataNoMetadata(t *testing.T) {
 	}
 }
 
-func TestShardMetadataProfilesRoundtrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "profiles.shard")
-
-	w, _ := NewShardWriter(path, ShardRoleSample)
-	meta := NewShardMetadata()
-	meta.SetEntryMeta("samples/0", &EntryMeta{
-		ContentType:       "application/cowrie",
-		Codec:             "cowrie-gen2",
-		CodecVersion:      "2",
-		SchemaFingerprint: "sha256:weights",
-		SemanticType:      "sample",
-		CanonicalHash:     "sha256:canonical",
-		BaseHash:          "sha256:base",
-		RowCount:          1,
-		Shape:             []int64{1, 28, 28},
-		Stats:             map[string]any{"mean": 0.1307, "std": 0.3081},
-	})
-	meta.SetSampleProfile(&SampleProfile{
-		DatasetName:   "mnist-train",
-		SampleIDType:  "uint64",
-		KeyEncoding:   "decimal-string",
-		SampleCount:   60000,
-		DatasetSchema: map[string]any{"input": "tensor[u8,28,28]", "target": "uint8"},
-		Splits:        map[string]any{"train": map[string]any{"start": 0, "end": 59999}},
-		LabelMap:      map[string]any{"0": "zero", "1": "one"},
-		FeatureStats:  map[string]any{"input": map[string]any{"mean": 0.1307}},
-	})
-	meta.Manifest = &ManifestMeta{
-		Files: []*ManifestFileRef{
-			{
-				URI:        "s3://bucket/train-000.smpl",
-				SHA256:     "abc123",
-				Role:       "sample",
-				Profile:    "sampleshard.v1",
-				StartKey:   "0",
-				EndKey:     "59999",
-				EntryCount: 60000,
-			},
-		},
-		Partitions: map[string]any{"train": []string{"train-000.smpl"}},
-	}
-	w.SetMetadata(meta)
-	w.WriteEntry("samples/0", []byte("test"))
-	w.Close()
-
-	r, _ := OpenShard(path)
-	defer r.Close()
-
-	restored, err := r.ReadMetadata()
-	if err != nil {
-		t.Fatalf("read metadata: %v", err)
-	}
-	if restored == nil {
-		t.Fatal("metadata is nil")
-	}
-	entryMeta := restored.GetEntryMeta("samples/0")
-	if entryMeta == nil {
-		t.Fatal("entry metadata missing")
-	}
-	if entryMeta.Codec != "cowrie-gen2" || entryMeta.SchemaFingerprint != "sha256:weights" {
-		t.Fatalf("entry descriptor lost: %+v", entryMeta)
-	}
-	if entryMeta.RowCount != 1 {
-		t.Fatalf("row_count = %d", entryMeta.RowCount)
-	}
-	if len(entryMeta.Shape) != 3 || entryMeta.Shape[0] != 1 || entryMeta.Shape[1] != 28 {
-		t.Fatalf("shape = %v", entryMeta.Shape)
-	}
-	if restored.Profile != "sampleshard.v1" {
-		t.Fatalf("profile = %q", restored.Profile)
-	}
-	if restored.SampleShard == nil || restored.SampleShard.DatasetName != "mnist-train" {
-		t.Fatalf("sample profile lost: %+v", restored.SampleShard)
-	}
-	if restored.SampleShard.KeyEncoding != "decimal-string" {
-		t.Fatalf("key encoding = %q", restored.SampleShard.KeyEncoding)
-	}
-	if restored.Manifest == nil || len(restored.Manifest.Files) != 1 {
-		t.Fatalf("manifest lost: %+v", restored.Manifest)
-	}
-	if restored.Manifest.Files[0].URI != "s3://bucket/train-000.smpl" {
-		t.Fatalf("manifest uri = %q", restored.Manifest.Files[0].URI)
-	}
-}
-
-func TestShardWriterBackfillsSampleProfileDefaults(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sample-profile-defaults.shard")
-
-	w, _ := NewShardWriter(path, ShardRoleSample)
-	meta := NewShardMetadata()
-	meta.SetSampleProfile(&SampleProfile{
-		DatasetName: "mnist-train",
-	})
-	w.SetMetadata(meta)
-	if err := w.WriteEntry("samples/0", []byte("test")); err != nil {
-		t.Fatalf("write entry: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("close writer: %v", err)
-	}
-
-	r, err := OpenShard(path)
-	if err != nil {
-		t.Fatalf("open shard: %v", err)
-	}
-	defer r.Close()
-
-	restored, err := r.ReadMetadata()
-	if err != nil {
-		t.Fatalf("read metadata: %v", err)
-	}
-	if restored == nil || restored.SampleShard == nil {
-		t.Fatalf("sample profile missing: %+v", restored)
-	}
-	if restored.SampleShard.SampleIDType != "uint64" {
-		t.Fatalf("sample id type = %q", restored.SampleShard.SampleIDType)
-	}
-	if restored.SampleShard.KeyEncoding != "decimal-string" {
-		t.Fatalf("key encoding = %q", restored.SampleShard.KeyEncoding)
-	}
-	if restored.SampleShard.SampleCount != 1 {
-		t.Fatalf("sample count = %d", restored.SampleShard.SampleCount)
-	}
-}
 
 func TestShardMetadataEntryMetaOperations(t *testing.T) {
 	m := NewShardMetadata()
@@ -2234,11 +2110,11 @@ func TestShardUserContentType(t *testing.T) {
 
 func TestShardRoleString(t *testing.T) {
 	tests := map[ShardRole]string{
-		ShardRoleMoSH:      "MoSH",
-		ShardRoleSample:    "Sample",
-		ShardRoleGemmPanel: "GemmPanel",
-		ShardRoleManifest:  "Manifest",
-		ShardRoleWShard:    "WShard",
+		ShardRoleMoSH:     "MoSH",
+		ShardRoleSample:   "Sample",
+		ShardRoleManifest: "Manifest",
+		ShardRoleWShard:   "WShard",
+		ShardRoleColumn:   "ColumnShard",
 	}
 	for role, want := range tests {
 		if got := role.String(); got != want {

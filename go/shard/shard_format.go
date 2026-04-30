@@ -6,7 +6,7 @@
 //
 //	Bytes 0-3:   magic = 'S','H','R','D'
 //	Byte 4:      version (0x02)
-//	Byte 5:      role (1=MoSH, 2=PTShard, 3=GemmPanel)
+//	Byte 5:      role (1=MoSH, 2=Sample, 4=Manifest, 5=WShard, 8=ColumnShard)
 //	Bytes 6-7:   flags (uint16 LE)
 //	Byte 8:      alignment (0=none, 16, 32, 64)
 //	Byte 9:      compression_default (0=none, 1=zstd, 2=lz4)
@@ -655,21 +655,6 @@ func (w *ShardWriter) Close() error {
 		metadata := *w.metadata
 		if metadata.SchemaVersion == "" {
 			metadata.SchemaVersion = "shard-v2.1"
-		}
-		if metadata.Profile == "sampleshard.v1" {
-			profile := &SampleProfile{}
-			if metadata.SampleShard != nil {
-				copyProfile := *metadata.SampleShard
-				profile = &copyProfile
-			}
-			if profile.SampleIDType == "" {
-				profile.SampleIDType = "uint64"
-			}
-			if profile.KeyEncoding == "" {
-				profile.KeyEncoding = "decimal-string"
-			}
-			profile.SampleCount = uint64(entryCount)
-			metadata.SampleShard = profile
 		}
 		var err error
 		metadataBytes, err = metadata.Marshal()

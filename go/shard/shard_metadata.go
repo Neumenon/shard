@@ -25,10 +25,10 @@ type ShardMetadata struct {
 	Tags        []string       `json:"tags,omitempty"`
 	// Tag dictionary: maps bit position (0-15) to tag name for O(1) tag filtering
 	TagDictionary []string `json:"tag_dictionary,omitempty"`
-	Extra       map[string]any `json:"extra,omitempty"`
-	Profile     string         `json:"profile,omitempty"`
-	SampleShard *SampleProfile `json:"sample_shard,omitempty"`
-	Manifest    *ManifestMeta  `json:"manifest,omitempty"`
+	Extra       map[string]any  `json:"extra,omitempty"`
+	Profile     string          `json:"profile,omitempty"`
+	ProfileMeta json.RawMessage `json:"profile_meta,omitempty"`
+	Manifest    *ManifestMeta   `json:"manifest,omitempty"`
 
 	// Per-entry metadata (keyed by entry name)
 	EntryMetadata map[string]*EntryMeta `json:"entry_metadata,omitempty"`
@@ -49,18 +49,6 @@ type EntryMeta struct {
 	RowCount          uint64         `json:"row_count,omitempty"`
 	Shape             []int64        `json:"shape,omitempty"`
 	Stats             map[string]any `json:"stats,omitempty"`
-}
-
-// SampleProfile describes shard-level dataset metadata for SampleShard files.
-type SampleProfile struct {
-	DatasetName   string         `json:"dataset_name,omitempty"`
-	SampleIDType  string         `json:"sample_id_type,omitempty"`
-	KeyEncoding   string         `json:"key_encoding,omitempty"`
-	SampleCount   uint64         `json:"sample_count,omitempty"`
-	DatasetSchema map[string]any `json:"dataset_schema,omitempty"`
-	Splits        map[string]any `json:"splits,omitempty"`
-	LabelMap      map[string]any `json:"label_map,omitempty"`
-	FeatureStats  map[string]any `json:"feature_stats,omitempty"`
 }
 
 // ManifestMeta describes shard-level metadata for manifest shards.
@@ -87,12 +75,6 @@ func NewShardMetadata() *ShardMetadata {
 		CreatedAt:     time.Now().UTC(),
 		EntryMetadata: make(map[string]*EntryMeta),
 	}
-}
-
-// SetSampleProfile configures the shard as a SampleShard-style dataset container.
-func (m *ShardMetadata) SetSampleProfile(profile *SampleProfile) {
-	m.Profile = "sampleshard.v1"
-	m.SampleShard = profile
 }
 
 // SetManifestProfile configures the shard as a manifest container.

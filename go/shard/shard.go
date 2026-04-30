@@ -30,11 +30,10 @@
 //
 // # Roles (Profiles)
 //
-// Shards have a "role" byte that hints at the intended use case:
-//
-//	MoSH (role=1)        - Model weights keyed by layer name
-//	SampleShard (role=2) - Training samples keyed by sample ID
-//	GemmPanel (role=3)   - BLIS-style packed matrix panels for distributed GEMM
+// Shards have a "role" byte that hints at the intended use case. The active
+// downstream profile is WShard (role=5). Manifest (role=4) is part of core
+// for multi-file coordination. MoSH (role=1), SampleShard (role=2), and
+// ColumnShard (role=8) are parked under attic/profiles/.
 //
 // The role is metadata only - it doesn't change the container format.
 //
@@ -107,14 +106,12 @@ var ShardMagic = [4]byte{'S', 'H', 'R', 'D'}
 type ShardRole uint8
 
 const (
-	ShardRoleUnknown   ShardRole = 0x00
-	ShardRoleMoSH      ShardRole = 0x01 // MoSH: Model Shard - model weights (keyed by layer name)
-	ShardRoleSample    ShardRole = 0x02 // Training samples (keyed by sample ID)
-	ShardRoleGemmPanel ShardRole = 0x03 // GEMM panels (packed A/B tiles for BLIS)
-	ShardRoleManifest  ShardRole = 0x04 // Multi-file manifest (references other shards)
-	ShardRoleWShard    ShardRole = 0x05 // W-SHARD: World-model episode data
-	ShardRoleUMSH      ShardRole = 0x06 // UMSH: Universal Model Shard - variant of MoSH
-	ShardRoleColumn    ShardRole = 0x08 // ColumnShard: columnar tabular data
+	ShardRoleUnknown  ShardRole = 0x00
+	ShardRoleMoSH     ShardRole = 0x01 // Parked profile (attic/profiles/mosh)
+	ShardRoleSample   ShardRole = 0x02 // Parked profile (attic/profiles/sampleshard)
+	ShardRoleManifest ShardRole = 0x04 // Multi-file manifest (references other shards)
+	ShardRoleWShard   ShardRole = 0x05 // W-SHARD: World-model episode data
+	ShardRoleColumn   ShardRole = 0x08 // Parked profile (attic/profiles/columnshard)
 )
 
 // String returns a human-readable role name.
@@ -124,14 +121,10 @@ func (r ShardRole) String() string {
 		return "MoSH"
 	case ShardRoleSample:
 		return "Sample"
-	case ShardRoleGemmPanel:
-		return "GemmPanel"
 	case ShardRoleManifest:
 		return "Manifest"
 	case ShardRoleWShard:
 		return "WShard"
-	case ShardRoleUMSH:
-		return "UMSH"
 	case ShardRoleColumn:
 		return "ColumnShard"
 	default:
