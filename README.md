@@ -1,6 +1,6 @@
 # Shard
 
-Binary container format for ML data. 64-byte header, O(1) name lookup, per-entry compression, CRC32C checksums, five native language implementations.
+Binary container format for episodic data. 64-byte header, O(1) name lookup, per-entry compression, CRC32C checksums, five native language implementations.
 
 ```
 any_file.shard
@@ -10,33 +10,33 @@ any_file.shard
 └── Data Blocks            Aligned to 16/32/64 bytes, independently compressed
 ```
 
-## Profiles
+Shard is the container. **Profiles** — concrete schemas for what the entries mean — live downstream of core. The role byte identifies the profile; readers that understand a given role validate it, others treat the file as a generic named-entry archive.
 
-One container format, one reader, one toolchain. The **role byte** in the header tells you what's inside.
+The flagship downstream profile is [**WShard**](wshard/) — episodic world-model data (signal / action / omen / uncert / residual lanes).
 
-| Role | Profile | Extension | What It Stores |
-|------|---------|-----------|----------------|
-| 0x01 | [ModelShard](#modelshard) | `.mosh` | Model weights keyed by layer name |
-| 0x02 | [SampleShard](#sampleshard) | `.smpl` | Training samples keyed by sample ID |
-| 0x03 | [GemmShard](#gemmshard) | `.gemm` | Pre-packed BLIS matrix panels for distributed GEMM |
-| 0x04 | [Manifest](#manifest) | `.manifest` | Multi-file coordination — chunked episodes, split models |
-| 0x05 | [WShard](#wshard) | `.wshard` | World model episodes — signal/omen/residual traces |
-| 0x06 | [UMSH](#umsh) | `.umsh` | Universal Model Shard — variant of MoSH for alternate weight layouts |
-| 0x08 | [ColumnShard](#columnshard) | `.cshard` | Columnar tabular data with row group stats |
+## Roles
+
+| Role | Profile | Status |
+|------|---------|--------|
+| 0x04 | Manifest | Core — multi-file coordination |
+| 0x05 | [WShard](wshard/) | Active downstream profile |
+| 0x01 | ModelShard (`.mosh`) | Parked — see `attic/profiles/mosh/` |
+| 0x02 | SampleShard (`.smpl`) | Parked — see `attic/profiles/sampleshard/` |
+| 0x08 | ColumnShard (`.cshard`) | Parked — see `attic/profiles/columnshard/` |
+
+Parked profiles still decode (the container reader does not care about role semantics) but are not part of the lead surface or default build.
 
 ## Languages
 
-Five independent, idiomatic implementations. All produce byte-identical output verified by golden file tests.
+Five independent, idiomatic implementations of the core container. All produce byte-identical output verified by golden file tests.
 
-| Language | Location | LOC | Status |
-|----------|----------|-----|--------|
-| Go | [`go/`](go/) | ~1,575 | Production |
-| Rust | [`rs/`](rs/) | ~1,949 | Production |
-| Python | [`py/`](py/) | ~1,096 | Production |
-| C | [`c/`](c/) | ~1,832 | Production |
-| TypeScript | [`ts/`](ts/) | ~1,455 | Production |
-
-Total: **840+ tests** across all five languages.
+| Language | Location | Status |
+|----------|----------|--------|
+| Go | [`go/`](go/) | Production |
+| Rust | [`rs/`](rs/) | Production |
+| Python | [`py/`](py/) | Production |
+| C | [`c/`](c/) | Production |
+| TypeScript | [`ts/`](ts/) | Production |
 
 ## Install
 
@@ -63,19 +63,18 @@ cd c && make
 ```go
 import "github.com/Neumenon/shard/go/shard"
 
-// Write
-w, _ := shard.NewShardStreamWriter("model.mosh", shard.ShardOptions{
-    Role:        shard.ShardRoleMoSH,
+// Write a generic named-entry archive
+w, _ := shard.NewShardStreamWriter("data.shard", shard.ShardOptions{
     Alignment:   64,
     Compression: shard.CompressionZstd,
     MaxEntries:  1000,
 })
-w.WriteEntry("layer.0.weight", weightBytes, shard.ContentTypeRaw)
+w.WriteEntry("entry/0", payloadBytes, shard.ContentTypeRaw)
 w.Finalize()
 
 // Read
-r, _ := shard.OpenShard("model.mosh")
-data, _ := r.ReadEntry("layer.0.weight")
+r, _ := shard.OpenShard("data.shard")
+data, _ := r.ReadEntry("entry/0")
 ```
 
 ## Quick Start (Python)
@@ -84,23 +83,23 @@ data, _ := r.ReadEntry("layer.0.weight")
 from shard_format import ShardWriter, ShardReader
 
 # Write
-with ShardWriter("model.mosh", role=0x01, alignment=64) as w:
-    w.write_entry("layer.0.weight", weight_bytes, compression="zstd")
+with ShardWriter("data.shard", alignment=64) as w:
+    w.write_entry("entry/0", payload_bytes, compression="zstd")
 
 # Read
-reader = ShardReader("model.mosh")
-data = reader.read_entry("layer.0.weight")
+reader = ShardReader("data.shard")
+data = reader.read_entry("entry/0")
 ```
 
 ## Key Properties
 
-**O(1) name lookup.** xxHash64 of the entry name maps directly to a 48-byte index entry. Finding one tensor in a 400-entry model file costs one hash + one 48-byte read.
+**O(1) name lookup.** xxHash64 of the entry name maps directly to a 48-byte index entry. Finding one entry in a 400-entry file costs one hash + one 48-byte read.
 
-**Per-entry compression.** Each entry independently chooses none/zstd/lz4. JSON configs compress 10:1. Quantized weights stay raw. The reader auto-detects from entry flags.
+**Per-entry compression.** Each entry independently chooses none/zstd/lz4. JSON configs compress 10:1. Pre-quantized payloads stay raw. The reader auto-detects from entry flags.
 
 **CRC32C checksums.** Hardware-accelerated (SSE4.2/ARM CRC32) integrity verification on every entry. Checksum mismatch is a hard error, not a warning.
 
-**GPU-aligned mmap.** Data blocks start at 32/64-byte boundaries. `mmap()` + pointer cast gives AVX-aligned arrays with zero copies. Direct DMA to GPU without intermediate buffers.
+**Aligned mmap.** Data blocks start at 32/64-byte boundaries. `mmap()` + pointer cast gives AVX-aligned arrays with zero copies.
 
 **Streaming writes.** Pre-reserve header space, write entries sequentially, finalize header at the end. Memory stays constant regardless of entry count.
 
@@ -108,7 +107,7 @@ data = reader.read_entry("layer.0.weight")
 
 ---
 
-## Profile Details
+## Downstream profiles
 
 ### WShard
 
@@ -143,86 +142,15 @@ Semantic lane prefixes give meaning to raw data:
 - Chunked episodes with manifest-tracked continuity
 - Per-block compression (zstd video, raw scalars)
 - Format conversion from DreamerV3 NPZ, Minari, D4RL
-- DeepData bridge for trajectory similarity search
 - 13 data types including bf16
 
 **Implementations:** Python ([`wshard/py/`](wshard/py/)), TypeScript ([`wshard/js/`](wshard/js/)), Go ([`go/shard/`](go/shard/)).
 
-**World model targets:** DreamerV3/V4, V-JEPA 2, Genie 3, NVIDIA Cosmos, VERSES AXIOM. No standard trajectory format exists — WShard fills the gap with native support for paired observation/prediction data.
-
 See [`wshard/README.md`](wshard/README.md) for full API docs. See [`wshard/docs/DEEP_DIVE.md`](wshard/docs/DEEP_DIVE.md) for the byte-level format spec.
-
----
-
-### ModelShard
-
-Model weights keyed by layer name. Quantization-aware (INT8/Q4_K/Q5_K/Q6_K with per-row scales), delta encoding (sparse, scale, LoRA A*B), content-addressed via SHA256.
-
-```
-llama2-7b.mosh
-├── model.layers.0.self_attn.q_proj.weight  → [4096, 4096] q4_k
-├── model.layers.0.self_attn.q_proj.scales  → [4096] float16
-├── model.layers.0.self_attn.k_proj.weight  → [4096, 4096] q4_k
-└── ...
-```
-
-**Key capabilities:**
-- mmap + zero-copy to GPU (64-byte aligned)
-- Per-entry AES-256-GCM encryption with HKDF key derivation
-- LoRA adapters stored as first-class deltas (not full layers)
-- Streaming index for large models over WAN/object stores
-
-**Implementation:** Go ([`go/shard/`](go/shard/)).
-
----
-
-### SampleShard
-
-Pre-tokenized training samples keyed by sample ID. PyTorch DataLoader integration. HuggingFace dataset import.
-
-```
-train.smpl
-├── sample/000000  → tokenized record
-├── sample/000001  → tokenized record
-└── ...            → O(1) random access to any sample
-```
-
-**Implementations:** Python ([`sampleshard/py/`](sampleshard/py/)), TypeScript ([`sampleshard/js/`](sampleshard/js/)).
-
----
-
-### GemmShard
-
-Pre-packed BLIS matrix panels for distributed GEMM. Tiles keyed by coordinate (row_block, col_block). Content-addressed via SHA256 for worker deduplication and caching.
-
-**Implementation:** Go ([`go/shard/`](go/shard/)).
-
----
 
 ### Manifest
 
-Multi-file coordination. References to other shard files with range keys. Used for:
-- Chunked WShard episodes (1000-timestep chunks with continuity validation)
-- Split model weights across multiple `.mosh` files
-- Dataset indices spanning many `.smpl` files
-
-**Implementation:** All 5 languages (part of core Shard).
-
----
-
-### UMSH
-
-Universal Model Shard — variant of MoSH for alternate weight layouts.
-
-**Implementation:** Go ([`go/shard/`](go/shard/)).
-
----
-
-### ColumnShard
-
-Columnar tabular data with row group statistics and predicate pushdown. Column chunks with per-column encoding headers and min/max/null stats.
-
-**Implementation:** Go ([`go/shard/`](go/shard/)).
+Multi-file coordination — references to other shard files with range keys. Chunked WShard episodes, split datasets, file groupings. Part of core (all 5 languages).
 
 ---
 
@@ -230,21 +158,19 @@ Columnar tabular data with row group statistics and predicate pushdown. Column c
 
 ```
 shard/
-├── go/              Go core + ColumnShard + WShard + ModelShard + GemmShard
-├── rs/              Rust core
-├── py/              Python core
-├── c/               C core
-├── ts/              TypeScript core
-├── wshard/          WShard profile (Python + TypeScript + golden tests)
-│   ├── py/          Python wshard package
-│   ├── js/          TypeScript @wshard/core package
-│   ├── golden/      Cross-language golden test fixtures
-│   └── docs/        DEEP_DIVE.md, MARKETING_BRIEF.md
-├── sampleshard/     SampleShard profile (Python + TypeScript)
+├── go/                Go core
+├── rs/                Rust core
+├── py/                Python core
+├── c/                 C core
+├── ts/                TypeScript core
+├── wshard/            WShard profile (Python + TypeScript + golden tests)
 │   ├── py/
-│   └── js/
-├── ucodec/          Golden test data + safety test fixtures
-└── explainer.html   Interactive format explainer
+│   ├── js/
+│   ├── golden/        Cross-language golden test fixtures
+│   └── docs/
+├── attic/profiles/    Parked profiles (mosh, sampleshard, columnshard)
+├── ucodec/            Golden test data + safety test fixtures
+└── explainer.html     Interactive format explainer
 ```
 
 ## Cross-Language Parity
@@ -256,7 +182,7 @@ All implementations agree on:
 - **Compression threshold:** Only compress entries > 256 bytes, only keep if ratio < 0.9
 - **Security limits:** Identical across all 5 languages
 
-Verified by 6 golden files and a shared manifest (`testdata/golden_manifest.json`).
+Verified by golden files and a shared manifest (`testdata/golden_manifest.json`).
 
 ```
 CRC32C("hello")                = 0x9a71bb4c
@@ -269,7 +195,6 @@ xxHash64("meta/manifest")      = 0x9a191dcd325813d3
 | Document | Description |
 |----------|-------------|
 | [WShard Deep Dive](wshard/docs/DEEP_DIVE.md) | Byte-level format spec + cross-language interop |
-| [WShard Marketing Brief](wshard/docs/MARKETING_BRIEF.md) | Positioning, messaging, competitive landscape |
 
 ## License
 
