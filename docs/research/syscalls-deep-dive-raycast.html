@@ -4,36 +4,40 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Syscalls &amp; io_uring — Talking to the Kernel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&display=swap');
 
   :root {
-    /* === LINEAR DESIGN SYSTEM === */
-    --bg: #08090a;
-    --bg-card: rgba(255,255,255,0.02);
-    --bg-code: #0f1011;
-    --bg-surface: #191a1b;
-    --bg-hover: #28282c;
-    --border: rgba(255,255,255,0.08);
-    --border-subtle: rgba(255,255,255,0.05);
-    --border-solid: #23252a;
-    --text: #f7f8f8;
-    --text-secondary: #d0d6e0;
-    --text-muted: #8a8f98;
-    --text-dim: #62666d;
-    --brand: #5e6ad2;
-    --accent: #7170ff;
-    --accent-hover: #828fff;
-    --green: #27a644;
-    --emerald: #10b981;
-    --red: #ef4444;
-    --yellow: #eab308;
-    --orange: #f97316;
-    --cyan: #7170ff;
-    --magenta: #828fff;
-    --blue: #7170ff;
-    --purple: #828fff;
-    --white: #f7f8f8;
+    --bg: #07080a;
+    --surface-100: #101111;
+    --surface-card: #1b1c1e;
+    --key-start: #121212;
+    --key-end: #0d0d0d;
+    --btn-fg: #18191a;
+    --text: #f9f9f9;
+    --text-secondary: #cecece;
+    --text-tertiary: #c0c0c0;
+    --text-muted: #9c9c9d;
+    --text-dim: #6a6b6c;
+    --text-dark: #434345;
+    --border: #252829;
+    --border-dark: #2f3031;
+    --border-subtle: rgba(255,255,255,0.06);
+    --border-input: rgba(255,255,255,0.08);
+    --red: #FF6363;
+    --blue: #55b3ff;
+    --green: #5fc992;
+    --yellow: #ffbc33;
+    --red-t: hsla(0,100%,69%,0.15);
+    --blue-t: hsla(202,100%,67%,0.15);
+    --green-t: hsla(151,59%,59%,0.15);
+    --yellow-t: hsla(43,100%,60%,0.15);
+    --warm-glow: rgba(215,201,175,0.05);
+    --ring-outer: rgb(27,28,30);
+    --ring-inner: rgb(7,8,10);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -41,25 +45,169 @@
   body {
     background: var(--bg);
     color: var(--text-secondary);
-    font-family: 'Inter', 'SF Pro Display', -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 15px;
-    font-weight: 400;
+    font-family: 'Inter', -apple-system, system-ui, 'Segoe UI', sans-serif;
+    font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
+    font-size: 16px;
+    font-weight: 500;
     line-height: 1.6;
-    letter-spacing: -0.165px;
+    letter-spacing: 0.2px;
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* No scanline overlay — Linear is clean */
+  /* === COMMAND PALETTE OVERLAY === */
+  .cmd-palette-trigger {
+    position: fixed;
+    top: 16px;
+    right: 24px;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 86px;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    backdrop-filter: blur(12px);
+  }
+  .cmd-palette-trigger:hover { opacity: 0.6; }
+  .cmd-palette-trigger .kbd-inline {
+    display: inline-flex;
+    gap: 4px;
+  }
+
+  #cmd-toggle { display: none; }
+  .cmd-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    background: rgba(7,8,10,0.7);
+    backdrop-filter: blur(20px);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 15vh;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  #cmd-toggle:checked ~ .cmd-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .cmd-panel {
+    width: 560px;
+    max-width: 90vw;
+    background: var(--surface-100);
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    box-shadow:
+      rgba(0,0,0,0.5) 0px 0px 0px 2px,
+      rgba(255,255,255,0.19) 0px 0px 14px,
+      rgba(0,0,0,0.5) 0px 25px 50px -12px,
+      rgb(7,8,10) 0px 0px 0px 1px inset;
+    overflow: hidden;
+    transform: translateY(-10px) scale(0.98);
+    transition: transform 0.2s;
+  }
+  #cmd-toggle:checked ~ .cmd-overlay .cmd-panel {
+    transform: translateY(0) scale(1);
+  }
+  .cmd-search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    font-size: 16px;
+    color: var(--text);
+  }
+  .cmd-search svg { flex-shrink: 0; opacity: 0.5; }
+  .cmd-search span { color: var(--text-dim); font-weight: 400; }
+  .cmd-list {
+    padding: 8px;
+    max-height: 50vh;
+    overflow-y: auto;
+  }
+  .cmd-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+    transition: background 0.1s;
+  }
+  .cmd-item:hover {
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+  }
+  .cmd-item .cmd-icon {
+    width: 20px;
+    text-align: center;
+    margin-right: 10px;
+    font-size: 13px;
+    opacity: 0.5;
+  }
+  .cmd-item .cmd-label { flex: 1; }
+  .cmd-item .cmd-shortcut {
+    display: flex;
+    gap: 4px;
+  }
+  .cmd-section-label {
+    padding: 8px 12px 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 0px;
+    text-transform: uppercase;
+  }
+  .cmd-close-overlay {
+    position: absolute;
+    inset: 0;
+    cursor: default;
+  }
+
+  /* === KEYBOARD KEY CAPS === */
+  kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 6px;
+    background: linear-gradient(180deg, var(--key-start) 0%, var(--key-end) 100%);
+    border-radius: 5px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0px;
+    box-shadow:
+      rgba(0,0,0,0.4) 0px 1.5px 0.5px 2.5px,
+      rgba(255,255,255,0.07) 0px 1px 0px 0px inset,
+      rgba(0,0,0,0.3) 0px -1px 0px 0px inset,
+      rgba(255,255,255,0.03) 0px 0px 0px 1px inset;
+    line-height: 1;
+  }
 
   /* === NAV === */
   nav {
     position: fixed;
     top: 0; left: 0; right: 0;
     z-index: 100;
-    background: rgba(15,16,17,0.85);
+    background: rgba(7,8,10,0.85);
     backdrop-filter: blur(16px) saturate(1.8);
     border-bottom: 1px solid var(--border-subtle);
     padding: 0 2rem;
@@ -67,29 +215,57 @@
     gap: 0;
     align-items: center;
     overflow-x: auto;
-    height: 48px;
+    height: 52px;
   }
   nav a {
     color: var(--text-muted);
     text-decoration: none;
     white-space: nowrap;
-    transition: color 0.15s;
-    padding: 0 0.7rem;
-    font-size: 13px;
-    font-weight: 510;
-    letter-spacing: -0.13px;
-    line-height: 48px;
+    transition: opacity 0.15s;
+    padding: 0 0.6rem;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+    line-height: 52px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
   nav a:hover { color: var(--text); }
-  nav a.active { color: var(--text); }
+  nav a .nav-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 4px;
+    background: linear-gradient(180deg, var(--key-start), var(--key-end));
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-dim);
+    box-shadow:
+      rgba(0,0,0,0.3) 0px 1px 0.5px 1.5px,
+      rgba(255,255,255,0.05) 0px 1px 0px 0px inset;
+    letter-spacing: 0;
+  }
   nav .nav-title {
     color: var(--text);
-    font-weight: 590;
+    font-weight: 600;
     margin-right: 1.5rem;
     padding-right: 1.5rem;
     border-right: 1px solid var(--border-subtle);
     font-size: 14px;
-    letter-spacing: -0.182px;
+    letter-spacing: 0.2px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  nav .nav-title .raycast-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--red);
   }
 
   /* === LAYOUT === */
@@ -107,69 +283,119 @@
     margin-bottom: 5rem;
     position: relative;
   }
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: 20%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 400px;
+    height: 200px;
+    background: radial-gradient(ellipse, rgba(255,99,99,0.06) 0%, transparent 70%);
+    pointer-events: none;
+  }
   .hero h1 {
     font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 48px;
-    font-weight: 510;
+    font-feature-settings: 'calt', 'kern', 'ss03', 'liga' 0, 'ss02', 'ss08';
+    font-size: 56px;
+    font-weight: 600;
     color: var(--text);
-    line-height: 1.0;
-    letter-spacing: -1.056px;
+    line-height: 1.10;
+    letter-spacing: 0px;
     margin-bottom: 1rem;
+    position: relative;
   }
   .hero .subtitle {
     font-size: 18px;
     font-weight: 400;
     color: var(--text-muted);
-    font-style: normal;
-    max-width: 540px;
+    max-width: 560px;
     margin: 0 auto;
     line-height: 1.6;
-    letter-spacing: -0.165px;
+    letter-spacing: 0.2px;
   }
   .hero .blink {
     display: inline-block;
     animation: blink 1s step-end infinite;
-    color: var(--accent);
+    color: var(--red);
   }
   @keyframes blink { 50% { opacity: 0; } }
 
-  /* === SECTIONS === */
+  /* Red diagonal stripe — Raycast signature */
+  .hero .stripe {
+    position: absolute;
+    top: 0; right: -40px;
+    width: 80px;
+    height: 100%;
+    background: repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 10px,
+      rgba(255,99,99,0.07) 10px,
+      rgba(255,99,99,0.07) 12px
+    );
+    pointer-events: none;
+  }
+
+  /* === SECTIONS with gradient tints === */
   section {
     margin-bottom: 5rem;
     padding-top: 1rem;
+    position: relative;
   }
+  section::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -50vw;
+    right: -50vw;
+    height: 100%;
+    pointer-events: none;
+    z-index: -1;
+  }
+  #ch1::before { background: linear-gradient(180deg, rgba(255,99,99,0.02) 0%, transparent 40%); }
+  #ch2::before { background: linear-gradient(180deg, rgba(85,179,255,0.02) 0%, transparent 40%); }
+  #ch3::before { background: linear-gradient(180deg, rgba(95,201,146,0.02) 0%, transparent 40%); }
+  #ch4::before { background: linear-gradient(180deg, rgba(255,188,51,0.02) 0%, transparent 40%); }
+  #ch5::before { background: linear-gradient(180deg, rgba(85,179,255,0.02) 0%, transparent 40%); }
+  #ch6::before { background: linear-gradient(180deg, rgba(255,99,99,0.03) 0%, transparent 40%); }
+  #ch7::before { background: linear-gradient(180deg, rgba(95,201,146,0.02) 0%, transparent 40%); }
+  #ch8::before { background: linear-gradient(180deg, rgba(255,188,51,0.02) 0%, transparent 40%); }
+  #ch9::before { background: linear-gradient(180deg, rgba(85,179,255,0.02) 0%, transparent 40%); }
+  #ch10::before { background: linear-gradient(180deg, rgba(255,99,99,0.02) 0%, transparent 40%); }
+  #ch11::before { background: linear-gradient(180deg, rgba(95,201,146,0.02) 0%, transparent 40%); }
+  #ch12::before { background: linear-gradient(180deg, rgba(255,188,51,0.02) 0%, transparent 40%); }
+
   h2 {
     font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 32px;
-    font-weight: 510;
+    font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
+    font-size: 24px;
+    font-weight: 500;
     color: var(--text);
     margin-bottom: 1.5rem;
     padding-bottom: 0.75rem;
     border-bottom: 1px solid var(--border-subtle);
-    letter-spacing: -0.704px;
-    line-height: 1.13;
-    text-shadow: none;
+    letter-spacing: 0.2px;
+    line-height: normal;
   }
   h3 {
     font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
     font-size: 20px;
-    font-weight: 590;
+    font-weight: 500;
     color: var(--text);
     margin: 2.5rem 0 1rem;
-    letter-spacing: -0.24px;
-    line-height: 1.33;
+    letter-spacing: 0.2px;
+    line-height: 1.6;
   }
   h4 {
     font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
     font-size: 14px;
-    font-weight: 510;
+    font-weight: 500;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.2px;
     margin: 2rem 0 0.8rem;
   }
   p { margin-bottom: 1rem; }
@@ -178,35 +404,43 @@
   .drop-cap::first-letter {
     float: left;
     font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
     font-size: 3.5rem;
     line-height: 0.85;
     padding: 0.05em 0.12em 0 0;
-    color: var(--accent);
-    font-weight: 590;
+    color: var(--red);
+    font-weight: 600;
   }
 
-  /* === CODE === */
+  /* === CODE (frosted glass) === */
   code {
-    font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 0.82em;
+    font-family: 'Geist Mono', 'GeistMono', ui-monospace, 'SFMono-Regular', 'Roboto Mono', Menlo, Monaco, monospace;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
     background: rgba(255,255,255,0.04);
     border: 1px solid var(--border-subtle);
     padding: 0.12em 0.4em;
     border-radius: 4px;
-    color: var(--accent);
+    color: var(--blue);
   }
   pre {
-    background: var(--bg-code);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    background: rgba(16,17,17,0.6);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
     padding: 1.2rem 1.4rem;
     overflow-x: auto;
     margin: 1.2rem 0;
-    font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 13px;
+    font-family: 'Geist Mono', 'GeistMono', ui-monospace, 'SFMono-Regular', 'Roboto Mono', Menlo, Monaco, monospace;
+    font-size: 14px;
+    font-weight: 500;
     line-height: 1.6;
+    letter-spacing: 0.3px;
     position: relative;
+    box-shadow:
+      var(--ring-outer) 0px 0px 0px 1px,
+      var(--ring-inner) 0px 0px 0px 1px inset;
   }
   pre code {
     background: none;
@@ -215,32 +449,35 @@
     font-size: inherit;
     color: var(--text-secondary);
   }
-  /* Syntax — muted, restrained palette matching Linear's achromatic system */
   .cm { color: var(--text-dim); }
-  .kw { color: var(--accent); }
-  .ty { color: var(--accent-hover); }
-  .st { color: var(--emerald); }
+  .kw { color: var(--blue); }
+  .ty { color: var(--green); }
+  .st { color: var(--green); }
   .nm { color: var(--yellow); }
-  .fn { color: var(--accent); }
-  .pp { color: var(--orange); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--red); }
   .label {
     position: absolute;
     top: 0.4rem; right: 0.8rem;
-    font-size: 11px;
-    font-weight: 510;
-    letter-spacing: 0.04em;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0px;
     color: var(--text-dim);
     opacity: 0.6;
   }
 
-  /* === DIAGRAM === */
+  /* === DIAGRAM (frosted glass) === */
   .diagram {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    background: rgba(16,17,17,0.5);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
     padding: 1.5rem;
     margin: 1.5rem 0;
     overflow-x: auto;
+    box-shadow:
+      var(--ring-outer) 0px 0px 0px 1px,
+      var(--ring-inner) 0px 0px 0px 1px inset;
   }
   .diagram pre {
     background: none;
@@ -250,47 +487,51 @@
     font-size: 13px;
     line-height: 1.45;
     color: var(--text-secondary);
+    box-shadow: none;
+    backdrop-filter: none;
   }
   .diagram pre code { color: var(--text-secondary); }
   .diagram-label {
     font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
     font-size: 12px;
-    font-weight: 510;
-    letter-spacing: 0.04em;
+    font-weight: 600;
+    letter-spacing: 0px;
     color: var(--text-dim);
     text-transform: uppercase;
     margin-bottom: 0.8rem;
     display: block;
   }
 
-  /* === POWER BOX (insight) === */
+  /* === POWER BOX (insight) — frosted glass panels === */
   .power {
-    background: rgba(94,106,210,0.06);
-    border: 1px solid rgba(94,106,210,0.15);
-    border-left: 3px solid var(--brand);
+    background: rgba(85,179,255,0.04);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(85,179,255,0.1);
+    border-left: 3px solid var(--blue);
     padding: 1.2rem 1.4rem;
     margin: 1.5rem 0;
-    border-radius: 0 8px 8px 0;
+    border-radius: 0 12px 12px 0;
+    box-shadow: var(--ring-outer) 0px 0px 0px 1px;
   }
   .power-label {
     font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 12px;
-    font-weight: 590;
-    letter-spacing: -0.13px;
-    color: var(--accent);
+    font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0px;
+    color: var(--blue);
     margin-bottom: 0.3rem;
   }
-  .power p { margin-bottom: 0; font-size: 14px; color: var(--text-muted); }
-  .power.danger { border-left-color: var(--red); background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.15); }
+  .power p { margin-bottom: 0; font-size: 14px; font-weight: 500; color: var(--text-muted); letter-spacing: 0.2px; line-height: 1.6; }
+  .power.danger { border-left-color: var(--red); background: rgba(255,99,99,0.04); border-color: rgba(255,99,99,0.1); }
   .power.danger .power-label { color: var(--red); }
-  .power.hack { border-left-color: var(--accent-hover); background: rgba(130,143,255,0.06); border-color: rgba(130,143,255,0.15); }
-  .power.hack .power-label { color: var(--accent-hover); }
-  .power.wild { border-left-color: var(--orange); background: rgba(249,115,22,0.06); border-color: rgba(249,115,22,0.15); }
-  .power.wild .power-label { color: var(--orange); }
-  .power.zen { border-left-color: var(--emerald); background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.15); }
-  .power.zen .power-label { color: var(--emerald); }
+  .power.hack { border-left-color: var(--green); background: rgba(95,201,146,0.04); border-color: rgba(95,201,146,0.1); }
+  .power.hack .power-label { color: var(--green); }
+  .power.wild { border-left-color: var(--yellow); background: rgba(255,188,51,0.04); border-color: rgba(255,188,51,0.1); }
+  .power.wild .power-label { color: var(--yellow); }
+  .power.zen { border-left-color: var(--green); background: rgba(95,201,146,0.04); border-color: rgba(95,201,146,0.1); }
+  .power.zen .power-label { color: var(--green); }
 
   /* === MEMORY VIS === */
   .mem-row {
@@ -304,22 +545,22 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Geist Mono', monospace;
     font-size: 9px;
     font-weight: 600;
     border-radius: 4px;
   }
-  .mc.g { background: var(--brand); color: #fff; }
-  .mc.c { background: var(--accent); color: #fff; }
-  .mc.m { background: var(--accent-hover); color: var(--bg); }
-  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.g { background: var(--blue); color: #fff; }
+  .mc.c { background: var(--green); color: var(--bg); }
+  .mc.m { background: var(--red); color: #fff; }
+  .mc.o { background: var(--yellow); color: var(--bg); }
   .mc.r { background: var(--red); color: #fff; }
   .mc.y { background: var(--yellow); color: var(--bg); }
-  .mc.b { background: var(--accent); color: #fff; }
+  .mc.b { background: var(--blue); color: #fff; }
   .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
   .mc.e { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
   .mc.w { background: var(--text); color: var(--bg); }
-  .mc.p { background: var(--accent-hover); color: #fff; }
+  .mc.p { background: var(--red); color: #fff; }
 
   /* === TABLE === */
   table {
@@ -327,14 +568,16 @@
     border-collapse: collapse;
     margin: 1.2rem 0;
     font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.2px;
   }
   th {
     font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
     font-size: 12px;
-    font-weight: 510;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0px;
     color: var(--text-dim);
     text-align: left;
     padding: 0.6rem 0.7rem;
@@ -350,30 +593,32 @@
 
   /* === EXPANDABLE === */
   details {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    background: rgba(16,17,17,0.5);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
     margin: 1rem 0;
     overflow: hidden;
+    box-shadow: var(--ring-outer) 0px 0px 0px 1px;
   }
   details summary {
     padding: 0.75rem 1.1rem;
     cursor: pointer;
     font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
     font-size: 14px;
-    font-weight: 510;
+    font-weight: 500;
     color: var(--text);
     user-select: none;
-    transition: background 0.15s;
-    letter-spacing: -0.182px;
+    transition: opacity 0.15s;
+    letter-spacing: 0.2px;
   }
-  details summary:hover { background: rgba(255,255,255,0.03); }
+  details summary:hover { opacity: 0.6; }
   details[open] summary { border-bottom: 1px solid var(--border-subtle); }
   details .det { padding: 1.1rem; }
   details pre { margin: 0.8rem 0; }
 
-  /* === COMPARISON === */
+  /* === COMPARISON — Extension Card Style === */
   .vs {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -381,84 +626,106 @@
     margin: 1.5rem 0;
   }
   .vs-col {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1.1rem;
+    background: var(--surface-100);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 1.2rem;
+    box-shadow:
+      var(--ring-outer) 0px 0px 0px 1px,
+      var(--ring-inner) 0px 0px 0px 1px inset;
+    transition: opacity 0.15s;
   }
-  .vs-col h4 { margin-top: 0; }
+  .vs-col:hover { border-color: rgba(255,255,255,0.1); }
+  .vs-col h4 {
+    margin-top: 0;
+    font-size: 16px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0.2px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .vs-col h4::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .vs-col:first-child h4::before { background: var(--blue); }
+  .vs-col:last-child h4::before { background: var(--green); }
 
-  /* === GLITCH TEXT — replaced with clean Linear animation === */
-  .glitch {
-    position: relative;
-    display: inline-block;
-  }
-  .glitch::before, .glitch::after {
-    content: none;
-  }
+  /* === GLITCH — clean for Raycast === */
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after { content: none; }
 
   /* === TICKER === */
   .ticker {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Geist Mono', monospace;
     font-size: 12px;
     font-weight: 500;
-    color: var(--accent);
-    background: rgba(94,106,210,0.08);
-    border: 1px solid rgba(94,106,210,0.2);
-    border-radius: 6px;
+    color: var(--blue);
+    background: rgba(85,179,255,0.06);
+    border: 1px solid rgba(85,179,255,0.12);
+    border-radius: 8px;
     padding: 0.5rem 1rem;
     margin: 1rem 0;
     display: inline-block;
-    text-shadow: none;
+    letter-spacing: 0.3px;
+    box-shadow: var(--ring-outer) 0px 0px 0px 1px;
   }
 
   /* === RESPONSIVE === */
   @media (max-width: 700px) {
     .vs { grid-template-columns: 1fr; }
-    .hero h1 { font-size: 32px; letter-spacing: -0.704px; }
+    .hero h1 { font-size: 36px; }
     .content { padding: 4rem 1rem 4rem; }
     nav { font-size: 12px; gap: 0; padding: 0 1rem; }
+    nav a .nav-kbd { display: none; }
+    .cmd-palette-trigger { display: none; }
   }
 
   /* === LANGUAGE TABS === */
   .lang-tabs {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    background: rgba(16,17,17,0.5);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
     margin: 1.2rem 0;
     overflow: hidden;
+    box-shadow: var(--ring-outer) 0px 0px 0px 1px;
   }
   .lang-tabs input[type="radio"] { display: none; }
   .lang-tabs label {
     display: inline-block;
     padding: 0.55rem 1.2rem;
     font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 13px;
-    font-weight: 510;
-    letter-spacing: -0.13px;
+    font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.2px;
     text-transform: none;
     color: var(--text-dim);
     cursor: pointer;
     border-bottom: 2px solid transparent;
-    transition: color 0.15s, border-color 0.15s;
+    transition: opacity 0.15s;
   }
   .lang-tabs label:hover { color: var(--text); }
   .lang-tabs input[type="radio"]:checked + label {
     color: var(--text);
-    border-bottom-color: var(--accent);
+    border-bottom-color: var(--red);
   }
   .lang-tabs .tab-bar {
     border-bottom: 1px solid var(--border-subtle);
     padding: 0 0.5rem;
   }
   .lang-tabs .tab-content { display: none; }
-  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
-  /* Class-based selectors (existing tab groups) */
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; box-shadow: none; backdrop-filter: none; }
   .lang-tabs input.tc:checked ~ .tab-content.c,
   .lang-tabs input.tpy:checked ~ .tab-content.py,
   .lang-tabs input.tts:checked ~ .tab-content.ts { display: block; }
-  /* nth-of-type selectors (new tab groups using tc1/tc2/tc3 classes) */
   .lang-tabs input:nth-of-type(1):checked ~ .tc1,
   .lang-tabs input:nth-of-type(2):checked ~ .tc2,
   .lang-tabs input:nth-of-type(3):checked ~ .tc3 { display: block; }
@@ -466,85 +733,165 @@
   .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
   .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3) {
     color: var(--text);
-    background: rgba(113,112,255,0.06);
-    border-bottom: 2px solid var(--accent);
+    background: rgba(255,99,99,0.06);
+    border-bottom: 2px solid var(--red);
   }
 
   /* === TRY-THIS BOX === */
   .try-this {
-    background: rgba(16,185,129,0.06);
-    border: 1px solid rgba(16,185,129,0.15);
-    border-left: 3px solid var(--emerald);
+    background: rgba(95,201,146,0.04);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(95,201,146,0.1);
+    border-left: 3px solid var(--green);
     padding: 1rem 1.2rem;
     margin: 1.5rem 0;
-    border-radius: 0 8px 8px 0;
+    border-radius: 0 12px 12px 0;
+    box-shadow: var(--ring-outer) 0px 0px 0px 1px;
   }
   .try-this .try-label {
     font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 12px;
-    font-weight: 590;
-    letter-spacing: -0.13px;
-    color: var(--emerald);
+    font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0px;
+    color: var(--green);
     margin-bottom: 0.5rem;
   }
-  .try-this pre {
-    margin: 0.5rem 0 0;
-    font-size: 12.5px;
-  }
+  .try-this pre { margin: 0.5rem 0 0; font-size: 12.5px; }
   .try-this p { font-size: 14px; margin-bottom: 0.5rem; color: var(--text-muted); }
 
   /* === LANG-NOTE BOX === */
   .lang-note {
-    background: rgba(94,106,210,0.06);
-    border: 1px solid rgba(94,106,210,0.15);
-    border-left: 3px solid var(--brand);
+    background: rgba(85,179,255,0.04);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(85,179,255,0.1);
+    border-left: 3px solid var(--blue);
     padding: 1rem 1.2rem;
     margin: 1.2rem 0;
-    border-radius: 0 8px 8px 0;
+    border-radius: 0 12px 12px 0;
     font-size: 14px;
+    box-shadow: var(--ring-outer) 0px 0px 0px 1px;
   }
   .lang-note .lang-note-label {
     font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 12px;
-    font-weight: 590;
-    letter-spacing: -0.13px;
-    color: var(--accent);
+    font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0px;
+    color: var(--blue);
     margin-bottom: 0.3rem;
   }
 
-  /* === SCROLLBAR — subtle Linear style === */
+  /* === SCROLLBAR === */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
 
   /* === SELECTION === */
-  ::selection { background: rgba(94,106,210,0.3); color: var(--text); }
+  ::selection { background: rgba(255,99,99,0.25); color: var(--text); }
+
+  /* === EXTENSION CARDS (for power apps section) === */
+  .ext-card {
+    background: var(--surface-100);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin: 0.75rem 0;
+    box-shadow:
+      var(--ring-outer) 0px 0px 0px 1px,
+      var(--ring-inner) 0px 0px 0px 1px inset;
+    transition: opacity 0.15s;
+  }
+  .ext-card:hover { border-color: rgba(255,255,255,0.1); }
+  .ext-card .ext-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border-subtle);
+  }
+  .ext-card .ext-body { flex: 1; min-width: 0; }
+  .ext-card .ext-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+    letter-spacing: 0px;
+  }
+  .ext-card .ext-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
 </style>
 </head>
 <body>
 
+<!-- Command Palette Toggle -->
+<input type="checkbox" id="cmd-toggle">
+<label for="cmd-toggle" class="cmd-palette-trigger">
+  <span>Chapters</span>
+  <span class="kbd-inline"><kbd>&#8984;</kbd><kbd>K</kbd></span>
+</label>
+
+<!-- Command Palette Overlay -->
+<div class="cmd-overlay">
+  <label for="cmd-toggle" class="cmd-close-overlay"></label>
+  <div class="cmd-panel">
+    <div class="cmd-search">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5"/><path d="M11 11L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <span>Search chapters...</span>
+    </div>
+    <div class="cmd-list">
+      <div class="cmd-section-label">Fundamentals</div>
+      <a href="#ch1" class="cmd-item" onclick="document.getElementById('cmd-toggle').checked=false"><span class="cmd-icon">&gt;</span><span class="cmd-label">the boundary</span><span class="cmd-shortcut"><kbd>&#8984;</kbd><kbd>1</kbd></span></a>
+      <a href="#ch2" class="cmd-item" onclick="document.getElementById('cmd-toggle').checked=false"><span class="cmd-icon">&gt;</span><span class="cmd-label">strace: x-ray vision</span><span class="cmd-shortcut"><kbd>&#8984;</kbd><kbd>2</kbd></span></a>
+      <a href="#ch3" class="cmd-item" onclick="document.getElementById('cmd-toggle').checked=false"><span class="cmd-icon">&gt;</span><span class="cmd-label">file I/O: the layers</span><span class="cmd-shortcut"><kbd>&#8984;</kbd><kbd>3</kbd></span></a>
+      <a href="#ch4" class="cmd-item" onclick="document.getElementById('cmd-toggle').checked=false"><span class="cmd-icon">&gt;</span><span class="cmd-label">mmap deep dive</span><span class="cmd-shortcut"><kbd>&#8984;</kbd><kbd>4</kbd></span></a>
+      <div class="cmd-section-label">I/O Multiplexing</div>
+      <a href="#ch5" class="cmd-item" onclick="document.getElementById('cmd-toggle').checked=false"><span class="cmd-icon">&gt;</span><span class="cmd-label">epoll: the reactor pattern</span><span class="cmd-shortcut"><kbd>&#8984;</kbd><kbd>5</kbd></span></a>
+      <a href="#ch6" class="cmd-item" onclick="document.getElementById('cmd-toggle').checked=false"><span class="cmd-icon">&gt;</span><span class="cmd-label">io_uring: the revolution</span><span class="cmd-shortcut"><kbd>&#8984;</kbd><kbd>6</kbd></span></a>
+      <a href="#ch7" class="cmd-item" onclick="document.getElementById('cmd-toggle').checked=false"><span class="cmd-icon">&gt;</span><span class="cmd-label">sendfile &amp; splice: zero-copy</span><span class="cmd-shortcut"><kbd>&#8984;</kbd><kbd>7</kbd></span></a>
+      <div class="cmd-section-label">Advanced</div>
+      <a href="#ch8" class="cmd-item" onclick="document.getElementById('cmd-toggle').checked=false"><span class="cmd-icon">&gt;</span><span class="cmd-label">seccomp: syscall firewall</span><span class="cmd-shortcut"><kbd>&#8984;</kbd><kbd>8</kbd></span></a>
+      <a href="#ch9" class="cmd-item" onclick="document.getElementById('cmd-toggle').checked=false"><span class="cmd-icon">&gt;</span><span class="cmd-label">eBPF: code in the kernel</span><span class="cmd-shortcut"><kbd>&#8984;</kbd><kbd>9</kbd></span></a>
+      <a href="#ch10" class="cmd-item" onclick="document.getElementById('cmd-toggle').checked=false"><span class="cmd-icon">&gt;</span><span class="cmd-label">vDSO: syscalls without syscalls</span><span class="cmd-shortcut"><kbd>&#8984;</kbd><kbd>0</kbd></span></a>
+      <div class="cmd-section-label">Results</div>
+      <a href="#ch11" class="cmd-item" onclick="document.getElementById('cmd-toggle').checked=false"><span class="cmd-icon">&gt;</span><span class="cmd-label">the benchmark</span><span class="cmd-shortcut"><kbd>&#8984;</kbd><kbd>-</kbd></span></a>
+      <a href="#ch12" class="cmd-item" onclick="document.getElementById('cmd-toggle').checked=false"><span class="cmd-icon">&gt;</span><span class="cmd-label">power apps: who uses this</span><span class="cmd-shortcut"><kbd>&#8984;</kbd><kbd>=</kbd></span></a>
+    </div>
+  </div>
+</div>
+
 <nav>
-  <span class="nav-title">&gt;_ SYSCALLS</span>
-  <a href="#ch1">boundary</a>
-  <a href="#ch2">strace</a>
-  <a href="#ch3">file i/o</a>
-  <a href="#ch4">mmap</a>
-  <a href="#ch5">epoll</a>
-  <a href="#ch6">io_uring</a>
-  <a href="#ch7">zero-copy</a>
-  <a href="#ch8">seccomp</a>
-  <a href="#ch9">ebpf</a>
-  <a href="#ch10">vdso</a>
-  <a href="#ch11">benchmark</a>
-  <a href="#ch12">power apps</a>
+  <span class="nav-title"><span class="raycast-dot"></span> SYSCALLS</span>
+  <a href="#ch1">boundary <span class="nav-kbd">&#8984;1</span></a>
+  <a href="#ch2">strace <span class="nav-kbd">&#8984;2</span></a>
+  <a href="#ch3">file i/o <span class="nav-kbd">&#8984;3</span></a>
+  <a href="#ch4">mmap <span class="nav-kbd">&#8984;4</span></a>
+  <a href="#ch5">epoll <span class="nav-kbd">&#8984;5</span></a>
+  <a href="#ch6">io_uring <span class="nav-kbd">&#8984;6</span></a>
+  <a href="#ch7">zero-copy <span class="nav-kbd">&#8984;7</span></a>
+  <a href="#ch8">seccomp <span class="nav-kbd">&#8984;8</span></a>
+  <a href="#ch9">ebpf <span class="nav-kbd">&#8984;9</span></a>
+  <a href="#ch10">vdso <span class="nav-kbd">&#8984;0</span></a>
+  <a href="#ch11">benchmark <span class="nav-kbd">&#8984;-</span></a>
+  <a href="#ch12">power apps <span class="nav-kbd">&#8984;=</span></a>
 </nav>
 
 <div class="content">
 
 <div class="hero">
+  <div class="stripe"></div>
   <h1><span class="glitch" data-text="SYSCALLS &amp; io_uring">SYSCALLS &amp; io_uring</span></h1>
   <div class="subtitle">The thin membrane between your code and the kernel. Every file you open, every byte you send, every page you map &mdash; it all crosses this boundary.<span class="blink">_</span></div>
 </div>
@@ -713,7 +1060,7 @@
   <div class="mc e">&nbsp;</div>
   <div class="mc g">RDX</div><div class="mc o">5</div>
 </div>
-<p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">RAX=<span style="color:var(--yellow);">write(1)</span> &bull; RDI=<span style="color:var(--cyan);">stdout</span> &bull; RSI=<span style="color:var(--magenta);">buf ptr</span> &bull; RDX=<span style="color:var(--orange);">count</span></p>
+<p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">RAX=<span style="color:var(--yellow);">write(1)</span> &bull; RDI=<span style="color:var(--green);">stdout</span> &bull; RSI=<span style="color:var(--red);">buf ptr</span> &bull; RDX=<span style="color:var(--yellow);">count</span></p>
 
 <h4>After SYSRET</h4>
 <div class="mem-row">
@@ -1129,17 +1476,17 @@ $ strace -c python3 app.py 2&gt;&amp;1 | tail -1</code></pre>
 
 <h3>Memory Cell View: Page Table Entry</h3>
 
-<h4>Virtual → Physical mapping for one mmap'd page</h4>
+<h4>Virtual &rarr; Physical mapping for one mmap'd page</h4>
 <div class="mem-row">
   <div class="mc b">P</div><div class="mc c">R</div><div class="mc e">W</div><div class="mc e">X</div><div class="mc g">A</div><div class="mc e">D</div>
   <div class="mc y">PFN</div><div class="mc y">PFN</div><div class="mc y">PFN</div><div class="mc y">PFN</div><div class="mc y">PFN</div>
 </div>
 <p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">
 <span style="color:var(--blue);">P</span>=Present &bull;
-<span style="color:var(--cyan);">R</span>=Readable &bull;
+<span style="color:var(--green);">R</span>=Readable &bull;
 W=Writable(no) &bull;
 X=Executable(no) &bull;
-<span style="color:var(--green);">A</span>=Accessed &bull;
+<span style="color:var(--blue);">A</span>=Accessed &bull;
 D=Dirty(no) &bull;
 <span style="color:var(--yellow);">PFN</span>=Physical Frame Number
 </p>
@@ -1364,11 +1711,11 @@ ev.data.fd = client_fd;     <span class="cm">// Which FD this event is about</sp
 
 <table>
 <tr><th>FD Count</th><th>select()</th><th>poll()</th><th>epoll (10% active)</th><th>epoll (1% active)</th></tr>
-<tr><td>100</td><td>~3 μs</td><td>~3 μs</td><td>~1 μs</td><td>~0.5 μs</td></tr>
-<tr><td>1,000</td><td>~30 μs</td><td>~25 μs</td><td>~2 μs</td><td>~0.5 μs</td></tr>
-<tr><td>10,000</td><td>N/A (1024 limit)</td><td>~250 μs</td><td>~15 μs</td><td>~2 μs</td></tr>
-<tr><td>100,000</td><td>N/A</td><td>~2.5 ms</td><td>~150 μs</td><td>~15 μs</td></tr>
-<tr><td>1,000,000</td><td>N/A</td><td>~25 ms</td><td>~1.5 ms</td><td>~150 μs</td></tr>
+<tr><td>100</td><td>~3 &mu;s</td><td>~3 &mu;s</td><td>~1 &mu;s</td><td>~0.5 &mu;s</td></tr>
+<tr><td>1,000</td><td>~30 &mu;s</td><td>~25 &mu;s</td><td>~2 &mu;s</td><td>~0.5 &mu;s</td></tr>
+<tr><td>10,000</td><td>N/A (1024 limit)</td><td>~250 &mu;s</td><td>~15 &mu;s</td><td>~2 &mu;s</td></tr>
+<tr><td>100,000</td><td>N/A</td><td>~2.5 ms</td><td>~150 &mu;s</td><td>~15 &mu;s</td></tr>
+<tr><td>1,000,000</td><td>N/A</td><td>~25 ms</td><td>~1.5 ms</td><td>~150 &mu;s</td></tr>
 </table>
 
 <div class="diagram">
@@ -1376,7 +1723,7 @@ ev.data.fd = client_fd;     <span class="cm">// Which FD this event is about</sp
 <pre><code>
   Cost per
   epoll_wait    poll(): cost grows linearly
-  return (μs)   with TOTAL fd count
+  return (&mu;s)   with TOTAL fd count
                 /
   25 ┤         /
      │        /
@@ -1562,14 +1909,14 @@ server.<span class="fn">listen</span>(<span class="nm">8080</span>, () => {
   <div class="mc w">ud</div><div class="mc w">ud</div><div class="mc w">ud</div><div class="mc w">ud</div>
 </div>
 <p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">
-<span style="color:var(--magenta);">op</span>=opcode &bull;
-<span style="color:var(--cyan);">flg</span>=flags &bull;
-<span style="color:var(--green);">fd</span>=file descriptor &bull;
-<span style="color:var(--orange);">off</span>=file offset &bull;
+<span style="color:var(--red);">op</span>=opcode &bull;
+<span style="color:var(--green);">flg</span>=flags &bull;
+<span style="color:var(--blue);">fd</span>=file descriptor &bull;
+<span style="color:var(--yellow);">off</span>=file offset &bull;
 <span style="color:var(--yellow);">adr</span>=buffer address &bull;
-<span style="color:var(--cyan);">len</span>=length &bull;
-<span style="color:var(--purple);">flg</span>=op flags &bull;
-<span style="color:var(--white);">ud</span>=user_data (your tag, returned in CQE)
+<span style="color:var(--green);">len</span>=length &bull;
+<span style="color:var(--red);">flg</span>=op flags &bull;
+<span style="color:var(--text);">ud</span>=user_data (your tag, returned in CQE)
 </p>
 
 <h3>Memory Cell View: Completion Queue Entry (CQE)</h3>
@@ -1584,9 +1931,9 @@ server.<span class="fn">listen</span>(<span class="nm">8080</span>, () => {
   <div class="mc c">flg</div><div class="mc c">flg</div><div class="mc c">flg</div><div class="mc c">flg</div>
 </div>
 <p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">
-<span style="color:var(--white);">ud</span>=user_data (matches your SQE tag) &bull;
-<span style="color:var(--green);">res</span>=result (bytes read, or -errno) &bull;
-<span style="color:var(--cyan);">flg</span>=flags
+<span style="color:var(--text);">ud</span>=user_data (matches your SQE tag) &bull;
+<span style="color:var(--blue);">res</span>=result (bytes read, or -errno) &bull;
+<span style="color:var(--green);">flg</span>=flags
 </p>
 
 <h3>io_uring Operations</h3>
@@ -1793,10 +2140,10 @@ sqe->user_data = <span class="nm">3</span>;
               Queue Depth
 
   read() plateaus at ~300K IOPS — each I/O needs a
-  full syscall round-trip (~3μs). The syscall itself
+  full syscall round-trip (~3&mu;s). The syscall itself
   becomes the bottleneck, not the NVMe device.
 
-  io_uring saturates the NVMe at QD≥128 because
+  io_uring saturates the NVMe at QD>=128 because
   submissions are batched (amortized syscall cost)
   and the NVMe can process all entries in parallel.
 </code></pre>
@@ -1806,11 +2153,11 @@ sqe->user_data = <span class="nm">3</span>;
 
 <table>
 <tr><th>Method</th><th>p50</th><th>p99</th><th>p999</th><th>Notes</th></tr>
-<tr><td>read() @ QD1</td><td>~50 μs</td><td>~120 μs</td><td>~500 μs</td><td>Consistent but slow</td></tr>
-<tr><td>read() @ QD32</td><td>~80 μs</td><td>~300 μs</td><td>~2 ms</td><td>Queuing delays grow</td></tr>
-<tr><td>io_uring @ QD32</td><td>~12 μs</td><td>~45 μs</td><td>~200 μs</td><td>Batching cuts overhead</td></tr>
-<tr><td>io_uring @ QD128</td><td>~15 μs</td><td>~60 μs</td><td>~350 μs</td><td>Near-NVMe latency</td></tr>
-<tr><td>io_uring+SQPOLL @ QD128</td><td>~8 μs</td><td>~25 μs</td><td>~150 μs</td><td>Zero syscall overhead</td></tr>
+<tr><td>read() @ QD1</td><td>~50 &mu;s</td><td>~120 &mu;s</td><td>~500 &mu;s</td><td>Consistent but slow</td></tr>
+<tr><td>read() @ QD32</td><td>~80 &mu;s</td><td>~300 &mu;s</td><td>~2 ms</td><td>Queuing delays grow</td></tr>
+<tr><td>io_uring @ QD32</td><td>~12 &mu;s</td><td>~45 &mu;s</td><td>~200 &mu;s</td><td>Batching cuts overhead</td></tr>
+<tr><td>io_uring @ QD128</td><td>~15 &mu;s</td><td>~60 &mu;s</td><td>~350 &mu;s</td><td>Near-NVMe latency</td></tr>
+<tr><td>io_uring+SQPOLL @ QD128</td><td>~8 &mu;s</td><td>~25 &mu;s</td><td>~150 &mu;s</td><td>Zero syscall overhead</td></tr>
 </table>
 
 <div class="power">
@@ -1831,7 +2178,7 @@ sqe->user_data = <span class="nm">3</span>;
 <div class="lang-note">
 <div class="lang-note-label">Language Note: io_uring Availability</div>
 <p><strong>Python:</strong> No standard library support. <code>liburing-cffi</code> provides bindings but is rarely used — most Python I/O is too high-level to benefit. <code>asyncio</code> with epoll is the practical path.</p>
-<p><strong>TypeScript/Node:</strong> No direct io_uring support. Node's <code>libuv</code> uses a thread pool for file I/O and epoll for sockets. There's an experimental <a href="https://github.com/nicolo-ribaudo/libuv/pull/1" style="color:var(--cyan);">libuv io_uring patch</a> but it's not merged.</p>
+<p><strong>TypeScript/Node:</strong> No direct io_uring support. Node's <code>libuv</code> uses a thread pool for file I/O and epoll for sockets. There's an experimental <a href="https://github.com/nicolo-ribaudo/libuv/pull/1" style="color:var(--blue);">libuv io_uring patch</a> but it's not merged.</p>
 <p><strong>Rust:</strong> <code>tokio-uring</code> and <code>glommio</code> provide io_uring-native async runtimes.</p>
 <p><strong>Go:</strong> The runtime uses epoll for network I/O. io_uring support is not built-in but available via <code>iceber/iouring-go</code>.</p>
 </div>
@@ -2020,9 +2367,9 @@ server.<span class="fn">listen</span>(<span class="nm">8080</span>);
 
 <table>
 <tr><th>File Size</th><th>read()+write()</th><th>sendfile()</th><th>splice()</th><th>Speedup</th></tr>
-<tr><td>1 KB</td><td>~8 μs</td><td>~5 μs</td><td>~5 μs</td><td>1.6x</td></tr>
-<tr><td>64 KB</td><td>~25 μs</td><td>~12 μs</td><td>~11 μs</td><td>2.1x</td></tr>
-<tr><td>1 MB</td><td>~250 μs</td><td>~120 μs</td><td>~110 μs</td><td>2.1x</td></tr>
+<tr><td>1 KB</td><td>~8 &mu;s</td><td>~5 &mu;s</td><td>~5 &mu;s</td><td>1.6x</td></tr>
+<tr><td>64 KB</td><td>~25 &mu;s</td><td>~12 &mu;s</td><td>~11 &mu;s</td><td>2.1x</td></tr>
+<tr><td>1 MB</td><td>~250 &mu;s</td><td>~120 &mu;s</td><td>~110 &mu;s</td><td>2.1x</td></tr>
 <tr><td>100 MB</td><td>~28 ms</td><td>~13 ms</td><td>~12 ms</td><td>2.2x</td></tr>
 <tr><td>1 GB</td><td>~290 ms</td><td>~130 ms</td><td>~115 ms</td><td>2.3x</td></tr>
 </table>
@@ -2682,24 +3029,24 @@ console.<span class="fn">log</span>(<span class="st">`hrtime: ${Number(elapsed) 
 <pre><code>
   Operations/sec    10      100     1K      10K     100K     1M
   ─────────────────────────────────────────────────────────────
-  read()/write()    ✓       ✓       ✓       ~       ✗        ✗
-  mmap              ✓       ✓       ✓       ✓       ✓        ✓
-  io_uring          ~       ✓       ✓       ✓       ✓        ✓
-  io_uring+SQPOLL   ✗       ~       ✓       ✓       ✓        ✓
-  sendfile          ✓       ✓       ✓       ✓       ✓        ✓
-  DPDK              ✗       ✗       ✗       ✗       ~        ✓
+  read()/write()    &#10003;       &#10003;       &#10003;       ~       &#10007;        &#10007;
+  mmap              &#10003;       &#10003;       &#10003;       &#10003;       &#10003;        &#10003;
+  io_uring          ~       &#10003;       &#10003;       &#10003;       &#10003;        &#10003;
+  io_uring+SQPOLL   &#10007;       ~       &#10003;       &#10003;       &#10003;        &#10003;
+  sendfile          &#10003;       &#10003;       &#10003;       &#10003;       &#10003;        &#10003;
+  DPDK              &#10007;       &#10007;       &#10007;       &#10007;       ~        &#10003;
 
-  ✓ = good fit   ~ = marginal   ✗ = overhead not justified
+  &#10003; = good fit   ~ = marginal   &#10007; = overhead not justified
 
   Key ratios:
-  • Syscall overhead (~200ns) vs NVMe latency (~50μs) = 0.4%
-    → Don't optimize syscalls if you're I/O bound on disk
-  • Syscall overhead vs page cache hit (~0.5μs) = 40%
-    → DO optimize if data is hot in memory
-  • epoll overhead per event (~0.1μs) vs connection count
-    → epoll wins over poll at ~100+ connections
-  • io_uring setup cost (~50μs) vs batch size
-    → io_uring wins over read() at ~10+ operations per batch
+  - Syscall overhead (~200ns) vs NVMe latency (~50&mu;s) = 0.4%
+    -> Don't optimize syscalls if you're I/O bound on disk
+  - Syscall overhead vs page cache hit (~0.5&mu;s) = 40%
+    -> DO optimize if data is hot in memory
+  - epoll overhead per event (~0.1&mu;s) vs connection count
+    -> epoll wins over poll at ~100+ connections
+  - io_uring setup cost (~50&mu;s) vs batch size
+    -> io_uring wins over read() at ~10+ operations per batch
 </code></pre>
 </div>
 
@@ -2818,7 +3165,7 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
 <table>
 <tr><th>Technique</th><th>How nginx Uses It</th><th>Why It Matters</th></tr>
 <tr><td>epoll (edge-triggered)</td><td>Single event loop per worker, all connections on one epoll instance</td><td>Handles 100K+ connections with ~1 thread per CPU core</td></tr>
-<tr><td>sendfile()</td><td>Static file serving bypasses userspace entirely</td><td>CPU doesn't touch file data — disk → NIC via kernel</td></tr>
+<tr><td>sendfile()</td><td>Static file serving bypasses userspace entirely</td><td>CPU doesn't touch file data — disk &rarr; NIC via kernel</td></tr>
 <tr><td>accept4()</td><td>Accept + set SOCK_NONBLOCK in one syscall</td><td>Saves one fcntl() per new connection</td></tr>
 <tr><td>SO_REUSEPORT</td><td>Each worker has its own listen socket</td><td>Kernel load-balances across workers, no thundering herd</td></tr>
 </table>
@@ -2832,13 +3179,13 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
   └───────────┬─────────────────────────┘
               │ fork
      ┌────────┴────────┐
-     │  Worker (pid 1) │  ← single thread
+     │  Worker (pid 1) │  &larr; single thread
      │                 │
-     │  epoll_wait() ──┤──→ client A: read request
-     │       │         │──→ client B: sendfile response
-     │       │         │──→ client C: proxy to upstream
-     │       │         │──→ timer: keepalive timeout
-     │       │         │──→ upstream D: health check
+     │  epoll_wait() ──┤──&rarr; client A: read request
+     │       │         │──&rarr; client B: sendfile response
+     │       │         │──&rarr; client C: proxy to upstream
+     │       │         │──&rarr; timer: keepalive timeout
+     │       │         │──&rarr; upstream D: health check
      │       loop      │
      └─────────────────┘
      Each worker handles thousands of connections.
@@ -2848,7 +3195,7 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
 
 <div class="power">
 <div class="power-label">The nginx + sendfile Story</div>
-<p>When nginx serves a static file, the data path is: disk → page cache → NIC DMA. Your nginx worker process never copies file bytes into userspace. At 10Gbps with small files, the CPU savings from sendfile vs read()+write() can be 25-40% — that's the difference between needing 4 servers and needing 3.</p>
+<p>When nginx serves a static file, the data path is: disk &rarr; page cache &rarr; NIC DMA. Your nginx worker process never copies file bytes into userspace. At 10Gbps with small files, the CPU savings from sendfile vs read()+write() can be 25-40% — that's the difference between needing 4 servers and needing 3.</p>
 </div>
 
 <h3>12.2 &mdash; Redis: Single-threaded epoll + fork() Snapshots</h3>
@@ -2859,7 +3206,7 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
 <tr><th>Technique</th><th>How Redis Uses It</th><th>Why It Matters</th></tr>
 <tr><td>epoll (level-triggered)</td><td>All client connections on one epoll FD</td><td>Simple, correct, handles 100K+ clients per thread</td></tr>
 <tr><td>fork() + COW</td><td>RDB snapshots fork the process, child writes to disk</td><td>Parent continues serving. COW means only modified pages are duplicated</td></tr>
-<tr><td>pipe() for AOF rewrite</td><td>Parent→child pipe streams new writes during rewrite</td><td>AOF rewrite doesn't miss commands that arrive during snapshot</td></tr>
+<tr><td>pipe() for AOF rewrite</td><td>Parent&rarr;child pipe streams new writes during rewrite</td><td>AOF rewrite doesn't miss commands that arrive during snapshot</td></tr>
 <tr><td>eventfd</td><td>Thread pool notifications (Redis 6+ threaded I/O)</td><td>I/O threads signal main thread without pipe overhead</td></tr>
 </table>
 
@@ -2873,12 +3220,12 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
 <p>Apache Kafka's architecture is built around one insight: logs are append-only files, consumers read sequentially, and <code>sendfile()</code> can move log data from disk to network without ever touching userspace. This single design decision is why Kafka achieves 2GB/s+ throughput per broker.</p>
 
 <div class="diagram">
-<span class="diagram-label">Kafka's data path: producer → broker → consumer</span>
+<span class="diagram-label">Kafka's data path: producer &rarr; broker &rarr; consumer</span>
 <pre><code>
   PRODUCER                  BROKER                    CONSUMER
   ========                  ======                    ========
 
-  write(socket, data) ──→  recv(socket, buf)
+  write(socket, data) ──&rarr;  recv(socket, buf)
                            write(log_fd, buf)        // Append to log segment
                            fdatasync(log_fd)         // Flush WAL
                                 │
@@ -2886,10 +3233,10 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
                                 │
                            sendfile(consumer_socket, log_fd, &amp;offset, count)
                                 │
-                                │  Data goes: page cache → NIC
+                                │  Data goes: page cache &rarr; NIC
                                 │  Broker process NEVER touches the bytes
                                 │  No serialization, no copy, no GC pressure
-                                └──────────────────→  recv(socket, buf)
+                                └──────────────────&rarr;  recv(socket, buf)
 
   The magic: Kafka brokers are basically sendfile() machines.
   Producers write(), consumers sendfile(), and the broker
@@ -2935,14 +3282,14 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
 <tr><th>Design Decision</th><th>Implementation</th><th>Effect</th></tr>
 <tr><td>All I/O via io_uring</td><td>Single io_uring instance for all disk + network I/O</td><td>Deterministic I/O scheduling, predictable latency</td></tr>
 <tr><td>Direct I/O (O_DIRECT)</td><td>Bypass page cache entirely</td><td>No kernel caching surprises, consistent performance</td></tr>
-<tr><td>Fixed buffers</td><td>Pre-registered with io_uring_register_buffers</td><td>Kernel skips page pinning per I/O — save ~1μs/op</td></tr>
+<tr><td>Fixed buffers</td><td>Pre-registered with io_uring_register_buffers</td><td>Kernel skips page pinning per I/O — save ~1&mu;s/op</td></tr>
 <tr><td>Zero dynamic allocation</td><td>All memory pre-allocated at startup</td><td>No malloc in hot path, no GC, no OOM surprises</td></tr>
 <tr><td>Deterministic execution</td><td>Single-threaded event loop (like Redis)</td><td>Bit-for-bit reproducible state machine</td></tr>
 </table>
 
 <div class="power zen">
 <div class="power-label">Zen: Building Around the Syscall</div>
-<p>TigerBeetle doesn't use io_uring as an optimization bolted onto a traditional architecture. The entire system — its memory allocator, its state machine, its replication protocol — is designed to feed io_uring optimally. Fixed buffers pre-registered with the kernel. Direct I/O so the page cache doesn't interfere. Linked operations for atomic open→read→process chains. When you build around the syscall instead of hiding it behind abstractions, you get both performance <em>and</em> predictability.</p>
+<p>TigerBeetle doesn't use io_uring as an optimization bolted onto a traditional architecture. The entire system — its memory allocator, its state machine, its replication protocol — is designed to feed io_uring optimally. Fixed buffers pre-registered with the kernel. Direct I/O so the page cache doesn't interfere. Linked operations for atomic open&rarr;read&rarr;process chains. When you build around the syscall instead of hiding it behind abstractions, you get both performance <em>and</em> predictability.</p>
 </div>
 
 <h3>12.6 &mdash; Cloudflare / Meta: XDP &amp; eBPF at Scale</h3>
@@ -2962,7 +3309,7 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
   │   (eBPF in NIC   │  Decision in ~100 nanoseconds
   │    driver)        │
   │                  │
-  │  DROP? ──────→ Packet gone. No kernel processing.
+  │  DROP? ──────&rarr; Packet gone. No kernel processing.
   │  PASS? ──┐       10M+ drops/sec/core possible.
   └──────────┼───────┘
              ▼
@@ -3050,18 +3397,18 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
   Application calls mdb_get(key)
          │
          ▼
-  Walk B+ tree nodes     ← pointer arithmetic on mmap'd pages
-  (no syscalls, no       ← pages already in process address space
-   buffer pool lookup,   ← page cache handles hot/cold pages
+  Walk B+ tree nodes     &larr; pointer arithmetic on mmap'd pages
+  (no syscalls, no       &larr; pages already in process address space
+   buffer pool lookup,   &larr; page cache handles hot/cold pages
    no deserialization)
          │
          ▼
-  Return pointer to value ← points directly into mmap'd file
-                          ← no memcpy, no buffer allocation
-                          ← value is valid until txn ends
+  Return pointer to value &larr; points directly into mmap'd file
+                          &larr; no memcpy, no buffer allocation
+                          &larr; value is valid until txn ends
 
-  Traditional DB read: syscall → buffer pool → copy → deserialize → return
-  LMDB read: pointer chase → return pointer
+  Traditional DB read: syscall &rarr; buffer pool &rarr; copy &rarr; deserialize &rarr; return
+  LMDB read: pointer chase &rarr; return pointer
   That's it. The kernel's page cache IS the buffer pool.
 </code></pre>
 </div>
@@ -3079,16 +3426,16 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
 <span class="diagram-label">HAProxy splice path vs traditional proxy</span>
 <pre><code>
   Traditional proxy:
-  client_socket ──read()──→ [userspace buf] ──write()──→ server_socket
+  client_socket ──read()──&rarr; [userspace buf] ──write()──&rarr; server_socket
                   copy 1        ~64KB buf      copy 2
                   syscall                      syscall
-                  (kernel → user)              (user → kernel)
+                  (kernel &rarr; user)              (user &rarr; kernel)
 
   HAProxy with splice:
-  client_socket ──splice()──→ [kernel pipe] ──splice()──→ server_socket
+  client_socket ──splice()──&rarr; [kernel pipe] ──splice()──&rarr; server_socket
                   zero-copy    ~64KB pipe buf   zero-copy
                   syscall      (in kernel)      syscall
-                  (kernel → kernel)            (kernel → kernel)
+                  (kernel &rarr; kernel)            (kernel &rarr; kernel)
 
   Bytes proxied per second is the same.
   CPU usage drops ~30%. Memory bandwidth drops ~50%.
@@ -3128,19 +3475,19 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
 <span class="diagram-label">Kernel networking vs DPDK</span>
 <pre><code>
   KERNEL NETWORKING:
-  NIC ──IRQ──→ [Kernel driver] → [sk_buff alloc] → [netfilter] → [TCP stack]
+  NIC ──IRQ──&rarr; [Kernel driver] &rarr; [sk_buff alloc] &rarr; [netfilter] &rarr; [TCP stack]
                  interrupt        kmalloc            iptables      protocol
-                 ~1μs             ~0.5μs             ~0.5μs        ~2μs
+                 ~1&mu;s             ~0.5&mu;s             ~0.5&mu;s        ~2&mu;s
                                           │
-                                          └→ [Socket buffer] ──read()──→ Userspace
-                                                                ~0.5μs
+                                          └&rarr; [Socket buffer] ──read()──&rarr; Userspace
+                                                                ~0.5&mu;s
 
-  Total per-packet: ~5-10 μs. Max: ~1M packets/sec/core.
+  Total per-packet: ~5-10 &mu;s. Max: ~1M packets/sec/core.
 
   DPDK:
-  NIC ──DMA──→ [Shared memory ring buffer]
+  NIC ──DMA──&rarr; [Shared memory ring buffer]
                     │
-                    └──→ Userspace poll loop reads directly
+                    └──&rarr; Userspace poll loop reads directly
                          No interrupts. No syscalls. No copies.
                          Per-packet cost: ~50-100 ns.
                          Max: 80M+ packets/sec/core.
@@ -3154,7 +3501,7 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
 <table>
 <tr><th>Metric</th><th>Kernel Stack</th><th>DPDK</th></tr>
 <tr><td>Packets/sec/core</td><td>~1M</td><td>~80M+</td></tr>
-<tr><td>Latency per packet</td><td>~5-10 μs</td><td>~50-100 ns</td></tr>
+<tr><td>Latency per packet</td><td>~5-10 &mu;s</td><td>~50-100 ns</td></tr>
 <tr><td>CPU usage model</td><td>Interrupt-driven (efficient)</td><td>Busy-polling (burns core)</td></tr>
 <tr><td>Kernel features</td><td>Full (iptables, tc, etc.)</td><td>None (app handles everything)</td></tr>
 <tr><td>Use case</td><td>General purpose</td><td>Telecom, finance, packet processing</td></tr>
@@ -3253,7 +3600,7 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
   syscall: recvfrom(msg3)          process msg16
   process msg3
   ...                              16 messages, 1 syscall.
-  16 messages, 16 syscalls.        Saves ~15 * 200ns = 3μs per batch.
+  16 messages, 16 syscalls.        Saves ~15 * 200ns = 3&mu;s per batch.
 
   At 1M requests/sec:
   Traditional: 1M syscalls/sec = 200ms/sec of overhead
@@ -3270,5 +3617,43 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
 </section>
 
 </div>
+
+<!-- === KEYBOARD SHORTCUT JS === -->
+<script>
+(function() {
+  const keyMap = {
+    '1': '#ch1', '2': '#ch2', '3': '#ch3', '4': '#ch4',
+    '5': '#ch5', '6': '#ch6', '7': '#ch7', '8': '#ch8',
+    '9': '#ch9', '0': '#ch10', '-': '#ch11', '=': '#ch12'
+  };
+
+  document.addEventListener('keydown', function(e) {
+    // Cmd+K or Ctrl+K toggles command palette
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      const toggle = document.getElementById('cmd-toggle');
+      toggle.checked = !toggle.checked;
+      return;
+    }
+
+    // Escape closes command palette
+    if (e.key === 'Escape') {
+      document.getElementById('cmd-toggle').checked = false;
+      return;
+    }
+
+    // Cmd+Number scrolls to section
+    if ((e.metaKey || e.ctrlKey) && keyMap[e.key]) {
+      e.preventDefault();
+      document.getElementById('cmd-toggle').checked = false;
+      const target = document.querySelector(keyMap[e.key]);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  });
+})();
+</script>
+
 </body>
 </html>

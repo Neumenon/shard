@@ -5,35 +5,60 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Syscalls &amp; io_uring — Talking to the Kernel</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+
+  @font-face {
+    font-family: 'Roobert';
+    src: local('Roobert'), local('Inter');
+    font-weight: 100 900;
+    font-display: swap;
+  }
 
   :root {
-    /* === LINEAR DESIGN SYSTEM === */
-    --bg: #08090a;
-    --bg-card: rgba(255,255,255,0.02);
-    --bg-code: #0f1011;
-    --bg-surface: #191a1b;
-    --bg-hover: #28282c;
-    --border: rgba(255,255,255,0.08);
-    --border-subtle: rgba(255,255,255,0.05);
-    --border-solid: #23252a;
-    --text: #f7f8f8;
-    --text-secondary: #d0d6e0;
-    --text-muted: #8a8f98;
-    --text-dim: #62666d;
-    --brand: #5e6ad2;
-    --accent: #7170ff;
-    --accent-hover: #828fff;
-    --green: #27a644;
-    --emerald: #10b981;
-    --red: #ef4444;
-    --yellow: #eab308;
-    --orange: #f97316;
-    --cyan: #7170ff;
-    --magenta: #828fff;
-    --blue: #7170ff;
-    --purple: #828fff;
-    --white: #f7f8f8;
+    /* === CLAY DESIGN SYSTEM === */
+    --bg: #faf9f7;
+    --bg-card: #ffffff;
+    --bg-code: #fefdfb;
+    --bg-surface: #f5f3ef;
+    --bg-hover: #f0ece5;
+    --border: #dad4c8;
+    --border-subtle: #eee9df;
+    --border-cool: #e6e8ec;
+    --text: #000000;
+    --text-secondary: #333333;
+    --text-muted: #55534e;
+    --text-dim: #9f9b93;
+
+    /* Swatch palette */
+    --matcha-300: #84e7a5;
+    --matcha-600: #078a52;
+    --matcha-800: #02492a;
+    --slushie-500: #3bd3fd;
+    --slushie-800: #0089ad;
+    --lemon-400: #f8cc65;
+    --lemon-500: #fbbd41;
+    --lemon-700: #d08a11;
+    --lemon-800: #9d6a09;
+    --ube-300: #c1b0ff;
+    --ube-800: #43089f;
+    --ube-900: #32037d;
+    --pomegranate-400: #fc7981;
+    --blueberry-800: #01418d;
+    --dragonfruit: #e44bc2;
+
+    /* Warm syntax colors */
+    --syn-comment: #b8a99a;
+    --syn-keyword: #c95d3a;
+    --syn-type: #d08a11;
+    --syn-string: #078a52;
+    --syn-number: #9d6a09;
+    --syn-function: #c95d3a;
+    --syn-preprocessor: #43089f;
+
+    /* Shadows */
+    --clay-shadow: rgba(0,0,0,0.1) 0px 1px 1px, rgba(0,0,0,0.04) 0px -1px 1px inset, rgba(0,0,0,0.05) 0px -0.5px 1px;
+    --clay-shadow-lifted: rgba(0,0,0,0.12) 0px 4px 12px, rgba(0,0,0,0.04) 0px -1px 1px inset, rgba(0,0,0,0.05) 0px -0.5px 1px;
+    --hard-shadow: rgb(0,0,0) -7px 7px;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -41,55 +66,126 @@
   body {
     background: var(--bg);
     color: var(--text-secondary);
-    font-family: 'Inter', 'SF Pro Display', -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 15px;
+    font-family: 'Roobert', 'Inter', 'SF Pro Display', -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif;
+    font-feature-settings: "ss03", "ss10", "ss11", "ss12";
+    font-size: 16px;
     font-weight: 400;
     line-height: 1.6;
-    letter-spacing: -0.165px;
+    letter-spacing: normal;
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    position: relative;
   }
 
-  /* No scanline overlay — Linear is clean */
+  /* === BLOB BACKGROUNDS === */
+  body::before,
+  body::after {
+    content: '';
+    position: fixed;
+    border-radius: 50%;
+    z-index: -1;
+    pointer-events: none;
+    filter: blur(120px);
+    opacity: 0.35;
+  }
+  body::before {
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, var(--pomegranate-400) 0%, transparent 70%);
+    top: -100px;
+    right: -150px;
+  }
+  body::after {
+    width: 700px;
+    height: 700px;
+    background: radial-gradient(circle, var(--ube-300) 0%, transparent 70%);
+    bottom: 200px;
+    left: -200px;
+  }
 
-  /* === NAV === */
+  .blob-1, .blob-2, .blob-3, .blob-4 {
+    position: absolute;
+    border-radius: 50%;
+    z-index: -1;
+    pointer-events: none;
+    filter: blur(120px);
+    opacity: 0.3;
+  }
+  .blob-1 {
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(circle, var(--lemon-400) 0%, transparent 70%);
+    top: 1200px;
+    right: -100px;
+  }
+  .blob-2 {
+    width: 550px;
+    height: 550px;
+    background: radial-gradient(circle, var(--matcha-300) 0%, transparent 70%);
+    top: 3000px;
+    left: -150px;
+  }
+  .blob-3 {
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, var(--slushie-500) 0%, transparent 70%);
+    top: 5500px;
+    right: -200px;
+  }
+  .blob-4 {
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(circle, var(--pomegranate-400) 0%, transparent 70%);
+    top: 8000px;
+    left: -100px;
+  }
+
+  /* === NAV — floating pill === */
   nav {
     position: fixed;
-    top: 0; left: 0; right: 0;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
     z-index: 100;
-    background: rgba(15,16,17,0.85);
-    backdrop-filter: blur(16px) saturate(1.8);
-    border-bottom: 1px solid var(--border-subtle);
-    padding: 0 2rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 1584px;
+    padding: 0 1.5rem;
     display: flex;
     gap: 0;
     align-items: center;
     overflow-x: auto;
     height: 48px;
+    box-shadow: var(--clay-shadow);
+    max-width: 95vw;
   }
+  nav::-webkit-scrollbar { display: none; }
   nav a {
-    color: var(--text-muted);
+    color: var(--text-dim);
     text-decoration: none;
     white-space: nowrap;
-    transition: color 0.15s;
-    padding: 0 0.7rem;
-    font-size: 13px;
-    font-weight: 510;
-    letter-spacing: -0.13px;
-    line-height: 48px;
+    transition: color 0.2s, background 0.2s, transform 0.3s, box-shadow 0.3s;
+    padding: 0.3rem 0.7rem;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.6;
+    border-radius: 1584px;
   }
-  nav a:hover { color: var(--text); }
+  nav a:hover {
+    color: var(--text);
+    background: var(--bg-hover);
+  }
   nav a.active { color: var(--text); }
   nav .nav-title {
     color: var(--text);
-    font-weight: 590;
-    margin-right: 1.5rem;
-    padding-right: 1.5rem;
-    border-right: 1px solid var(--border-subtle);
+    font-weight: 600;
+    margin-right: 1rem;
+    padding-right: 1rem;
+    border-right: 1px dashed var(--border);
     font-size: 14px;
     letter-spacing: -0.182px;
+    font-feature-settings: "ss01", "ss03", "ss10", "ss11", "ss12";
   }
 
   /* === LAYOUT === */
@@ -103,34 +199,33 @@
   .hero {
     text-align: center;
     padding: 5rem 0 4rem;
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px dashed var(--border);
     margin-bottom: 5rem;
     position: relative;
   }
   .hero h1 {
-    font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 48px;
-    font-weight: 510;
+    font-family: 'Roobert', 'Inter', sans-serif;
+    font-feature-settings: "ss01", "ss03", "ss10", "ss11", "ss12";
+    font-size: 60px;
+    font-weight: 600;
     color: var(--text);
     line-height: 1.0;
-    letter-spacing: -1.056px;
-    margin-bottom: 1rem;
+    letter-spacing: -2.4px;
+    margin-bottom: 1.2rem;
   }
   .hero .subtitle {
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 400;
     color: var(--text-muted);
     font-style: normal;
     max-width: 540px;
     margin: 0 auto;
-    line-height: 1.6;
-    letter-spacing: -0.165px;
+    line-height: 1.4;
   }
   .hero .blink {
     display: inline-block;
     animation: blink 1s step-end infinite;
-    color: var(--accent);
+    color: var(--ube-800);
   }
   @keyframes blink { 50% { opacity: 0; } }
 
@@ -139,74 +234,108 @@
     margin-bottom: 5rem;
     padding-top: 1rem;
   }
+
+  /* Section decorator badges */
+  .section-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    font-size: 18px;
+    margin-right: 0.6rem;
+    vertical-align: middle;
+    position: relative;
+    top: -2px;
+    box-shadow: var(--clay-shadow);
+  }
+  .section-badge.boundary { background: var(--lemon-400); }
+  .section-badge.strace { background: var(--slushie-500); }
+  .section-badge.fileio { background: var(--matcha-300); }
+  .section-badge.mmap { background: var(--ube-300); }
+  .section-badge.epoll { background: var(--pomegranate-400); }
+  .section-badge.iouring { background: var(--lemon-500); }
+  .section-badge.zerocopy { background: var(--slushie-500); }
+  .section-badge.seccomp { background: var(--pomegranate-400); }
+  .section-badge.ebpf { background: var(--matcha-300); }
+  .section-badge.vdso { background: var(--ube-300); }
+  .section-badge.benchmark { background: var(--lemon-400); }
+  .section-badge.power { background: var(--pomegranate-400); }
+
   h2 {
-    font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    font-family: 'Roobert', 'Inter', sans-serif;
+    font-feature-settings: "ss01", "ss03", "ss10", "ss11", "ss12";
     font-size: 32px;
-    font-weight: 510;
+    font-weight: 600;
     color: var(--text);
     margin-bottom: 1.5rem;
     padding-bottom: 0.75rem;
-    border-bottom: 1px solid var(--border-subtle);
-    letter-spacing: -0.704px;
-    line-height: 1.13;
-    text-shadow: none;
+    border-bottom: 1px dashed var(--border);
+    letter-spacing: -0.64px;
+    line-height: 1.1;
   }
   h3 {
-    font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    font-family: 'Roobert', 'Inter', sans-serif;
+    font-feature-settings: "ss01", "ss03", "ss10", "ss11", "ss12";
     font-size: 20px;
-    font-weight: 590;
+    font-weight: 600;
     color: var(--text);
     margin: 2.5rem 0 1rem;
-    letter-spacing: -0.24px;
-    line-height: 1.33;
+    letter-spacing: -0.4px;
+    line-height: 1.4;
   }
   h4 {
-    font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 14px;
-    font-weight: 510;
+    font-family: 'Roobert', 'Inter', sans-serif;
+    font-feature-settings: "ss03", "ss10", "ss11", "ss12";
+    font-size: 12px;
+    font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 1.08px;
     margin: 2rem 0 0.8rem;
   }
-  p { margin-bottom: 1rem; }
+  p { margin-bottom: 1rem; font-size: 16px; line-height: 1.6; }
 
   /* === DROP CAP === */
   .drop-cap::first-letter {
     float: left;
-    font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    font-family: 'Roobert', 'Inter', sans-serif;
+    font-feature-settings: "ss01", "ss03", "ss10", "ss11", "ss12";
     font-size: 3.5rem;
     line-height: 0.85;
     padding: 0.05em 0.12em 0 0;
-    color: var(--accent);
-    font-weight: 590;
+    color: var(--ube-800);
+    font-weight: 600;
   }
 
-  /* === CODE === */
+  /* === CODE — warm syntax highlighting === */
   code {
-    font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-family: 'Space Mono', ui-monospace, 'SF Mono', Menlo, monospace;
     font-size: 0.82em;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid var(--border-subtle);
-    padding: 0.12em 0.4em;
-    border-radius: 4px;
-    color: var(--accent);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    padding: 0.15em 0.45em;
+    border-radius: 8px;
+    color: var(--syn-keyword);
   }
   pre {
     background: var(--bg-code);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1.2rem 1.4rem;
+    border-radius: 18px;
+    padding: 1.4rem 1.6rem;
     overflow-x: auto;
     margin: 1.2rem 0;
-    font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-family: 'Space Mono', ui-monospace, 'SF Mono', Menlo, monospace;
     font-size: 13px;
     line-height: 1.6;
     position: relative;
+    box-shadow: var(--clay-shadow);
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+  }
+  pre:hover {
+    box-shadow: var(--clay-shadow-lifted);
+    transform: translateY(-1px);
   }
   pre code {
     background: none;
@@ -214,33 +343,42 @@
     padding: 0;
     font-size: inherit;
     color: var(--text-secondary);
+    border-radius: 0;
   }
-  /* Syntax — muted, restrained palette matching Linear's achromatic system */
-  .cm { color: var(--text-dim); }
-  .kw { color: var(--accent); }
-  .ty { color: var(--accent-hover); }
-  .st { color: var(--emerald); }
-  .nm { color: var(--yellow); }
-  .fn { color: var(--accent); }
-  .pp { color: var(--orange); }
+  /* Warm earth-tone syntax highlighting */
+  .cm { color: var(--syn-comment); }
+  .kw { color: var(--syn-keyword); }
+  .ty { color: var(--syn-type); }
+  .st { color: var(--syn-string); }
+  .nm { color: var(--syn-number); }
+  .fn { color: #b55a30; }
+  .pp { color: var(--syn-preprocessor); }
   .label {
     position: absolute;
-    top: 0.4rem; right: 0.8rem;
+    top: 0.5rem; right: 1rem;
     font-size: 11px;
-    font-weight: 510;
-    letter-spacing: 0.04em;
+    font-weight: 600;
+    letter-spacing: 1.08px;
     color: var(--text-dim);
     opacity: 0.6;
+    text-transform: uppercase;
+    font-family: 'Roobert', 'Inter', sans-serif;
   }
 
-  /* === DIAGRAM === */
+  /* === DIAGRAM — Clay card === */
   .diagram {
     background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1.5rem;
+    border: 1px dashed var(--border);
+    border-radius: 24px;
+    padding: 1.8rem;
     margin: 1.5rem 0;
     overflow-x: auto;
+    box-shadow: var(--clay-shadow);
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+  }
+  .diagram:hover {
+    box-shadow: var(--clay-shadow-lifted);
+    transform: translateY(-2px);
   }
   .diagram pre {
     background: none;
@@ -250,47 +388,59 @@
     font-size: 13px;
     line-height: 1.45;
     color: var(--text-secondary);
+    box-shadow: none;
+    border-radius: 0;
+  }
+  .diagram pre:hover {
+    box-shadow: none;
+    transform: none;
   }
   .diagram pre code { color: var(--text-secondary); }
   .diagram-label {
-    font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    font-family: 'Roobert', 'Inter', sans-serif;
+    font-feature-settings: "ss03", "ss10", "ss11", "ss12";
     font-size: 12px;
-    font-weight: 510;
-    letter-spacing: 0.04em;
+    font-weight: 600;
+    letter-spacing: 1.08px;
     color: var(--text-dim);
     text-transform: uppercase;
     margin-bottom: 0.8rem;
     display: block;
   }
 
-  /* === POWER BOX (insight) === */
+  /* === POWER BOX (insight) — Clay cards === */
   .power {
-    background: rgba(94,106,210,0.06);
-    border: 1px solid rgba(94,106,210,0.15);
-    border-left: 3px solid var(--brand);
-    padding: 1.2rem 1.4rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--ube-800);
+    padding: 1.4rem 1.6rem;
     margin: 1.5rem 0;
-    border-radius: 0 8px 8px 0;
+    border-radius: 0 24px 24px 0;
+    box-shadow: var(--clay-shadow);
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+  }
+  .power:hover {
+    box-shadow: var(--clay-shadow-lifted);
+    transform: translateY(-2px);
   }
   .power-label {
-    font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 12px;
-    font-weight: 590;
-    letter-spacing: -0.13px;
-    color: var(--accent);
-    margin-bottom: 0.3rem;
+    font-family: 'Roobert', 'Inter', sans-serif;
+    font-feature-settings: "ss01", "ss03", "ss10", "ss11", "ss12";
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.14px;
+    color: var(--ube-800);
+    margin-bottom: 0.4rem;
   }
-  .power p { margin-bottom: 0; font-size: 14px; color: var(--text-muted); }
-  .power.danger { border-left-color: var(--red); background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.15); }
-  .power.danger .power-label { color: var(--red); }
-  .power.hack { border-left-color: var(--accent-hover); background: rgba(130,143,255,0.06); border-color: rgba(130,143,255,0.15); }
-  .power.hack .power-label { color: var(--accent-hover); }
-  .power.wild { border-left-color: var(--orange); background: rgba(249,115,22,0.06); border-color: rgba(249,115,22,0.15); }
-  .power.wild .power-label { color: var(--orange); }
-  .power.zen { border-left-color: var(--emerald); background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.15); }
-  .power.zen .power-label { color: var(--emerald); }
+  .power p { margin-bottom: 0; font-size: 15px; color: var(--text-muted); }
+  .power.danger { border-left-color: var(--pomegranate-400); }
+  .power.danger .power-label { color: #c0404a; }
+  .power.hack { border-left-color: var(--slushie-800); }
+  .power.hack .power-label { color: var(--slushie-800); }
+  .power.wild { border-left-color: var(--lemon-700); }
+  .power.wild .power-label { color: var(--lemon-700); }
+  .power.zen { border-left-color: var(--matcha-600); }
+  .power.zen .power-label { color: var(--matcha-600); }
 
   /* === MEMORY VIS === */
   .mem-row {
@@ -304,76 +454,85 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 9px;
-    font-weight: 600;
-    border-radius: 4px;
+    font-weight: 700;
+    border-radius: 6px;
   }
-  .mc.g { background: var(--brand); color: #fff; }
-  .mc.c { background: var(--accent); color: #fff; }
-  .mc.m { background: var(--accent-hover); color: var(--bg); }
-  .mc.o { background: var(--orange); color: var(--bg); }
-  .mc.r { background: var(--red); color: #fff; }
-  .mc.y { background: var(--yellow); color: var(--bg); }
-  .mc.b { background: var(--accent); color: #fff; }
+  .mc.g { background: var(--matcha-600); color: #fff; }
+  .mc.c { background: var(--slushie-800); color: #fff; }
+  .mc.m { background: var(--ube-300); color: var(--text); }
+  .mc.o { background: var(--lemon-500); color: var(--text); }
+  .mc.r { background: var(--pomegranate-400); color: #fff; }
+  .mc.y { background: var(--lemon-700); color: #fff; }
+  .mc.b { background: var(--blueberry-800); color: #fff; }
   .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
-  .mc.e { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
   .mc.w { background: var(--text); color: var(--bg); }
-  .mc.p { background: var(--accent-hover); color: #fff; }
+  .mc.p { background: var(--ube-800); color: #fff; }
 
-  /* === TABLE === */
+  /* === TABLE — Clay style === */
   table {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     margin: 1.2rem 0;
     font-size: 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: var(--clay-shadow);
   }
   th {
-    font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    font-family: 'Roobert', 'Inter', sans-serif;
+    font-feature-settings: "ss03", "ss10", "ss11", "ss12";
     font-size: 12px;
-    font-weight: 510;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-dim);
+    letter-spacing: 1.08px;
+    color: var(--text-muted);
     text-align: left;
-    padding: 0.6rem 0.7rem;
+    padding: 0.8rem 1rem;
     border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
   }
   td {
-    padding: 0.5rem 0.7rem;
+    padding: 0.6rem 1rem;
     border-bottom: 1px solid var(--border-subtle);
     vertical-align: top;
     color: var(--text-secondary);
   }
-  tr:hover { background: rgba(255,255,255,0.02); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg-hover); }
 
-  /* === EXPANDABLE === */
+  /* === EXPANDABLE — Clay card === */
   details {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 18px;
     margin: 1rem 0;
     overflow: hidden;
+    box-shadow: var(--clay-shadow);
   }
   details summary {
-    padding: 0.75rem 1.1rem;
+    padding: 0.85rem 1.3rem;
     cursor: pointer;
-    font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    font-family: 'Roobert', 'Inter', sans-serif;
+    font-feature-settings: "ss03", "ss10", "ss11", "ss12";
     font-size: 14px;
-    font-weight: 510;
+    font-weight: 500;
     color: var(--text);
     user-select: none;
-    transition: background 0.15s;
-    letter-spacing: -0.182px;
+    transition: background 0.2s;
+    letter-spacing: -0.16px;
   }
-  details summary:hover { background: rgba(255,255,255,0.03); }
+  details summary:hover { background: var(--bg-hover); }
   details[open] summary { border-bottom: 1px solid var(--border-subtle); }
-  details .det { padding: 1.1rem; }
+  details .det { padding: 1.3rem; }
   details pre { margin: 0.8rem 0; }
 
-  /* === COMPARISON === */
+  /* === COMPARISON — Clay cards === */
   .vs {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -383,12 +542,18 @@
   .vs-col {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1.1rem;
+    border-radius: 24px;
+    padding: 1.4rem;
+    box-shadow: var(--clay-shadow);
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+  }
+  .vs-col:hover {
+    box-shadow: var(--clay-shadow-lifted);
+    transform: translateY(-2px);
   }
   .vs-col h4 { margin-top: 0; }
 
-  /* === GLITCH TEXT — replaced with clean Linear animation === */
+  /* === GLITCH — clean Clay style === */
   .glitch {
     position: relative;
     display: inline-block;
@@ -397,63 +562,67 @@
     content: none;
   }
 
-  /* === TICKER === */
+  /* === TICKER — Clay pill badge === */
   .ticker {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 12px;
-    font-weight: 500;
-    color: var(--accent);
-    background: rgba(94,106,210,0.08);
-    border: 1px solid rgba(94,106,210,0.2);
-    border-radius: 6px;
-    padding: 0.5rem 1rem;
+    font-weight: 400;
+    color: var(--text-muted);
+    background: var(--bg-card);
+    border: 1px dashed var(--border);
+    border-radius: 1584px;
+    padding: 0.6rem 1.2rem;
     margin: 1rem 0;
     display: inline-block;
-    text-shadow: none;
+    box-shadow: var(--clay-shadow);
   }
 
   /* === RESPONSIVE === */
   @media (max-width: 700px) {
     .vs { grid-template-columns: 1fr; }
-    .hero h1 { font-size: 32px; letter-spacing: -0.704px; }
+    .hero h1 { font-size: 36px; letter-spacing: -1.44px; }
     .content { padding: 4rem 1rem 4rem; }
-    nav { font-size: 12px; gap: 0; padding: 0 1rem; }
+    nav { font-size: 13px; gap: 0; padding: 0 1rem; top: 8px; border-radius: 24px; }
   }
 
-  /* === LANGUAGE TABS === */
+  /* === LANGUAGE TABS — Clay style === */
   .lang-tabs {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 18px;
     margin: 1.2rem 0;
     overflow: hidden;
+    box-shadow: var(--clay-shadow);
   }
   .lang-tabs input[type="radio"] { display: none; }
   .lang-tabs label {
     display: inline-block;
-    padding: 0.55rem 1.2rem;
-    font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
+    padding: 0.6rem 1.2rem;
+    font-family: 'Roobert', 'Inter', sans-serif;
+    font-feature-settings: "ss03", "ss10", "ss11", "ss12";
     font-size: 13px;
-    font-weight: 510;
+    font-weight: 500;
     letter-spacing: -0.13px;
     text-transform: none;
     color: var(--text-dim);
     cursor: pointer;
     border-bottom: 2px solid transparent;
-    transition: color 0.15s, border-color 0.15s;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+    border-radius: 12px 12px 0 0;
   }
-  .lang-tabs label:hover { color: var(--text); }
+  .lang-tabs label:hover { color: var(--text); background: var(--bg-hover); }
   .lang-tabs input[type="radio"]:checked + label {
     color: var(--text);
-    border-bottom-color: var(--accent);
+    border-bottom-color: var(--ube-800);
+    background: var(--bg-surface);
   }
   .lang-tabs .tab-bar {
     border-bottom: 1px solid var(--border-subtle);
     padding: 0 0.5rem;
   }
   .lang-tabs .tab-content { display: none; }
-  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; box-shadow: none; }
+  .lang-tabs .tab-content pre:hover { transform: none; box-shadow: none; }
   /* Class-based selectors (existing tab groups) */
   .lang-tabs input.tc:checked ~ .tab-content.c,
   .lang-tabs input.tpy:checked ~ .tab-content.py,
@@ -466,65 +635,89 @@
   .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
   .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3) {
     color: var(--text);
-    background: rgba(113,112,255,0.06);
-    border-bottom: 2px solid var(--accent);
+    background: var(--bg-surface);
+    border-bottom: 2px solid var(--ube-800);
   }
 
-  /* === TRY-THIS BOX === */
+  /* === TRY-THIS BOX — Clay card === */
   .try-this {
-    background: rgba(16,185,129,0.06);
-    border: 1px solid rgba(16,185,129,0.15);
-    border-left: 3px solid var(--emerald);
-    padding: 1rem 1.2rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--matcha-600);
+    padding: 1.2rem 1.4rem;
     margin: 1.5rem 0;
-    border-radius: 0 8px 8px 0;
+    border-radius: 0 24px 24px 0;
+    box-shadow: var(--clay-shadow);
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+  }
+  .try-this:hover {
+    box-shadow: var(--clay-shadow-lifted);
+    transform: translateY(-2px);
   }
   .try-this .try-label {
-    font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 12px;
-    font-weight: 590;
-    letter-spacing: -0.13px;
-    color: var(--emerald);
+    font-family: 'Roobert', 'Inter', sans-serif;
+    font-feature-settings: "ss01", "ss03", "ss10", "ss11", "ss12";
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.14px;
+    color: var(--matcha-600);
     margin-bottom: 0.5rem;
   }
   .try-this pre {
     margin: 0.5rem 0 0;
     font-size: 12.5px;
   }
-  .try-this p { font-size: 14px; margin-bottom: 0.5rem; color: var(--text-muted); }
+  .try-this p { font-size: 15px; margin-bottom: 0.5rem; color: var(--text-muted); }
 
-  /* === LANG-NOTE BOX === */
+  /* === LANG-NOTE BOX — Clay card === */
   .lang-note {
-    background: rgba(94,106,210,0.06);
-    border: 1px solid rgba(94,106,210,0.15);
-    border-left: 3px solid var(--brand);
-    padding: 1rem 1.2rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--ube-800);
+    padding: 1.2rem 1.4rem;
     margin: 1.2rem 0;
-    border-radius: 0 8px 8px 0;
+    border-radius: 0 24px 24px 0;
     font-size: 14px;
+    box-shadow: var(--clay-shadow);
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+  }
+  .lang-note:hover {
+    box-shadow: var(--clay-shadow-lifted);
+    transform: translateY(-2px);
   }
   .lang-note .lang-note-label {
-    font-family: 'Inter', sans-serif;
-    font-feature-settings: 'cv01', 'ss03';
-    font-size: 12px;
-    font-weight: 590;
-    letter-spacing: -0.13px;
-    color: var(--accent);
+    font-family: 'Roobert', 'Inter', sans-serif;
+    font-feature-settings: "ss01", "ss03", "ss10", "ss11", "ss12";
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.14px;
+    color: var(--ube-800);
     margin-bottom: 0.3rem;
   }
 
-  /* === SCROLLBAR — subtle Linear style === */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+  /* === SCROLLBAR — warm Clay === */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg-surface); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
 
   /* === SELECTION === */
-  ::selection { background: rgba(94,106,210,0.3); color: var(--text); }
+  ::selection { background: rgba(193,176,255,0.35); color: var(--text); }
+
+  /* === LINKS inside content === */
+  a[style] { color: var(--slushie-800) !important; }
+
+  /* === Inline color overrides for mem-row annotations === */
+  .content p[style] span[style] { font-weight: 500; }
 </style>
 </head>
 <body>
+
+<!-- Floating blob decorations -->
+<div class="blob-1"></div>
+<div class="blob-2"></div>
+<div class="blob-3"></div>
+<div class="blob-4"></div>
 
 <nav>
   <span class="nav-title">&gt;_ SYSCALLS</span>
@@ -551,7 +744,7 @@
 
 <!-- ============================================================ -->
 <section id="ch1">
-<h2>// 01 &mdash; the boundary</h2>
+<h2><span class="section-badge boundary">&#x1F9F1;</span>// 01 &mdash; the boundary</h2>
 
 <p class="drop-cap">Your process lives in a cage. It can see its own memory, run its own instructions, touch its own stack. But the moment it wants to talk to the outside world &mdash; read a file, send a packet, allocate memory from the OS &mdash; it has to <em>ask permission</em>. The CPU enforces this with hardware privilege levels. On x86-64, your code runs in Ring 3 (user mode). The kernel runs in Ring 0 (supervisor mode). There is no way to cheat. The silicon itself checks every instruction.</p>
 
@@ -713,7 +906,7 @@
   <div class="mc e">&nbsp;</div>
   <div class="mc g">RDX</div><div class="mc o">5</div>
 </div>
-<p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">RAX=<span style="color:var(--yellow);">write(1)</span> &bull; RDI=<span style="color:var(--cyan);">stdout</span> &bull; RSI=<span style="color:var(--magenta);">buf ptr</span> &bull; RDX=<span style="color:var(--orange);">count</span></p>
+<p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">RAX=<span style="color:var(--lemon-700);">write(1)</span> &bull; RDI=<span style="color:var(--slushie-800);">stdout</span> &bull; RSI=<span style="color:var(--ube-300);">buf ptr</span> &bull; RDX=<span style="color:var(--lemon-500);">count</span></p>
 
 <h4>After SYSRET</h4>
 <div class="mem-row">
@@ -723,13 +916,13 @@
   <div class="mc e">&nbsp;</div>
   <div class="mc g">R11</div><div class="mc r">????</div>
 </div>
-<p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">RAX=<span style="color:var(--yellow);">5 (bytes written)</span> &bull; RCX,R11=<span style="color:var(--red);">clobbered</span></p>
+<p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">RAX=<span style="color:var(--lemon-700);">5 (bytes written)</span> &bull; RCX,R11=<span style="color:var(--pomegranate-400);">clobbered</span></p>
 
 </section>
 
 <!-- ============================================================ -->
 <section id="ch2">
-<h2>// 02 &mdash; strace: x-ray vision</h2>
+<h2><span class="section-badge strace">&#x1F50D;</span>// 02 &mdash; strace: x-ray vision</h2>
 
 <p class="drop-cap">Before you optimize syscalls, you need to see them. <code>strace</code> intercepts every syscall your program makes and prints it. It is, without exaggeration, the single most powerful debugging tool most programmers never use. Segfault? strace. Program hangs? strace. Slow startup? strace. Permission denied but you don't know which file? <em>strace</em>.</p>
 
@@ -900,7 +1093,7 @@ $ strace -c python3 app.py 2&gt;&amp;1 | tail -1</code></pre>
 
 <!-- ============================================================ -->
 <section id="ch3">
-<h2>// 03 &mdash; file I/O: the layers</h2>
+<h2><span class="section-badge fileio">&#x1F4C2;</span>// 03 &mdash; file I/O: the layers</h2>
 
 <p class="drop-cap">When you call <code>write(fd, buf, 4096)</code>, you probably think the data goes to disk. It doesn't. It goes to the page cache &mdash; a region of RAM managed by the kernel. The actual disk write happens later, maybe seconds later, maybe never if you crash first. Understanding these layers is the difference between code that "works" and code that is correct and fast.</p>
 
@@ -1031,7 +1224,7 @@ $ strace -c python3 app.py 2&gt;&amp;1 | tail -1</code></pre>
 
 <!-- ============================================================ -->
 <section id="ch4">
-<h2>// 04 &mdash; mmap deep dive</h2>
+<h2><span class="section-badge mmap">&#x1F9F1;</span>// 04 &mdash; mmap deep dive</h2>
 
 <p class="drop-cap">Most people think <code>mmap()</code> is "map a file to memory." That's like saying a car is "a thing with wheels." mmap is a virtual memory manipulation primitive. It creates a mapping in your process's page table that says "this range of virtual addresses corresponds to this thing." The "thing" can be a file, anonymous memory, a device, or shared memory with another process. And here's the real kicker: <em>no physical memory is allocated when you call mmap</em>.</p>
 
@@ -1135,13 +1328,13 @@ $ strace -c python3 app.py 2&gt;&amp;1 | tail -1</code></pre>
   <div class="mc y">PFN</div><div class="mc y">PFN</div><div class="mc y">PFN</div><div class="mc y">PFN</div><div class="mc y">PFN</div>
 </div>
 <p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">
-<span style="color:var(--blue);">P</span>=Present &bull;
-<span style="color:var(--cyan);">R</span>=Readable &bull;
+<span style="color:var(--blueberry-800);">P</span>=Present &bull;
+<span style="color:var(--slushie-800);">R</span>=Readable &bull;
 W=Writable(no) &bull;
 X=Executable(no) &bull;
-<span style="color:var(--green);">A</span>=Accessed &bull;
+<span style="color:var(--matcha-600);">A</span>=Accessed &bull;
 D=Dirty(no) &bull;
-<span style="color:var(--yellow);">PFN</span>=Physical Frame Number
+<span style="color:var(--lemon-700);">PFN</span>=Physical Frame Number
 </p>
 
 <div class="power hack">
@@ -1214,7 +1407,7 @@ mm.close(); os.close(fd)
 
 <!-- ============================================================ -->
 <section id="ch5">
-<h2>// 05 &mdash; epoll: the reactor pattern</h2>
+<h2><span class="section-badge epoll">&#x1F310;</span>// 05 &mdash; epoll: the reactor pattern</h2>
 
 <p class="drop-cap">How does nginx handle 10,000 concurrent connections with a single thread? It doesn't use 10,000 threads. It uses one thread, one <code>epoll</code> instance, and the reactor pattern. The idea: register interest in events (data available on socket, connection incoming, timer expired), then sleep. The kernel wakes you up only when something actually happens. Zero CPU wasted on polling.</p>
 
@@ -1364,11 +1557,11 @@ ev.data.fd = client_fd;     <span class="cm">// Which FD this event is about</sp
 
 <table>
 <tr><th>FD Count</th><th>select()</th><th>poll()</th><th>epoll (10% active)</th><th>epoll (1% active)</th></tr>
-<tr><td>100</td><td>~3 μs</td><td>~3 μs</td><td>~1 μs</td><td>~0.5 μs</td></tr>
-<tr><td>1,000</td><td>~30 μs</td><td>~25 μs</td><td>~2 μs</td><td>~0.5 μs</td></tr>
-<tr><td>10,000</td><td>N/A (1024 limit)</td><td>~250 μs</td><td>~15 μs</td><td>~2 μs</td></tr>
-<tr><td>100,000</td><td>N/A</td><td>~2.5 ms</td><td>~150 μs</td><td>~15 μs</td></tr>
-<tr><td>1,000,000</td><td>N/A</td><td>~25 ms</td><td>~1.5 ms</td><td>~150 μs</td></tr>
+<tr><td>100</td><td>~3 &mu;s</td><td>~3 &mu;s</td><td>~1 &mu;s</td><td>~0.5 &mu;s</td></tr>
+<tr><td>1,000</td><td>~30 &mu;s</td><td>~25 &mu;s</td><td>~2 &mu;s</td><td>~0.5 &mu;s</td></tr>
+<tr><td>10,000</td><td>N/A (1024 limit)</td><td>~250 &mu;s</td><td>~15 &mu;s</td><td>~2 &mu;s</td></tr>
+<tr><td>100,000</td><td>N/A</td><td>~2.5 ms</td><td>~150 &mu;s</td><td>~15 &mu;s</td></tr>
+<tr><td>1,000,000</td><td>N/A</td><td>~25 ms</td><td>~1.5 ms</td><td>~150 &mu;s</td></tr>
 </table>
 
 <div class="diagram">
@@ -1376,7 +1569,7 @@ ev.data.fd = client_fd;     <span class="cm">// Which FD this event is about</sp
 <pre><code>
   Cost per
   epoll_wait    poll(): cost grows linearly
-  return (μs)   with TOTAL fd count
+  return (&mu;s)   with TOTAL fd count
                 /
   25 ┤         /
      │        /
@@ -1498,7 +1691,7 @@ server.<span class="fn">listen</span>(<span class="nm">8080</span>, () => {
 
 <!-- ============================================================ -->
 <section id="ch6">
-<h2>// 06 &mdash; io_uring: the revolution</h2>
+<h2><span class="section-badge iouring">&#x1F501;</span>// 06 &mdash; io_uring: the revolution</h2>
 
 <p class="drop-cap">Everything we've discussed so far has a fundamental problem: every I/O operation requires a syscall, and every syscall costs ~200ns of overhead (mode switch, register save/restore, TLB flush, spectre mitigations). If you're doing 100,000 small reads per second, that's 20ms of pure overhead. io_uring, introduced in Linux 5.1 (2019) by Jens Axboe, eliminates this entirely. After initial setup, you can submit I/O operations <em>without any syscalls at all</em>.</p>
 
@@ -1562,14 +1755,14 @@ server.<span class="fn">listen</span>(<span class="nm">8080</span>, () => {
   <div class="mc w">ud</div><div class="mc w">ud</div><div class="mc w">ud</div><div class="mc w">ud</div>
 </div>
 <p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">
-<span style="color:var(--magenta);">op</span>=opcode &bull;
-<span style="color:var(--cyan);">flg</span>=flags &bull;
-<span style="color:var(--green);">fd</span>=file descriptor &bull;
-<span style="color:var(--orange);">off</span>=file offset &bull;
-<span style="color:var(--yellow);">adr</span>=buffer address &bull;
-<span style="color:var(--cyan);">len</span>=length &bull;
-<span style="color:var(--purple);">flg</span>=op flags &bull;
-<span style="color:var(--white);">ud</span>=user_data (your tag, returned in CQE)
+<span style="color:var(--ube-300);">op</span>=opcode &bull;
+<span style="color:var(--slushie-800);">flg</span>=flags &bull;
+<span style="color:var(--matcha-600);">fd</span>=file descriptor &bull;
+<span style="color:var(--lemon-500);">off</span>=file offset &bull;
+<span style="color:var(--lemon-700);">adr</span>=buffer address &bull;
+<span style="color:var(--slushie-800);">len</span>=length &bull;
+<span style="color:var(--ube-800);">flg</span>=op flags &bull;
+<span style="color:var(--text);">ud</span>=user_data (your tag, returned in CQE)
 </p>
 
 <h3>Memory Cell View: Completion Queue Entry (CQE)</h3>
@@ -1584,9 +1777,9 @@ server.<span class="fn">listen</span>(<span class="nm">8080</span>, () => {
   <div class="mc c">flg</div><div class="mc c">flg</div><div class="mc c">flg</div><div class="mc c">flg</div>
 </div>
 <p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">
-<span style="color:var(--white);">ud</span>=user_data (matches your SQE tag) &bull;
-<span style="color:var(--green);">res</span>=result (bytes read, or -errno) &bull;
-<span style="color:var(--cyan);">flg</span>=flags
+<span style="color:var(--text);">ud</span>=user_data (matches your SQE tag) &bull;
+<span style="color:var(--matcha-600);">res</span>=result (bytes read, or -errno) &bull;
+<span style="color:var(--slushie-800);">flg</span>=flags
 </p>
 
 <h3>io_uring Operations</h3>
@@ -1793,10 +1986,10 @@ sqe->user_data = <span class="nm">3</span>;
               Queue Depth
 
   read() plateaus at ~300K IOPS — each I/O needs a
-  full syscall round-trip (~3μs). The syscall itself
+  full syscall round-trip (~3&mu;s). The syscall itself
   becomes the bottleneck, not the NVMe device.
 
-  io_uring saturates the NVMe at QD≥128 because
+  io_uring saturates the NVMe at QD>=128 because
   submissions are batched (amortized syscall cost)
   and the NVMe can process all entries in parallel.
 </code></pre>
@@ -1806,11 +1999,11 @@ sqe->user_data = <span class="nm">3</span>;
 
 <table>
 <tr><th>Method</th><th>p50</th><th>p99</th><th>p999</th><th>Notes</th></tr>
-<tr><td>read() @ QD1</td><td>~50 μs</td><td>~120 μs</td><td>~500 μs</td><td>Consistent but slow</td></tr>
-<tr><td>read() @ QD32</td><td>~80 μs</td><td>~300 μs</td><td>~2 ms</td><td>Queuing delays grow</td></tr>
-<tr><td>io_uring @ QD32</td><td>~12 μs</td><td>~45 μs</td><td>~200 μs</td><td>Batching cuts overhead</td></tr>
-<tr><td>io_uring @ QD128</td><td>~15 μs</td><td>~60 μs</td><td>~350 μs</td><td>Near-NVMe latency</td></tr>
-<tr><td>io_uring+SQPOLL @ QD128</td><td>~8 μs</td><td>~25 μs</td><td>~150 μs</td><td>Zero syscall overhead</td></tr>
+<tr><td>read() @ QD1</td><td>~50 &mu;s</td><td>~120 &mu;s</td><td>~500 &mu;s</td><td>Consistent but slow</td></tr>
+<tr><td>read() @ QD32</td><td>~80 &mu;s</td><td>~300 &mu;s</td><td>~2 ms</td><td>Queuing delays grow</td></tr>
+<tr><td>io_uring @ QD32</td><td>~12 &mu;s</td><td>~45 &mu;s</td><td>~200 &mu;s</td><td>Batching cuts overhead</td></tr>
+<tr><td>io_uring @ QD128</td><td>~15 &mu;s</td><td>~60 &mu;s</td><td>~350 &mu;s</td><td>Near-NVMe latency</td></tr>
+<tr><td>io_uring+SQPOLL @ QD128</td><td>~8 &mu;s</td><td>~25 &mu;s</td><td>~150 &mu;s</td><td>Zero syscall overhead</td></tr>
 </table>
 
 <div class="power">
@@ -1831,7 +2024,7 @@ sqe->user_data = <span class="nm">3</span>;
 <div class="lang-note">
 <div class="lang-note-label">Language Note: io_uring Availability</div>
 <p><strong>Python:</strong> No standard library support. <code>liburing-cffi</code> provides bindings but is rarely used — most Python I/O is too high-level to benefit. <code>asyncio</code> with epoll is the practical path.</p>
-<p><strong>TypeScript/Node:</strong> No direct io_uring support. Node's <code>libuv</code> uses a thread pool for file I/O and epoll for sockets. There's an experimental <a href="https://github.com/nicolo-ribaudo/libuv/pull/1" style="color:var(--cyan);">libuv io_uring patch</a> but it's not merged.</p>
+<p><strong>TypeScript/Node:</strong> No direct io_uring support. Node's <code>libuv</code> uses a thread pool for file I/O and epoll for sockets. There's an experimental <a href="https://github.com/nicolo-ribaudo/libuv/pull/1" style="color:var(--slushie-800);">libuv io_uring patch</a> but it's not merged.</p>
 <p><strong>Rust:</strong> <code>tokio-uring</code> and <code>glommio</code> provide io_uring-native async runtimes.</p>
 <p><strong>Go:</strong> The runtime uses epoll for network I/O. io_uring support is not built-in but available via <code>iceber/iouring-go</code>.</p>
 </div>
@@ -1840,7 +2033,7 @@ sqe->user_data = <span class="nm">3</span>;
 
 <!-- ============================================================ -->
 <section id="ch7">
-<h2>// 07 &mdash; sendfile &amp; splice: zero-copy networking</h2>
+<h2><span class="section-badge zerocopy">&#x26A1;</span>// 07 &mdash; sendfile &amp; splice: zero-copy networking</h2>
 
 <p class="drop-cap">Here's a dirty secret about serving files over the network: the naive approach copies your data <em>four times</em>. Disk to kernel buffer. Kernel buffer to userspace buffer. Userspace buffer back to kernel socket buffer. Socket buffer to NIC. Four copies. Two of them are completely pointless. <code>sendfile()</code> eliminates the userspace copies entirely.</p>
 
@@ -2020,9 +2213,9 @@ server.<span class="fn">listen</span>(<span class="nm">8080</span>);
 
 <table>
 <tr><th>File Size</th><th>read()+write()</th><th>sendfile()</th><th>splice()</th><th>Speedup</th></tr>
-<tr><td>1 KB</td><td>~8 μs</td><td>~5 μs</td><td>~5 μs</td><td>1.6x</td></tr>
-<tr><td>64 KB</td><td>~25 μs</td><td>~12 μs</td><td>~11 μs</td><td>2.1x</td></tr>
-<tr><td>1 MB</td><td>~250 μs</td><td>~120 μs</td><td>~110 μs</td><td>2.1x</td></tr>
+<tr><td>1 KB</td><td>~8 &mu;s</td><td>~5 &mu;s</td><td>~5 &mu;s</td><td>1.6x</td></tr>
+<tr><td>64 KB</td><td>~25 &mu;s</td><td>~12 &mu;s</td><td>~11 &mu;s</td><td>2.1x</td></tr>
+<tr><td>1 MB</td><td>~250 &mu;s</td><td>~120 &mu;s</td><td>~110 &mu;s</td><td>2.1x</td></tr>
 <tr><td>100 MB</td><td>~28 ms</td><td>~13 ms</td><td>~12 ms</td><td>2.2x</td></tr>
 <tr><td>1 GB</td><td>~290 ms</td><td>~130 ms</td><td>~115 ms</td><td>2.3x</td></tr>
 </table>
@@ -2071,7 +2264,7 @@ server.<span class="fn">listen</span>(<span class="nm">8080</span>);
 
 <!-- ============================================================ -->
 <section id="ch8">
-<h2>// 08 &mdash; seccomp: syscall firewall</h2>
+<h2><span class="section-badge seccomp">&#x1F6E1;</span>// 08 &mdash; seccomp: syscall firewall</h2>
 
 <p class="drop-cap">What if you could tell the kernel: "this process is only allowed to use read, write, mmap, and exit. If it tries anything else, kill it immediately." That is seccomp. It is a BPF program that runs <em>before</em> every syscall, inspecting the syscall number and arguments, and deciding whether to allow it, block it, or terminate the process. Docker, Chrome, and Firefox all use seccomp to sandbox untrusted code.</p>
 
@@ -2192,7 +2385,7 @@ server.<span class="fn">listen</span>(<span class="nm">8080</span>);
 
 <!-- ============================================================ -->
 <section id="ch9">
-<h2>// 09 &mdash; eBPF: code in the kernel</h2>
+<h2><span class="section-badge ebpf">&#x1F52C;</span>// 09 &mdash; eBPF: code in the kernel</h2>
 
 <p class="drop-cap">What if you could write a small program, prove it is safe, and then run it <em>inside the kernel</em> at native speed? Not a kernel module (which can crash the entire system), but a verified, sandboxed program that the kernel guarantees will terminate and will not access invalid memory. That is eBPF, and it is the most powerful observability and networking feature in modern Linux. It is eating everything.</p>
 
@@ -2332,7 +2525,7 @@ END {
 
 <!-- ============================================================ -->
 <section id="ch10">
-<h2>// 10 &mdash; vDSO: syscalls without syscalls</h2>
+<h2><span class="section-badge vdso">&#x23F1;</span>// 10 &mdash; vDSO: syscalls without syscalls</h2>
 
 <p class="drop-cap">Some syscalls are called <em>billions</em> of times per second across all processes on a system. <code>gettimeofday()</code> and <code>clock_gettime()</code> are the biggest offenders. Every log line, every timeout check, every performance measurement calls them. If each one cost 200ns of syscall overhead, the entire system would grind to a halt. The kernel's solution is elegant: don't make them syscalls at all.</p>
 
@@ -2498,7 +2691,7 @@ console.<span class="fn">log</span>(<span class="st">`hrtime: ${Number(elapsed) 
 
 <!-- ============================================================ -->
 <section id="ch11">
-<h2>// 11 &mdash; the benchmark</h2>
+<h2><span class="section-badge benchmark">&#x26A1;</span>// 11 &mdash; the benchmark</h2>
 
 <p class="drop-cap">Theory is nice. Numbers are better. Let's measure the actual costs of everything we've discussed. This is the chapter that turns architectural intuition into engineering decisions. Every number here is measurable on your own hardware. Run these benchmarks, get your own numbers, and you'll know <em>exactly</em> what to optimize.</p>
 
@@ -2692,13 +2885,13 @@ console.<span class="fn">log</span>(<span class="st">`hrtime: ${Number(elapsed) 
   ✓ = good fit   ~ = marginal   ✗ = overhead not justified
 
   Key ratios:
-  • Syscall overhead (~200ns) vs NVMe latency (~50μs) = 0.4%
+  • Syscall overhead (~200ns) vs NVMe latency (~50&mu;s) = 0.4%
     → Don't optimize syscalls if you're I/O bound on disk
-  • Syscall overhead vs page cache hit (~0.5μs) = 40%
+  • Syscall overhead vs page cache hit (~0.5&mu;s) = 40%
     → DO optimize if data is hot in memory
-  • epoll overhead per event (~0.1μs) vs connection count
+  • epoll overhead per event (~0.1&mu;s) vs connection count
     → epoll wins over poll at ~100+ connections
-  • io_uring setup cost (~50μs) vs batch size
+  • io_uring setup cost (~50&mu;s) vs batch size
     → io_uring wins over read() at ~10+ operations per batch
 </code></pre>
 </div>
@@ -2807,7 +3000,7 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
 
 <!-- ============================================================ -->
 <section id="ch12">
-<h2>// 12 &mdash; power apps: who uses this</h2>
+<h2><span class="section-badge power">&#x1F3ED;</span>// 12 &mdash; power apps: who uses this</h2>
 
 <p class="drop-cap">Theory and benchmarks are valuable, but the real proof is in production. The following software doesn't just <em>use</em> these syscalls &mdash; they're built around them as competitive advantages. Each one found a way to make the kernel do less work, and that decision echoes through every metric that matters: throughput, latency, cost per request.</p>
 
@@ -2935,7 +3128,7 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
 <tr><th>Design Decision</th><th>Implementation</th><th>Effect</th></tr>
 <tr><td>All I/O via io_uring</td><td>Single io_uring instance for all disk + network I/O</td><td>Deterministic I/O scheduling, predictable latency</td></tr>
 <tr><td>Direct I/O (O_DIRECT)</td><td>Bypass page cache entirely</td><td>No kernel caching surprises, consistent performance</td></tr>
-<tr><td>Fixed buffers</td><td>Pre-registered with io_uring_register_buffers</td><td>Kernel skips page pinning per I/O — save ~1μs/op</td></tr>
+<tr><td>Fixed buffers</td><td>Pre-registered with io_uring_register_buffers</td><td>Kernel skips page pinning per I/O — save ~1&mu;s/op</td></tr>
 <tr><td>Zero dynamic allocation</td><td>All memory pre-allocated at startup</td><td>No malloc in hot path, no GC, no OOM surprises</td></tr>
 <tr><td>Deterministic execution</td><td>Single-threaded event loop (like Redis)</td><td>Bit-for-bit reproducible state machine</td></tr>
 </table>
@@ -3130,12 +3323,12 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
   KERNEL NETWORKING:
   NIC ──IRQ──→ [Kernel driver] → [sk_buff alloc] → [netfilter] → [TCP stack]
                  interrupt        kmalloc            iptables      protocol
-                 ~1μs             ~0.5μs             ~0.5μs        ~2μs
+                 ~1&mu;s             ~0.5&mu;s             ~0.5&mu;s        ~2&mu;s
                                           │
                                           └→ [Socket buffer] ──read()──→ Userspace
-                                                                ~0.5μs
+                                                                ~0.5&mu;s
 
-  Total per-packet: ~5-10 μs. Max: ~1M packets/sec/core.
+  Total per-packet: ~5-10 &mu;s. Max: ~1M packets/sec/core.
 
   DPDK:
   NIC ──DMA──→ [Shared memory ring buffer]
@@ -3154,7 +3347,7 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
 <table>
 <tr><th>Metric</th><th>Kernel Stack</th><th>DPDK</th></tr>
 <tr><td>Packets/sec/core</td><td>~1M</td><td>~80M+</td></tr>
-<tr><td>Latency per packet</td><td>~5-10 μs</td><td>~50-100 ns</td></tr>
+<tr><td>Latency per packet</td><td>~5-10 &mu;s</td><td>~50-100 ns</td></tr>
 <tr><td>CPU usage model</td><td>Interrupt-driven (efficient)</td><td>Busy-polling (burns core)</td></tr>
 <tr><td>Kernel features</td><td>Full (iptables, tc, etc.)</td><td>None (app handles everything)</td></tr>
 <tr><td>Use case</td><td>General purpose</td><td>Telecom, finance, packet processing</td></tr>
@@ -3253,7 +3446,7 @@ $ strace -c ./reader_v2 data.shard 2&gt;&amp;1 | tail -1
   syscall: recvfrom(msg3)          process msg16
   process msg3
   ...                              16 messages, 1 syscall.
-  16 messages, 16 syscalls.        Saves ~15 * 200ns = 3μs per batch.
+  16 messages, 16 syscalls.        Saves ~15 * 200ns = 3&mu;s per batch.
 
   At 1M requests/sec:
   Traditional: 1M syscalls/sec = 200ms/sec of overhead

@@ -1,0 +1,2437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Syscalls &amp; io_uring — Talking to the Kernel</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;540;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    /* === SUPERHUMAN DESIGN SYSTEM === */
+    --bg: #ffffff;
+    --bg-hero: #1b1938;
+    --bg-sidebar: #ffffff;
+    --bg-code: #292827;
+    --bg-surface: #f9f8f7;
+    --border: #dcd7d3;
+    --border-subtle: #ece9e5;
+    --text: #292827;
+    --text-secondary: #292827;
+    --text-muted: rgba(41,40,39,0.5);
+    --text-dim: rgba(41,40,39,0.35);
+    --text-on-dark: rgba(255,255,255,0.95);
+    --text-on-dark-secondary: rgba(255,255,255,0.8);
+    --accent: #cbb7fb;
+    --accent-link: #714cb6;
+    --cream: #e9e5dd;
+    --cream-hover: #ddd8cf;
+    --charcoal: #292827;
+
+    /* semantic — mapped from original */
+    --brand: #714cb6;
+    --green: #27a644;
+    --emerald: #10b981;
+    --red: #c0392b;
+    --yellow: #92722a;
+    --orange: #c06014;
+    --cyan: #714cb6;
+    --magenta: #9b59b6;
+    --blue: #714cb6;
+    --purple: #714cb6;
+    --white: #292827;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    font-size: 16px;
+    font-weight: 460;
+    line-height: 1.50;
+    letter-spacing: 0px;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* === READING PROGRESS BAR === */
+  #reading-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 0%;
+    height: 2px;
+    background: var(--accent);
+    z-index: 1000;
+    transition: width 100ms linear;
+  }
+
+  /* === LAYOUT: SPLIT PANE === */
+  .layout {
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* === SIDEBAR TOC === */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 260px;
+    height: 100vh;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    padding: 32px 0;
+    overflow-y: auto;
+    z-index: 50;
+    transition: transform 120ms ease;
+  }
+  .sidebar.collapsed {
+    transform: translateX(-260px);
+  }
+  .sidebar-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.14px;
+    padding: 0 24px;
+    margin-bottom: 24px;
+    line-height: 1.0;
+  }
+  .sidebar-title span {
+    display: block;
+    font-size: 12px;
+    font-weight: 460;
+    color: var(--text-muted);
+    margin-top: 6px;
+    letter-spacing: 0;
+  }
+  .sidebar nav {
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar nav a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 460;
+    padding: 6px 24px;
+    transition: color 100ms, background 100ms;
+    border-left: 2px solid transparent;
+    line-height: 1.3;
+  }
+  .sidebar nav a:hover {
+    color: var(--text);
+    background: var(--bg-surface);
+  }
+  .sidebar nav a.active {
+    color: var(--text);
+    font-weight: 540;
+    border-left-color: var(--accent);
+    background: rgba(203,183,251,0.06);
+  }
+  .sidebar nav a .shortcut {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-dim);
+    background: var(--bg-surface);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .sidebar-toggle {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 60;
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: var(--cream);
+    border-radius: 8px;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: var(--charcoal);
+    transition: background 100ms;
+  }
+  .sidebar-toggle:hover { background: var(--cream-hover); }
+
+  /* === MAIN CONTENT (right pane) === */
+  .main-content {
+    margin-left: 260px;
+    flex: 1;
+    min-width: 0;
+    transition: margin-left 120ms ease;
+  }
+  .main-content.expanded {
+    margin-left: 0;
+  }
+
+  .content {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 0 48px 80px;
+  }
+
+  /* === HERO === */
+  .hero {
+    background: var(--bg-hero);
+    padding: 80px 48px 64px;
+    margin-bottom: 56px;
+    position: relative;
+  }
+  .hero h1 {
+    font-size: 48px;
+    font-weight: 540;
+    color: var(--text-on-dark);
+    line-height: 0.96;
+    letter-spacing: -1.32px;
+    margin-bottom: 16px;
+    max-width: 780px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .hero .subtitle {
+    font-size: 18px;
+    font-weight: 460;
+    color: var(--text-on-dark-secondary);
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.50;
+    letter-spacing: -0.135px;
+  }
+  .hero .read-time {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: rgba(203,183,251,0.15);
+    padding: 4px 10px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    letter-spacing: 0;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--accent);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after { content: none; }
+
+  /* === SECTIONS === */
+  section {
+    margin-bottom: 56px;
+    padding-top: 8px;
+  }
+  h2 {
+    font-size: 32px;
+    font-weight: 540;
+    color: var(--text);
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: -0.704px;
+    line-height: 0.96;
+  }
+  h3 {
+    font-size: 22px;
+    font-weight: 540;
+    color: var(--text);
+    margin: 32px 0 12px;
+    letter-spacing: -0.315px;
+    line-height: 1.14;
+  }
+  h4 {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 24px 0 10px;
+  }
+  p { margin-bottom: 16px; }
+
+  /* === DROP CAP === */
+  .drop-cap::first-letter {
+    float: left;
+    font-size: 3.5rem;
+    line-height: 0.85;
+    padding: 0.05em 0.12em 0 0;
+    color: var(--accent-link);
+    font-weight: 600;
+  }
+
+  /* === CODE === */
+  code {
+    font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 0.82em;
+    background: rgba(41,40,39,0.06);
+    padding: 0.12em 0.4em;
+    border-radius: 4px;
+    color: var(--accent-link);
+  }
+  pre {
+    background: var(--bg-code);
+    border-radius: 8px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: rgba(255,255,255,0.85);
+  }
+  /* Syntax — Superhuman restrained palette */
+  .cm { color: rgba(255,255,255,0.35); }
+  .kw { color: #cbb7fb; }
+  .ty { color: #dbc9fc; }
+  .st { color: #a8d8a8; }
+  .nm { color: #e5c07b; }
+  .fn { color: #cbb7fb; }
+  .pp { color: #e5a070; }
+  .label {
+    position: absolute;
+    top: 0.4rem; right: 0.8rem;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: rgba(255,255,255,0.25);
+  }
+
+  /* === DIAGRAM === */
+  .diagram {
+    background: var(--bg-surface);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 0.8rem;
+    display: block;
+    letter-spacing: 0.04em;
+  }
+
+  /* === POWER BOX (insight) with inline actions === */
+  .power {
+    background: rgba(203,183,251,0.06);
+    border-left: 3px solid var(--accent);
+    padding: 16px 20px;
+    margin: 20px 0;
+    border-radius: 0 8px 8px 0;
+    position: relative;
+  }
+  .power:hover .power-actions {
+    opacity: 1;
+  }
+  .power-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-link);
+    margin-bottom: 4px;
+    letter-spacing: -0.13px;
+  }
+  .power p { margin-bottom: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.50; }
+  .power.danger { border-left-color: var(--red); background: rgba(192,57,43,0.04); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--accent-link); background: rgba(113,76,182,0.04); }
+  .power.hack .power-label { color: var(--accent-link); }
+  .power.wild { border-left-color: var(--orange); background: rgba(192,96,20,0.04); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--emerald); background: rgba(16,185,129,0.04); }
+  .power.zen .power-label { color: var(--emerald); }
+
+  /* Inline action buttons on insight boxes */
+  .power-actions {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 100ms;
+  }
+  .power-actions button {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border: none;
+    background: var(--cream);
+    color: var(--charcoal);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 100ms;
+    line-height: 1.2;
+  }
+  .power-actions button:hover { background: var(--cream-hover); }
+  .power-actions button.bookmarked { background: var(--accent); color: #fff; }
+
+  /* === MEMORY VIS === */
+  .mem-row {
+    display: flex;
+    gap: 2px;
+    margin: 0.4rem 0;
+    flex-wrap: wrap;
+  }
+  .mc {
+    width: 30px; height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    border-radius: 4px;
+  }
+  .mc.g { background: var(--accent-link); color: #fff; }
+  .mc.c { background: var(--accent); color: var(--charcoal); }
+  .mc.m { background: #9b59b6; color: #fff; }
+  .mc.o { background: var(--orange); color: #fff; }
+  .mc.r { background: var(--red); color: #fff; }
+  .mc.y { background: var(--yellow); color: #fff; }
+  .mc.b { background: var(--accent-link); color: #fff; }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--charcoal); color: #fff; }
+  .mc.p { background: var(--accent); color: var(--charcoal); }
+
+  /* === TABLE === */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 14px;
+  }
+  th {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    vertical-align: top;
+    color: var(--text);
+  }
+  tr:hover { background: var(--bg-surface); }
+
+  /* === EXPANDABLE === */
+  details {
+    background: var(--bg-surface);
+    border-radius: 8px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.75rem 1.1rem;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 540;
+    color: var(--text);
+    user-select: none;
+    transition: background 100ms;
+  }
+  details summary:hover { background: rgba(41,40,39,0.03); }
+  details[open] summary { border-bottom: 1px solid var(--border-subtle); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  /* === COMPARISON === */
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 20px 0;
+  }
+  .vs-col {
+    background: var(--bg-surface);
+    border-radius: 16px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  /* === TICKER === */
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent-link);
+    background: rgba(203,183,251,0.08);
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+  }
+
+  /* === LANGUAGE TABS === */
+  .lang-tabs {
+    background: var(--bg-surface);
+    border-radius: 16px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.55rem 1.2rem;
+    font-size: 13px;
+    font-weight: 540;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 100ms, border-color 100ms;
+  }
+  .lang-tabs label:hover { color: var(--text); }
+  .lang-tabs input[type="radio"]:checked + label {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border-radius: 0; }
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts { display: block; }
+  .lang-tabs input:nth-of-type(1):checked ~ .tc1,
+  .lang-tabs input:nth-of-type(2):checked ~ .tc2,
+  .lang-tabs input:nth-of-type(3):checked ~ .tc3 { display: block; }
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3) {
+    color: var(--text);
+    background: rgba(203,183,251,0.06);
+    border-bottom: 2px solid var(--accent);
+  }
+
+  /* === TRY-THIS BOX === */
+  .try-this {
+    background: rgba(16,185,129,0.04);
+    border-left: 3px solid var(--emerald);
+    padding: 1rem 1.2rem;
+    margin: 20px 0;
+    border-radius: 0 8px 8px 0;
+  }
+  .try-this .try-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--emerald);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 14px; margin-bottom: 0.5rem; color: var(--text-secondary); }
+
+  /* === LANG-NOTE BOX === */
+  .lang-note {
+    background: rgba(203,183,251,0.04);
+    border-left: 3px solid var(--accent-link);
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    border-radius: 0 8px 8px 0;
+    font-size: 14px;
+  }
+  .lang-note .lang-note-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-link);
+    margin-bottom: 0.3rem;
+  }
+
+  /* === KEYBOARD SHORTCUT OVERLAY === */
+  .kbd-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(27,25,56,0.85);
+    backdrop-filter: blur(8px);
+    z-index: 500;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .kbd-overlay.visible {
+    display: flex;
+  }
+  .kbd-modal {
+    background: #fff;
+    border-radius: 16px;
+    padding: 32px 40px;
+    max-width: 480px;
+    width: 90%;
+    color: var(--charcoal);
+  }
+  .kbd-modal h3 {
+    font-size: 20px;
+    font-weight: 540;
+    margin: 0 0 20px;
+    letter-spacing: -0.24px;
+  }
+  .kbd-modal .kbd-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 14px;
+  }
+  .kbd-modal .kbd-row:last-child { border-bottom: none; }
+  .kbd-modal kbd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--cream);
+    padding: 3px 8px;
+    border-radius: 4px;
+    color: var(--charcoal);
+    min-width: 24px;
+    text-align: center;
+  }
+  .kbd-modal .kbd-desc {
+    color: var(--text-muted);
+    font-weight: 460;
+  }
+  .kbd-close-hint {
+    text-align: center;
+    margin-top: 16px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  /* === SEARCH OVERLAY === */
+  .search-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(27,25,56,0.6);
+    backdrop-filter: blur(4px);
+    z-index: 400;
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 120px;
+  }
+  .search-overlay.visible {
+    display: flex;
+  }
+  .search-box {
+    background: #fff;
+    border-radius: 16px;
+    padding: 16px 20px;
+    max-width: 520px;
+    width: 90%;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.15);
+  }
+  .search-box input {
+    width: 100%;
+    border: none;
+    outline: none;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 16px;
+    font-weight: 460;
+    color: var(--charcoal);
+    background: transparent;
+    letter-spacing: -0.135px;
+  }
+  .search-box input::placeholder {
+    color: var(--text-dim);
+  }
+  .search-results {
+    margin-top: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .search-results a {
+    display: block;
+    padding: 8px 12px;
+    font-size: 14px;
+    color: var(--text);
+    text-decoration: none;
+    border-radius: 8px;
+    transition: background 100ms;
+  }
+  .search-results a:hover,
+  .search-results a.selected {
+    background: var(--bg-surface);
+  }
+  .search-results a .search-chapter {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  /* === SCROLLBAR === */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+  /* === SELECTION === */
+  ::selection { background: rgba(203,183,251,0.3); color: var(--text); }
+
+  /* === RESPONSIVE === */
+  @media (max-width: 900px) {
+    .sidebar {
+      transform: translateX(-260px);
+    }
+    .sidebar.open {
+      transform: translateX(0);
+      box-shadow: 8px 0 32px rgba(0,0,0,0.1);
+    }
+    .sidebar-toggle { display: flex; }
+    .main-content { margin-left: 0 !important; }
+    .hero { padding: 60px 24px 48px; }
+    .hero h1 { font-size: 32px; letter-spacing: -0.704px; }
+    .content { padding: 0 20px 48px; }
+    .vs { grid-template-columns: 1fr; }
+  }
+
+  /* === SMOOTH SCROLL === */
+  html { scroll-behavior: smooth; }
+
+  /* === LINK STYLES === */
+  a { color: var(--accent-link); text-decoration: underline; }
+  a:hover { color: var(--charcoal); }
+
+  /* === BOOKMARK TOAST === */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--charcoal);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 540;
+    padding: 10px 16px;
+    border-radius: 8px;
+    z-index: 600;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 120ms, transform 120ms;
+    pointer-events: none;
+  }
+  .toast.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<!-- Reading progress bar -->
+<div id="reading-progress"></div>
+
+<!-- Keyboard shortcut overlay -->
+<div class="kbd-overlay" id="kbdOverlay">
+  <div class="kbd-modal">
+    <h3>Keyboard Shortcuts</h3>
+    <div class="kbd-row"><span class="kbd-desc">Scroll to next section</span> <kbd>j</kbd></div>
+    <div class="kbd-row"><span class="kbd-desc">Scroll to previous section</span> <kbd>k</kbd></div>
+    <div class="kbd-row"><span class="kbd-desc">Jump to chapter 1-9</span> <kbd>1</kbd> - <kbd>9</kbd></div>
+    <div class="kbd-row"><span class="kbd-desc">Jump to chapter 10-12</span> <kbd>0</kbd></div>
+    <div class="kbd-row"><span class="kbd-desc">Search chapters</span> <kbd>/</kbd></div>
+    <div class="kbd-row"><span class="kbd-desc">Toggle sidebar</span> <kbd>b</kbd></div>
+    <div class="kbd-row"><span class="kbd-desc">Show this help</span> <kbd>?</kbd></div>
+    <div class="kbd-close-hint">Press <kbd>Esc</kbd> or <kbd>?</kbd> to close</div>
+  </div>
+</div>
+
+<!-- Search overlay -->
+<div class="search-overlay" id="searchOverlay">
+  <div class="search-box">
+    <input type="text" id="searchInput" placeholder="Jump to chapter...">
+    <div class="search-results" id="searchResults"></div>
+  </div>
+</div>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
+<!-- Sidebar toggle (mobile) -->
+<button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">&#9776;</button>
+
+<div class="layout">
+
+<!-- Sidebar TOC -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-title">
+    Syscalls &amp; io_uring
+    <span>45 min read</span>
+  </div>
+  <nav id="tocNav">
+    <a href="#ch1" data-section="ch1">01 The Boundary <span class="shortcut">1</span></a>
+    <a href="#ch2" data-section="ch2">02 strace <span class="shortcut">2</span></a>
+    <a href="#ch3" data-section="ch3">03 File I/O <span class="shortcut">3</span></a>
+    <a href="#ch4" data-section="ch4">04 mmap <span class="shortcut">4</span></a>
+    <a href="#ch5" data-section="ch5">05 epoll <span class="shortcut">5</span></a>
+    <a href="#ch6" data-section="ch6">06 io_uring <span class="shortcut">6</span></a>
+    <a href="#ch7" data-section="ch7">07 Zero-Copy <span class="shortcut">7</span></a>
+    <a href="#ch8" data-section="ch8">08 seccomp <span class="shortcut">8</span></a>
+    <a href="#ch9" data-section="ch9">09 eBPF <span class="shortcut">9</span></a>
+    <a href="#ch10" data-section="ch10">10 vDSO <span class="shortcut">0</span></a>
+    <a href="#ch11" data-section="ch11">11 Benchmark</a>
+    <a href="#ch12" data-section="ch12">12 Power Apps</a>
+  </nav>
+</aside>
+
+<!-- Main content area -->
+<div class="main-content" id="mainContent">
+
+<div class="hero">
+  <div style="max-width:780px;margin:0 auto;">
+    <span class="read-time">45 min read</span>
+    <h1><span class="glitch" data-text="SYSCALLS &amp; io_uring">SYSCALLS &amp; io_uring</span></h1>
+    <div class="subtitle">The thin membrane between your code and the kernel. Every file you open, every byte you send, every page you map &mdash; it all crosses this boundary.<span class="blink">_</span></div>
+  </div>
+</div>
+
+<div class="content">
+
+<!-- ============================================================ -->
+<section id="ch1">
+<h2>// 01 &mdash; the boundary</h2>
+
+<p class="drop-cap">Your process lives in a cage. It can see its own memory, run its own instructions, touch its own stack. But the moment it wants to talk to the outside world &mdash; read a file, send a packet, allocate memory from the OS &mdash; it has to <em>ask permission</em>. The CPU enforces this with hardware privilege levels. On x86-64, your code runs in Ring 3 (user mode). The kernel runs in Ring 0 (supervisor mode). There is no way to cheat. The silicon itself checks every instruction.</p>
+
+<div class="diagram">
+<span class="diagram-label">x86-64 Privilege Rings</span>
+<pre><code>
+                    ┌─────────────────────────┐
+                    │       Ring 0             │
+                    │       KERNEL             │
+                    │   Full hardware access   │
+                    │   All memory visible     │
+                    │   All instructions       │
+                    │                           │
+                    │    ┌─────────────────┐    │
+                    │    │    Ring 3        │    │
+                    │    │    USERSPACE     │    │
+                    │    │  Limited memory  │    │
+                    │    │  No I/O ports    │    │
+                    │    │  No privileged   │    │
+                    │    │  instructions    │    │
+                    │    └─────────────────┘    │
+                    └─────────────────────────┘
+
+  (Rings 1 &amp; 2 exist but Linux doesn't use them.
+   It's Ring 0 or Ring 3. Kernel or peasant.)
+</code></pre>
+</div>
+
+<p>When your program wants to do <em>anything</em> involving hardware or shared resources, it executes the <code>syscall</code> instruction. This single instruction is the gateway. Here is exactly what happens in those ~100 nanoseconds:</p>
+
+<div class="diagram">
+<span class="diagram-label">Anatomy of the syscall instruction</span>
+<pre><code>
+  USERSPACE (Ring 3)                         KERNEL (Ring 0)
+  ─────────────────                          ──────────────
+  1. Load syscall number into RAX
+  2. Load arguments into RDI, RSI, RDX, R10, R8, R9
+  3. Execute SYSCALL instruction
+     │
+     │  ┌──── CPU hardware transition ────┐
+     │  │  Save RIP → RCX                 │
+     │  │  Save RFLAGS → R11              │
+     │  │  Load RIP from MSR_LSTAR        │
+     │  │  Switch to Ring 0               │
+     │  │  Load kernel stack pointer      │
+     │  └─────────────────────────────────┘
+     │
+     └──────────────────────────────────→ 4. Kernel entry point
+                                          5. Look up handler in sys_call_table[RAX]
+                                          6. Validate arguments (pointers, permissions)
+                                          7. Execute the actual work
+                                          8. Store return value in RAX
+                                          9. Execute SYSRET instruction
+     ┌──────────────────────────────────←    (restore RIP from RCX, Ring 3)
+     │
+  10. Check RAX for return value
+      (negative = -errno, else success)
+</code></pre>
+</div>
+
+<p>The register convention on x86-64 Linux is burned into the ABI. Memorize it:</p>
+
+<h4>Syscall Register Convention</h4>
+
+<div class="diagram">
+<span class="diagram-label">Register state during a syscall</span>
+<pre><code>  ┌──────────┬──────────────────────────────────────────┐
+  │ Register │ Purpose                                  │
+  ├──────────┼──────────────────────────────────────────┤
+  │ RAX      │ Syscall number (in) / Return value (out) │
+  │ RDI      │ Argument 1                               │
+  │ RSI      │ Argument 2                               │
+  │ RDX      │ Argument 3                               │
+  │ R10      │ Argument 4  (NOT RCX! it gets clobbered) │
+  │ R8       │ Argument 5                               │
+  │ R9       │ Argument 6                               │
+  ├──────────┼──────────────────────────────────────────┤
+  │ RCX      │ Clobbered (holds saved RIP after SYSCALL)│
+  │ R11      │ Clobbered (holds saved RFLAGS)           │
+  └──────────┴──────────────────────────────────────────┘</code></pre>
+</div>
+
+<p>Notice that <code>R10</code> replaces <code>RCX</code> for argument 4. In the normal C calling convention, RCX is the fourth argument. But <code>syscall</code> destroys RCX (it saves the return address there). So the kernel ABI uses R10 instead. This is one of those details that will haunt you if you forget it.</p>
+
+<h3>Hello World Without libc</h3>
+
+<p>Let's write to stdout using nothing but raw syscall. No <code>printf</code>, no <code>write()</code> wrapper, no libc at all. Pure assembly inlined into C.</p>
+
+<pre><code><span class="cm">// hello_raw.c — compile with: gcc -nostdlib -o hello hello_raw.c</span>
+
+<span class="kw">void</span> <span class="fn">_start</span>() {
+    <span class="kw">const</span> <span class="ty">char</span> msg[] = <span class="st">"hello from ring 3\n"</span>;
+
+    <span class="cm">// syscall: write(fd=1, buf=msg, count=18)</span>
+    <span class="cm">// RAX=1 (write), RDI=1 (stdout), RSI=msg, RDX=18</span>
+    <span class="kw">asm</span> <span class="kw">volatile</span> (
+        <span class="st">"mov $1, %%rax\n"</span>     <span class="cm">// syscall number: write = 1</span>
+        <span class="st">"mov $1, %%rdi\n"</span>     <span class="cm">// fd: stdout = 1</span>
+        <span class="st">"mov %0, %%rsi\n"</span>     <span class="cm">// buf: pointer to msg</span>
+        <span class="st">"mov $18, %%rdx\n"</span>    <span class="cm">// count: 18 bytes</span>
+        <span class="st">"syscall\n"</span>
+        : : <span class="st">"r"</span>(msg) : <span class="st">"rax"</span>, <span class="st">"rdi"</span>, <span class="st">"rsi"</span>, <span class="st">"rdx"</span>, <span class="st">"rcx"</span>, <span class="st">"r11"</span>
+    );
+
+    <span class="cm">// syscall: exit(status=0)</span>
+    <span class="cm">// RAX=60 (exit_group), RDI=0 (success)</span>
+    <span class="kw">asm</span> <span class="kw">volatile</span> (
+        <span class="st">"mov $60, %%rax\n"</span>    <span class="cm">// syscall number: exit = 60</span>
+        <span class="st">"xor %%rdi, %%rdi\n"</span> <span class="cm">// status: 0</span>
+        <span class="st">"syscall\n"</span>
+        : : : <span class="st">"rax"</span>, <span class="st">"rdi"</span>
+    );
+}
+<span class="label">C &mdash; raw syscall, no libc</span></code></pre>
+
+<div class="power">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">The Insight</div>
+<p>This binary is ~1KB. No libc linked, no dynamic loader, no <code>.so</code> files. Just your code and the kernel. Every C program you've ever written eventually does exactly this &mdash; the libc <code>write()</code> function is just a wrapper that loads registers and executes <code>syscall</code>. You've been making syscalls your entire career. You just didn't know it.</p>
+</div>
+
+<h3>The Syscall Number Table</h3>
+
+<p>Every syscall has a number. The kernel uses it to index into <code>sys_call_table[]</code>, a function pointer array. Here are the ones you'll use most:</p>
+
+<table>
+<tr><th>Number</th><th>Name</th><th>Signature</th><th>What It Does</th></tr>
+<tr><td><code>0</code></td><td>read</td><td>read(fd, buf, count)</td><td>Read bytes from file descriptor</td></tr>
+<tr><td><code>1</code></td><td>write</td><td>write(fd, buf, count)</td><td>Write bytes to file descriptor</td></tr>
+<tr><td><code>2</code></td><td>open</td><td>open(path, flags, mode)</td><td>Open a file, get an FD back</td></tr>
+<tr><td><code>3</code></td><td>close</td><td>close(fd)</td><td>Release a file descriptor</td></tr>
+<tr><td><code>5</code></td><td>fstat</td><td>fstat(fd, statbuf)</td><td>Get file metadata</td></tr>
+<tr><td><code>8</code></td><td>lseek</td><td>lseek(fd, offset, whence)</td><td>Move file cursor position</td></tr>
+<tr><td><code>9</code></td><td>mmap</td><td>mmap(addr, len, prot, flags, fd, off)</td><td>Map file/memory into address space</td></tr>
+<tr><td><code>10</code></td><td>mprotect</td><td>mprotect(addr, len, prot)</td><td>Change memory page permissions</td></tr>
+<tr><td><code>11</code></td><td>munmap</td><td>munmap(addr, len)</td><td>Unmap memory region</td></tr>
+<tr><td><code>12</code></td><td>brk</td><td>brk(addr)</td><td>Expand/shrink heap (malloc uses this)</td></tr>
+<tr><td><code>39</code></td><td>getpid</td><td>getpid()</td><td>Get process ID (useful for benchmarking &mdash; does nothing)</td></tr>
+<tr><td><code>40</code></td><td>sendfile</td><td>sendfile(out_fd, in_fd, off, count)</td><td>Zero-copy file&rarr;socket transfer</td></tr>
+<tr><td><code>56</code></td><td>clone</td><td>clone(flags, stack, ...)</td><td>Create thread or process</td></tr>
+<tr><td><code>57</code></td><td>fork</td><td>fork()</td><td>Duplicate current process</td></tr>
+<tr><td><code>59</code></td><td>execve</td><td>execve(path, argv, envp)</td><td>Replace process with new program</td></tr>
+<tr><td><code>60</code></td><td>exit</td><td>exit(status)</td><td>Terminate process</td></tr>
+<tr><td><code>232</code></td><td>epoll_wait</td><td>epoll_wait(epfd, events, max, timeout)</td><td>Wait for I/O events</td></tr>
+<tr><td><code>425</code></td><td>io_uring_setup</td><td>io_uring_setup(entries, params)</td><td>Create io_uring instance</td></tr>
+<tr><td><code>426</code></td><td>io_uring_enter</td><td>io_uring_enter(fd, to_submit, ...)</td><td>Submit/wait for io_uring ops</td></tr>
+</table>
+
+<div class="ticker">x86-64 Linux syscall table: ~450 entries &bull; Full list: /usr/include/asm/unistd_64.h</div>
+
+<h3>Memory Cell View: Register State for write(1, "hello", 5)</h3>
+
+<h4>Before SYSCALL instruction</h4>
+<div class="mem-row">
+  <div class="mc g">RAX</div><div class="mc y">1</div>
+  <div class="mc e">&nbsp;</div>
+  <div class="mc g">RDI</div><div class="mc c">1</div>
+  <div class="mc e">&nbsp;</div>
+  <div class="mc g">RSI</div><div class="mc m">0x4f</div><div class="mc m">20</div>
+  <div class="mc e">&nbsp;</div>
+  <div class="mc g">RDX</div><div class="mc o">5</div>
+</div>
+<p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">RAX=<span style="color:var(--yellow);">write(1)</span> &bull; RDI=<span style="color:var(--cyan);">stdout</span> &bull; RSI=<span style="color:var(--magenta);">buf ptr</span> &bull; RDX=<span style="color:var(--orange);">count</span></p>
+
+<h4>After SYSRET</h4>
+<div class="mem-row">
+  <div class="mc g">RAX</div><div class="mc y">5</div>
+  <div class="mc e">&nbsp;</div>
+  <div class="mc g">RCX</div><div class="mc r">????</div>
+  <div class="mc e">&nbsp;</div>
+  <div class="mc g">R11</div><div class="mc r">????</div>
+</div>
+<p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">RAX=<span style="color:var(--yellow);">5 (bytes written)</span> &bull; RCX,R11=<span style="color:var(--red);">clobbered</span></p>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch2">
+<h2>// 02 &mdash; strace: x-ray vision</h2>
+
+<p class="drop-cap">Before you optimize syscalls, you need to see them. <code>strace</code> intercepts every syscall your program makes and prints it. It is, without exaggeration, the single most powerful debugging tool most programmers never use. Segfault? strace. Program hangs? strace. Slow startup? strace. Permission denied but you don't know which file? <em>strace</em>.</p>
+
+<h3>The Basics</h3>
+
+<pre><code><span class="cm"># Trace every syscall of a command</span>
+$ strace ./my_shard_reader data.shard
+
+<span class="cm"># Filter by syscall category</span>
+$ strace -e trace=file ./reader    <span class="cm"># Only file ops: open, read, write, stat, ...</span>
+$ strace -e trace=network ./server <span class="cm"># Only network: socket, bind, connect, ...</span>
+$ strace -e trace=memory ./alloc   <span class="cm"># Only memory: mmap, brk, mprotect, ...</span>
+$ strace -e trace=desc ./reader    <span class="cm"># Only descriptor ops: read, write, close, ...</span>
+
+<span class="cm"># Show timing (microseconds per syscall)</span>
+$ strace -T ./reader               <span class="cm"># Appends &lt;0.000042&gt; to each line</span>
+
+<span class="cm"># Show wall-clock timestamps</span>
+$ strace -t ./server               <span class="cm"># 14:23:01 write(1, "listening...", 12)</span>
+
+<span class="cm"># Statistics mode — the killer feature</span>
+$ strace -c ./reader               <span class="cm"># Syscall histogram when process exits</span>
+
+<span class="cm"># Follow child processes (fork/clone)</span>
+$ strace -f ./multi_threaded_app
+
+<span class="cm"># Attach to running process</span>
+$ strace -p 12345                  <span class="cm"># Attach to PID 12345 (need root or ptrace)</span>
+<span class="label">shell &mdash; strace essentials</span></code></pre>
+
+<div class="lang-tabs">
+<div class="tab-bar">
+<input type="radio" name="tabs-strace" id="tab-c-2" class="tc" checked>
+<label for="tab-c-2">C</label>
+<input type="radio" name="tabs-strace" id="tab-py-2" class="tpy">
+<label for="tab-py-2">Python</label>
+<input type="radio" name="tabs-strace" id="tab-ts-2" class="tts">
+<label for="tab-ts-2">TypeScript</label>
+</div>
+
+<div class="tab-content c">
+<pre><code><span class="cm"># Trace a compiled C program — you see raw syscalls</span>
+$ strace -c ./shard_reader data.shard
+<span class="cm"># Typical: 90%+ time in read(), few hundred syscalls total</span>
+<span class="cm"># C programs are "close to the metal" — strace output maps</span>
+<span class="cm"># directly to your code</span>
+<span class="label">C — strace reveals your code's syscalls directly</span></code></pre>
+</div>
+
+<div class="tab-content py">
+<pre><code><span class="cm"># Trace Python — you see the INTERPRETER's syscalls</span>
+$ strace -c python3 -c "open('data.shard','rb').read()"
+<span class="cm"># Surprise: 100+ syscalls before your code even runs!</span>
+<span class="cm"># Python imports modules, probes .pyc caches, reads site-packages</span>
+<span class="cm"># Your single open()+read() is buried under interpreter startup</span>
+$
+<span class="cm"># Filter to see just YOUR file access:</span>
+$ strace -e trace=openat python3 -c "open('data.shard','rb').read()" 2&gt;&amp;1 | grep shard
+<span class="cm"># openat(AT_FDCWD, "data.shard", O_RDONLY|O_CLOEXEC) = 3</span>
+<span class="label">Python — strace shows interpreter overhead</span></code></pre>
+</div>
+
+<div class="tab-content ts">
+<pre><code><span class="cm"># Trace Node.js — you see V8 + libuv syscalls</span>
+$ strace -c node -e "require('fs').readFileSync('data.shard')"
+<span class="cm"># Even MORE startup syscalls than Python: V8 JIT, ICU data,</span>
+<span class="cm"># node_modules probing, .node native addon loading</span>
+$
+<span class="cm"># The actual readFileSync becomes a single read() call</span>
+<span class="cm"># but it's surrounded by 200+ setup syscalls</span>
+$ strace -e trace=read node -e "require('fs').readFileSync('data.shard')" 2&gt;&amp;1 | wc -l
+<span class="cm"># ~150+ read() calls, mostly V8 startup</span>
+<span class="label">Node.js — strace shows V8 + libuv overhead</span></code></pre>
+</div>
+</div>
+
+<h3>Real strace Output: Reading a File</h3>
+
+<p>Here's what happens when a simple C program opens a file, reads 4096 bytes, and closes it. Every line is one syscall:</p>
+
+<pre><code><span class="fn">openat</span>(AT_FDCWD, <span class="st">"data.shard"</span>, O_RDONLY) = <span class="nm">3</span>
+<span class="cm">│       │              │          │         └─ returned FD 3</span>
+<span class="cm">│       │              │          └─ flags: read-only</span>
+<span class="cm">│       │              └─ the filename</span>
+<span class="cm">│       └─ relative to current working directory</span>
+<span class="cm">└─ the syscall (openat, not open — modern glibc uses openat)</span>
+
+<span class="fn">fstat</span>(<span class="nm">3</span>, {st_mode=S_IFREG|<span class="nm">0644</span>, st_size=<span class="nm">1048576</span>, ...}) = <span class="nm">0</span>
+<span class="cm">│     │   └─ regular file, 1MB, permissions 644</span>
+<span class="cm">│     └─ FD 3 (the file we just opened)</span>
+<span class="cm">└─ stat the file descriptor for metadata</span>
+
+<span class="fn">read</span>(<span class="nm">3</span>, <span class="st">"\x00\x01SHARD\x00\x02..."</span>, <span class="nm">4096</span>) = <span class="nm">4096</span>
+<span class="cm">│    │   │                           │       └─ read 4096 bytes successfully</span>
+<span class="cm">│    │   │                           └─ requested 4096 bytes</span>
+<span class="cm">│    │   └─ the data (truncated by strace)</span>
+<span class="cm">│    └─ FD 3</span>
+<span class="cm">└─ read syscall</span>
+
+<span class="fn">close</span>(<span class="nm">3</span>)                              = <span class="nm">0</span>
+<span class="cm">└─ release FD 3. Success.</span>
+<span class="label">strace output &mdash; annotated</span></code></pre>
+
+<h3>strace Catches mmap</h3>
+
+<p>When shard's <code>EnableMmap()</code> runs, this is what the kernel sees:</p>
+
+<pre><code><span class="fn">openat</span>(AT_FDCWD, <span class="st">"model.shard"</span>, O_RDONLY) = <span class="nm">3</span>
+<span class="fn">fstat</span>(<span class="nm">3</span>, {st_size=<span class="nm">4294967296</span>, ...})       = <span class="nm">0</span>    <span class="cm">// 4GB file</span>
+<span class="fn">mmap</span>(NULL, <span class="nm">4294967296</span>, PROT_READ, MAP_PRIVATE, <span class="nm">3</span>, <span class="nm">0</span>) = <span class="nm">0x7f1234000000</span>
+<span class="cm">│     │    │            │          │          │  │</span>
+<span class="cm">│     │    │            │          │          │  └─ offset 0 (start of file)</span>
+<span class="cm">│     │    │            │          │          └─ FD 3</span>
+<span class="cm">│     │    │            │          └─ private mapping (COW)</span>
+<span class="cm">│     │    │            └─ read-only pages</span>
+<span class="cm">│     │    └─ 4GB mapping size</span>
+<span class="cm">│     └─ kernel chooses address</span>
+<span class="cm">└─ returns virtual address 0x7f1234000000</span>
+
+<span class="cm">// NO read() calls after this! The process just accesses memory</span>
+<span class="cm">// at 0x7f1234000000 and the kernel handles page faults transparently.</span>
+<span class="cm">// strace won't even show the page faults — they happen in-kernel.</span>
+<span class="label">strace output &mdash; mmap a 4GB shard</span></code></pre>
+
+<h3>The Statistics Killer Feature</h3>
+
+<pre><code>$ strace -c ./shard_reader model.shard
+
+% time     seconds  usecs/call     calls    errors  syscall
+------ ----------- ----------- --------- --------- ----------------
+ 78.23    0.042318          42      1000           read
+ 12.41    0.006712          67       100           mmap
+  4.88    0.002640          26       100           munmap
+  2.11    0.001142          11       100           fstat
+  1.03    0.000557          55        10           openat
+  0.72    0.000389          38        10           close
+  0.62    0.000336         336         1           execve
+------ ----------- ----------- --------- --------- ----------------
+100.00    0.054094                  1321           total
+
+<span class="cm">// INSIGHT: 78% of time is in read(). 1000 read calls at 42μs each.</span>
+<span class="cm">// That's 42ms of pure syscall overhead. With io_uring batch</span>
+<span class="cm">// submission, this drops to near zero.</span>
+<span class="label">strace -c &mdash; syscall histogram</span></code></pre>
+
+<div class="power wild">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Wild: The Debugging Story</div>
+<p>"My program is slow." You run <code>strace -c</code> and see 10,000 calls to <code>stat()</code>. Turns out the config parser is calling <code>stat()</code> on every key lookup to check if the config file changed. 10,000 stats at 5&mu;s each = 50ms on every request. You add a file-change watcher and the problem vanishes. This story happens every week in production. <code>strace -c</code> is your X-ray machine.</p>
+</div>
+
+<div class="power zen">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Zen: strace for Understanding</div>
+<p>Run <code>strace -e trace=file python3 -c "print('hi')"</code> and watch Python open ~50 files at startup &mdash; <code>.pyc</code> caches, <code>site-packages</code>, encoding tables. Run it on <code>node -e "1+1"</code> and see the V8 startup dance. Run it on <code>go run main.go</code> and watch the Go toolchain compile, link, and exec. strace teaches you what your tools actually <em>do</em>.</p>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>See every file Python touches at startup — including all the .pyc caches and site-packages probing:</p>
+<pre><code>$ strace -c -e trace=file python3 -c "import numpy"</code></pre>
+<p>Compare with Node.js — watch V8 startup and module resolution:</p>
+<pre><code>$ strace -c -e trace=file node -e "require('fs')"</code></pre>
+<p>Count total syscalls for a Go binary vs Python — see why Go binaries start faster:</p>
+<pre><code>$ strace -c go run main.go 2&gt;&amp;1 | tail -1
+$ strace -c python3 app.py 2&gt;&amp;1 | tail -1</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch3">
+<h2>// 03 &mdash; file I/O: the layers</h2>
+
+<p class="drop-cap">When you call <code>write(fd, buf, 4096)</code>, you probably think the data goes to disk. It doesn't. It goes to the page cache &mdash; a region of RAM managed by the kernel. The actual disk write happens later, maybe seconds later, maybe never if you crash first. Understanding these layers is the difference between code that "works" and code that is correct and fast.</p>
+
+<div class="diagram">
+<span class="diagram-label">The Full I/O Stack &mdash; Journey of a write() Call</span>
+<pre><code>
+  YOUR CODE
+  ─────────
+  write(fd, buf, 4096)
+        │
+        ▼
+  ┌─────────────────┐
+  │     libc         │  Buffered I/O (fwrite buffers internally,
+  │  stdio buffer    │  flushes when buffer full or fflush() called)
+  └────────┬────────┘
+           │ syscall
+           ▼
+  ┌─────────────────┐
+  │  VFS Layer       │  Virtual File System: routes to correct FS
+  │  (Virtual File   │  Checks permissions, resolves path, manages
+  │   System)        │  file descriptors and inode cache
+  └────────┬────────┘
+           │
+           ▼
+  ┌─────────────────┐
+  │  Filesystem      │  ext4 / btrfs / xfs / tmpfs
+  │  (ext4, etc.)    │  Manages inodes, directories, journaling
+  └────────┬────────┘
+           │
+           ▼
+  ┌─────────────────┐
+  │  Page Cache      │  *** THIS IS WHERE YOUR DATA GOES ***
+  │  (RAM)           │  write() returns HERE. Data is NOT on disk.
+  │                  │  Kernel flushes dirty pages in background.
+  └────────┬────────┘
+           │ (async, eventually)
+           ▼
+  ┌─────────────────┐
+  │  Block Layer     │  Merges I/O requests, handles scheduling
+  │  I/O Scheduler   │  (mq-deadline, bfq, kyber, none)
+  └────────┬────────┘
+           │
+           ▼
+  ┌─────────────────┐
+  │  Device Driver   │  NVMe, SATA AHCI, virtio-blk
+  │                  │  Translates to hardware commands
+  └────────┬────────┘
+           │ DMA transfer
+           ▼
+  ┌─────────────────┐
+  │  HARDWARE        │  SSD / HDD / NVMe
+  │  (persistent)    │  Data is finally safe (maybe)
+  └─────────────────┘
+</code></pre>
+</div>
+
+<div class="ticker">write() to page cache: ~0.5&mu;s &bull; fsync() to NVMe: ~50&mu;s &bull; fsync() to HDD: ~5ms</div>
+
+<h3>The Page Cache</h3>
+
+<p>Linux keeps recently read and written file data in RAM. This is the <strong>page cache</strong>, and it typically consumes most of your free RAM (that's why <code>free -h</code> shows low "available" memory &mdash; it's being used as cache, and will be released if needed).</p>
+
+<pre><code><span class="cm">// When you read() a file:</span>
+<span class="cm">// 1. Kernel checks: "Is this page already in the page cache?"</span>
+<span class="cm">// 2. If YES: memcpy from page cache → your buffer. ~0.5μs. Done.</span>
+<span class="cm">// 3. If NO:  Read from disk → page cache → your buffer. ~50μs NVMe.</span>
+<span class="cm">//</span>
+<span class="cm">// When you write() a file:</span>
+<span class="cm">// 1. Data goes to page cache. Page marked "dirty".</span>
+<span class="cm">// 2. write() returns IMMEDIATELY. Your data is NOT on disk.</span>
+<span class="cm">// 3. Background kernel thread (pdflush/writeback) flushes dirty</span>
+<span class="cm">//    pages to disk every ~5 seconds or when memory is low.</span>
+<span class="cm">//</span>
+<span class="cm">// THIS IS WHY POWER LOSS CAN LOSE DATA.</span>
+<span class="cm">// write() succeeding does NOT mean data is on disk.</span>
+<span class="label">page cache behavior</span></code></pre>
+
+<div class="power danger">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Danger: The fsync() Tax</div>
+<p>If you need data to survive a power failure, you must call <code>fsync(fd)</code> after writing. This forces dirty pages to disk and waits for the hardware to confirm. On NVMe: ~50&mu;s. On spinning rust: ~5-10ms. Databases call fsync on every transaction commit &mdash; it is the single most expensive operation in a database. <code>fdatasync()</code> is slightly cheaper: it flushes data but not metadata (timestamps, size). Use it when you can.</p>
+</div>
+
+<h3>O_DIRECT &mdash; Bypass the Page Cache</h3>
+
+<p>Sometimes the page cache hurts. If you're scanning a 100GB file once, the page cache fills with data you'll never read again, evicting actually useful cached data. <code>O_DIRECT</code> bypasses the page cache entirely &mdash; DMA from disk straight to your buffer.</p>
+
+<pre><code><span class="pp">#define</span> _GNU_SOURCE
+<span class="pp">#include</span> <span class="st">&lt;fcntl.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;unistd.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="cm">// O_DIRECT: bypass page cache, DMA to our buffer</span>
+    <span class="ty">int</span> fd = <span class="fn">open</span>(<span class="st">"huge_file.dat"</span>, O_RDONLY | O_DIRECT);
+
+    <span class="cm">// O_DIRECT REQUIRES aligned buffers!</span>
+    <span class="cm">// Buffer address must be aligned to 512 bytes (or 4096 for some FSes)</span>
+    <span class="cm">// Read size must be a multiple of 512</span>
+    <span class="ty">void</span> *buf;
+    <span class="fn">posix_memalign</span>(&buf, <span class="nm">4096</span>, <span class="nm">4096</span>);  <span class="cm">// 4K-aligned, 4K buffer</span>
+    <span class="cm">// ^ This is why shard uses Align64() — alignment matters for DMA!</span>
+
+    <span class="fn">read</span>(fd, buf, <span class="nm">4096</span>);  <span class="cm">// Goes directly from NVMe → your buffer</span>
+                          <span class="cm">// No page cache involved. No extra copy.</span>
+
+    <span class="fn">free</span>(buf);
+    <span class="fn">close</span>(fd);
+}
+<span class="label">C &mdash; O_DIRECT bypass</span></code></pre>
+
+<div class="vs">
+<div class="vs-col">
+<h4>Use Page Cache (default)</h4>
+<p>Sequential reads of files you'll access again. Small files. Normal workloads. The kernel is surprisingly good at predicting what you'll read next (readahead).</p>
+</div>
+<div class="vs-col">
+<h4>Use O_DIRECT</h4>
+<p>Databases (they manage their own cache). One-pass scans of huge files. When you don't want to pollute the cache. When you need predictable latency (no cache miss surprises).</p>
+</div>
+</div>
+
+<div class="power hack">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Hack: posix_fadvise &mdash; Talk to the Cache</div>
+<p>Don't want O_DIRECT but want to hint at the kernel? <code>posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL)</code> tells the kernel to aggressively read ahead. <code>POSIX_FADV_DONTNEED</code> tells it to drop cached pages after you read them &mdash; perfect for one-pass scans. <code>POSIX_FADV_WILLNEED</code> triggers async readahead for data you'll need soon. Free performance, zero code changes.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch4">
+<h2>// 04 &mdash; mmap deep dive</h2>
+
+<p class="drop-cap">Most people think <code>mmap()</code> is "map a file to memory." That's like saying a car is "a thing with wheels." mmap is a virtual memory manipulation primitive. It creates a mapping in your process's page table that says "this range of virtual addresses corresponds to this thing." The "thing" can be a file, anonymous memory, a device, or shared memory with another process. And here's the real kicker: <em>no physical memory is allocated when you call mmap</em>.</p>
+
+<h3>The Page Fault Dance</h3>
+
+<div class="diagram">
+<span class="diagram-label">What ACTUALLY happens when you mmap and access a file</span>
+<pre><code>
+  Step 1: mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, fd, 0)
+  ─────────────────────────────────────────────────────
+  Kernel adds entry to your page table:
+    Virtual addr 0x7f0000 → [not present, backed by fd offset 0]
+  Physical memory allocated: ZERO bytes.
+  mmap() returns instantly.
+
+  Step 2: Your code reads from ptr[0]    (first access!)
+  ─────────────────────────────────────────────────────
+  CPU checks page table: "0x7f0000 → NOT PRESENT"
+  CPU raises PAGE FAULT exception (#PF, interrupt 14)
+       │
+       ▼
+  Kernel page fault handler runs:
+    1. "Oh, this VA is mmap'd to fd at offset 0"
+    2. Allocate a physical page (4KB of RAM)
+    3. Read 4KB from disk into that physical page
+    4. Update page table: 0x7f0000 → physical page (PRESENT, READ-ONLY)
+    5. Return from exception
+       │
+       ▼
+  CPU retries the instruction that faulted
+  This time: page table says PRESENT → access succeeds
+  Your code continues, completely unaware a fault happened.
+
+  Step 3: Your code reads ptr[1], ptr[2], ... ptr[4095]
+  ─────────────────────────────────────────────────────
+  All within the same 4KB page → no more faults.
+  Just normal memory reads at RAM speed.
+
+  Step 4: Your code reads ptr[4096]    (next page!)
+  ─────────────────────────────────────────────────────
+  Different page → PAGE FAULT again → repeat step 2.
+</code></pre>
+</div>
+
+<div class="ticker">Page fault latency: ~2&mu;s (page in cache) &bull; ~50&mu;s (page on NVMe) &bull; ~5ms (page on HDD)</div>
+
+<h3>The Flags That Matter</h3>
+
+<table>
+<tr><th>Flag</th><th>What It Does</th><th>When to Use</th></tr>
+<tr><td><code>MAP_SHARED</code></td><td>Changes are visible to other processes mapping the same file. Writes go back to the file.</td><td>Shared memory IPC. Database WAL files. Multi-process access.</td></tr>
+<tr><td><code>MAP_PRIVATE</code></td><td>Copy-on-write. Reads come from file, but writes create private copies.</td><td>Read-only file access. Loading libraries. Shard tensor data.</td></tr>
+<tr><td><code>MAP_POPULATE</code></td><td>Pre-fault ALL pages at mmap() time. Avoid page faults during runtime.</td><td>Latency-sensitive code. When you know you'll read the whole file.</td></tr>
+<tr><td><code>MAP_HUGETLB</code></td><td>Use huge pages (2MB or 1GB). Fewer TLB entries needed, fewer TLB misses.</td><td>Large contiguous data. Tensor buffers. GPU staging areas.</td></tr>
+<tr><td><code>MAP_ANONYMOUS</code></td><td>No file backing. Just allocate virtual memory. (This is what malloc uses internally for large allocs.)</td><td>Memory allocation. Thread stacks. Scratch buffers.</td></tr>
+<tr><td><code>MAP_FIXED</code></td><td>Map at EXACTLY the address you specify. Dangerous &mdash; unmaps anything already there.</td><td>Custom allocators. JIT compilers. Replay determinism.</td></tr>
+</table>
+
+<h3>How Shard's EnableMmap() Works at the Kernel Level</h3>
+
+<pre><code><span class="cm">// What shard's EnableMmap() does conceptually:</span>
+
+<span class="ty">int</span> fd = <span class="fn">open</span>(<span class="st">"model.shard"</span>, O_RDONLY);
+
+<span class="kw">struct</span> stat st;
+<span class="fn">fstat</span>(fd, &st);  <span class="cm">// Get file size</span>
+
+<span class="cm">// Map the ENTIRE shard file into virtual address space</span>
+<span class="ty">void</span> *base = <span class="fn">mmap</span>(
+    NULL,            <span class="cm">// Let kernel choose address</span>
+    st.st_size,      <span class="cm">// Map entire file (could be 4GB+)</span>
+    PROT_READ,       <span class="cm">// Read-only — tensors are immutable</span>
+    MAP_PRIVATE,     <span class="cm">// Private mapping, COW semantics</span>
+    fd, <span class="nm">0</span>            <span class="cm">// Start at file offset 0</span>
+);
+
+<span class="cm">// Optional: tell kernel we'll access sequentially</span>
+<span class="fn">madvise</span>(base, st.st_size, MADV_SEQUENTIAL);
+
+<span class="cm">// Now tensor data is accessible as raw pointers:</span>
+<span class="cm">// float *weights = (float *)(base + tensor_offset);</span>
+<span class="cm">// Just dereference. Kernel handles page faults transparently.</span>
+<span class="cm">// No read() calls. No buffers. No copies.</span>
+<span class="cm">// The pointer IS the data.</span>
+
+<span class="cm">// When done:</span>
+<span class="fn">munmap</span>(base, st.st_size);
+<span class="fn">close</span>(fd);
+<span class="label">C &mdash; shard mmap internals</span></code></pre>
+
+<div class="power">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">The Key Insight</div>
+<p>With mmap, a 4GB shard file uses ~0 bytes of RAM initially. The kernel loads pages on demand as you access them. If the system is under memory pressure, it can simply <em>drop</em> clean mmap pages (they can be re-read from disk). This is why mmap scales better than <code>read()</code> for large files &mdash; the kernel manages the memory automatically, and you never hold more than you need.</p>
+</div>
+
+<h3>Memory Cell View: Page Table Entry</h3>
+
+<h4>Virtual → Physical mapping for one mmap'd page</h4>
+<div class="mem-row">
+  <div class="mc b">P</div><div class="mc c">R</div><div class="mc e">W</div><div class="mc e">X</div><div class="mc g">A</div><div class="mc e">D</div>
+  <div class="mc y">PFN</div><div class="mc y">PFN</div><div class="mc y">PFN</div><div class="mc y">PFN</div><div class="mc y">PFN</div>
+</div>
+<p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">
+<span style="color:var(--blue);">P</span>=Present &bull;
+<span style="color:var(--cyan);">R</span>=Readable &bull;
+W=Writable(no) &bull;
+X=Executable(no) &bull;
+<span style="color:var(--green);">A</span>=Accessed &bull;
+D=Dirty(no) &bull;
+<span style="color:var(--yellow);">PFN</span>=Physical Frame Number
+</p>
+
+<div class="power hack">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Hack: MAP_POPULATE + mlock = Deterministic Latency</div>
+<p><code>MAP_POPULATE</code> prefaults all pages at mmap time (blocks until all data is read from disk). <code>mlock()</code> pins those pages in RAM so the kernel can never evict them. Combined: zero page faults at runtime, zero disk I/O, fully deterministic latency. This is how real-time trading systems load their data. For shard: if you have the RAM, <code>MAP_POPULATE</code> the entire model file at startup and never pay a page fault during inference.</p>
+</div>
+
+<div class="power zen">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Zen: madvise Hints</div>
+<p><code>MADV_SEQUENTIAL</code> &mdash; aggressive readahead, drop pages after reading. <code>MADV_RANDOM</code> &mdash; disable readahead (random access pattern). <code>MADV_WILLNEED</code> &mdash; async prefetch specific ranges. <code>MADV_DONTNEED</code> &mdash; immediately release pages (great for freeing memory from mmap'd regions you're done with). <code>MADV_HUGEPAGE</code> &mdash; promote to transparent huge pages. Free performance knobs with zero code restructuring.</p>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Memory-map a file in 3 lines of Python:</p>
+<pre><code>$ python3 -c "
+import mmap, os
+fd = os.open('/etc/hosts', os.O_RDONLY)
+mm = mmap.mmap(fd, 0, access=mmap.ACCESS_READ)
+print(mm[:100])   # Read first 100 bytes — no read() syscall!
+mm.close(); os.close(fd)
+"</code></pre>
+</div>
+
+<h3>Try This: mmap in 3 Lines</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs4" id="c4" checked>
+  <input type="radio" name="tabs4" id="py4">
+  <div class="tab-bar">
+    <label for="c4">C</label>
+    <label for="py4">Python</label>
+  </div>
+  <div class="tab-content tc1">
+<pre><code><span class="cm">// mmap a file and print the first 16 bytes as hex</span>
+<span class="pp">#include</span> <span class="st">&lt;sys/mman.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;fcntl.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;sys/stat.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;unistd.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">int</span> argc, <span class="ty">char</span> **argv) {
+    <span class="ty">int</span> fd = <span class="fn">open</span>(argv[<span class="nm">1</span>], O_RDONLY);
+    <span class="kw">struct</span> stat st; <span class="fn">fstat</span>(fd, &amp;st);
+    <span class="ty">unsigned char</span> *p = <span class="fn">mmap</span>(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, <span class="nm">0</span>);
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; <span class="nm">16</span> &amp;&amp; i &lt; st.st_size; i++)
+        <span class="fn">printf</span>(<span class="st">"%02x "</span>, p[i]);
+    <span class="fn">printf</span>(<span class="st">"\n"</span>);
+    <span class="fn">munmap</span>(p, st.st_size); <span class="fn">close</span>(fd);
+}
+<span class="label">C &mdash; mmap hexdump</span></code></pre>
+  </div>
+  <div class="tab-content tc2">
+<pre><code><span class="pp">import</span> mmap, sys
+
+<span class="cm"># mmap a file and print first 16 bytes as hex</span>
+<span class="kw">with</span> <span class="fn">open</span>(sys.argv[<span class="nm">1</span>], <span class="st">'rb'</span>) <span class="kw">as</span> f:
+    mm = mmap.<span class="fn">mmap</span>(f.<span class="fn">fileno</span>(), <span class="nm">0</span>, access=mmap.ACCESS_READ)
+    <span class="fn">print</span>(<span class="st">' '</span>.<span class="fn">join</span>(<span class="st">f'{b:02x}'</span> <span class="kw">for</span> b <span class="kw">in</span> mm[:<span class="nm">16</span>]))
+    mm.<span class="fn">close</span>()
+
+<span class="cm"># That's it. Same mmap() syscall underneath.</span>
+<span class="cm"># Try: python3 this.py model.shard</span>
+<span class="cm"># You'll see the shard magic bytes: 00 01 53 48 41 52 44 ...</span>
+<span class="label">Python &mdash; mmap in 4 lines</span></code></pre>
+  </div>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>// 05 &mdash; epoll: the reactor pattern</h2>
+
+<p class="drop-cap">How does nginx handle 10,000 concurrent connections with a single thread? It doesn't use 10,000 threads. It uses one thread, one <code>epoll</code> instance, and the reactor pattern. The idea: register interest in events (data available on socket, connection incoming, timer expired), then sleep. The kernel wakes you up only when something actually happens. Zero CPU wasted on polling.</p>
+
+<h3>The Evolution of I/O Multiplexing</h3>
+
+<table>
+<tr><th>API</th><th>Year</th><th>FD Limit</th><th>Complexity</th><th>How It Works</th></tr>
+<tr><td><code>select()</code></td><td>1983</td><td>1024</td><td>O(n) per call</td><td>Bitmap of FDs. Kernel scans ALL bits every time. Copies bitmap in/out.</td></tr>
+<tr><td><code>poll()</code></td><td>1986</td><td>unlimited</td><td>O(n) per call</td><td>Array of pollfd structs. No 1024 limit, but still scans entire array.</td></tr>
+<tr><td><code>epoll</code></td><td>2002</td><td>unlimited</td><td>O(1) per event</td><td>Kernel maintains interest list. Only returns FDs with events. Scales to millions.</td></tr>
+</table>
+
+<div class="ticker">select: O(n) scan of 1024 bits &bull; poll: O(n) scan of n FDs &bull; epoll: O(1) per ready FD</div>
+
+<h3>The Three epoll Syscalls</h3>
+
+<pre><code><span class="cm">// 1. Create an epoll instance (returns a file descriptor!)</span>
+<span class="ty">int</span> epfd = <span class="fn">epoll_create1</span>(<span class="nm">0</span>);
+
+<span class="cm">// 2. Register interest in a file descriptor</span>
+<span class="kw">struct</span> epoll_event ev;
+ev.events = EPOLLIN;        <span class="cm">// Interested in: data available to read</span>
+ev.data.fd = client_fd;     <span class="cm">// Which FD this event is about</span>
+<span class="fn">epoll_ctl</span>(epfd, EPOLL_CTL_ADD, client_fd, &ev);
+<span class="cm">//              ^^^^^^^^^^^^</span>
+<span class="cm">//              ADD / MOD / DEL — add, modify, or remove interest</span>
+
+<span class="cm">// 3. Wait for events (this is where you sleep)</span>
+<span class="kw">struct</span> epoll_event events[<span class="nm">64</span>];
+<span class="ty">int</span> n = <span class="fn">epoll_wait</span>(epfd, events, <span class="nm">64</span>, -<span class="nm">1</span>);
+<span class="cm">//                                     ^^ timeout: -1 = block forever</span>
+<span class="cm">//                                                  0 = return immediately</span>
+<span class="cm">//                                               1000 = wait up to 1 second</span>
+
+<span class="cm">// n = number of FDs that have events ready</span>
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < n; i++) {
+    <span class="ty">int</span> ready_fd = events[i].data.fd;
+    <span class="cm">// This FD has data ready — read it NOW</span>
+}
+<span class="label">C &mdash; epoll basics</span></code></pre>
+
+<h3>TCP Echo Server with epoll</h3>
+
+<pre><code><span class="pp">#include</span> <span class="st">&lt;sys/epoll.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;sys/socket.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;netinet/in.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;unistd.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;fcntl.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="pp">#define</span> MAX_EVENTS <span class="nm">1024</span>
+<span class="pp">#define</span> PORT <span class="nm">8080</span>
+
+<span class="kw">void</span> <span class="fn">set_nonblocking</span>(<span class="ty">int</span> fd) {
+    <span class="ty">int</span> flags = <span class="fn">fcntl</span>(fd, F_GETFL, <span class="nm">0</span>);
+    <span class="fn">fcntl</span>(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="cm">// Create listening socket</span>
+    <span class="ty">int</span> srv = <span class="fn">socket</span>(AF_INET, SOCK_STREAM, <span class="nm">0</span>);
+    <span class="ty">int</span> opt = <span class="nm">1</span>;
+    <span class="fn">setsockopt</span>(srv, SOL_SOCKET, SO_REUSEADDR, &opt, <span class="kw">sizeof</span>(opt));
+
+    <span class="kw">struct</span> sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_port = <span class="fn">htons</span>(PORT),
+        .sin_addr.s_addr = INADDR_ANY
+    };
+    <span class="fn">bind</span>(srv, (<span class="kw">struct</span> sockaddr*)&addr, <span class="kw">sizeof</span>(addr));
+    <span class="fn">listen</span>(srv, SOMAXCONN);
+    <span class="fn">set_nonblocking</span>(srv);
+
+    <span class="cm">// Create epoll instance</span>
+    <span class="ty">int</span> epfd = <span class="fn">epoll_create1</span>(<span class="nm">0</span>);
+    <span class="kw">struct</span> epoll_event ev = { .events = EPOLLIN, .data.fd = srv };
+    <span class="fn">epoll_ctl</span>(epfd, EPOLL_CTL_ADD, srv, &ev);
+
+    <span class="kw">struct</span> epoll_event events[MAX_EVENTS];
+    <span class="ty">char</span> buf[<span class="nm">4096</span>];
+
+    <span class="cm">// THE EVENT LOOP — one thread handles thousands of connections</span>
+    <span class="kw">while</span> (<span class="nm">1</span>) {
+        <span class="ty">int</span> n = <span class="fn">epoll_wait</span>(epfd, events, MAX_EVENTS, -<span class="nm">1</span>);
+
+        <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < n; i++) {
+            <span class="kw">if</span> (events[i].data.fd == srv) {
+                <span class="cm">// New connection incoming</span>
+                <span class="ty">int</span> client = <span class="fn">accept</span>(srv, NULL, NULL);
+                <span class="fn">set_nonblocking</span>(client);
+                ev.events = EPOLLIN | EPOLLET;  <span class="cm">// Edge-triggered!</span>
+                ev.data.fd = client;
+                <span class="fn">epoll_ctl</span>(epfd, EPOLL_CTL_ADD, client, &ev);
+            } <span class="kw">else</span> {
+                <span class="cm">// Data available on existing connection</span>
+                <span class="ty">int</span> fd = events[i].data.fd;
+                <span class="ty">ssize_t</span> bytes = <span class="fn">read</span>(fd, buf, <span class="kw">sizeof</span>(buf));
+                <span class="kw">if</span> (bytes <= <span class="nm">0</span>) {
+                    <span class="fn">close</span>(fd);  <span class="cm">// Connection closed or error</span>
+                } <span class="kw">else</span> {
+                    <span class="fn">write</span>(fd, buf, bytes);  <span class="cm">// Echo it back</span>
+                }
+            }
+        }
+    }
+}
+<span class="label">C &mdash; epoll echo server</span></code></pre>
+
+<h3>Level-Triggered vs Edge-Triggered</h3>
+
+<div class="vs">
+<div class="vs-col">
+<h4>Level-Triggered (default)</h4>
+<p>epoll_wait returns as long as the condition is true. If there's data in the socket buffer, it keeps reporting it. Simpler to use &mdash; you can read partial data and epoll will remind you there's more.</p>
+<pre><code><span class="cm">// "Hey, FD 5 has data"</span>
+<span class="cm">// You read 100 bytes</span>
+<span class="cm">// (200 bytes remain)</span>
+<span class="cm">// Next epoll_wait:</span>
+<span class="cm">// "Hey, FD 5 STILL has data"</span></code></pre>
+</div>
+<div class="vs-col">
+<h4>Edge-Triggered (EPOLLET)</h4>
+<p>epoll_wait returns only on <em>state change</em>. Data arrives? One notification. You MUST read ALL available data (until EAGAIN) or you'll miss it forever.</p>
+<pre><code><span class="cm">// "Hey, FD 5 has data"</span>
+<span class="cm">// You read 100 bytes</span>
+<span class="cm">// (200 bytes remain)</span>
+<span class="cm">// Next epoll_wait:</span>
+<span class="cm">// *silence* (no state change)</span>
+<span class="cm">// DATA LOST if you don't</span>
+<span class="cm">// drain the buffer!</span></code></pre>
+</div>
+</div>
+
+<div class="power">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">The Connection to Go</div>
+<p>Go's runtime uses epoll internally. Every goroutine that blocks on network I/O is parked by the Go scheduler, and the FD is registered with a single epoll instance (the "netpoller"). When data arrives, epoll wakes the runtime, which schedules the goroutine back onto an OS thread. This is why goroutines are cheap &mdash; blocked goroutines cost zero CPU. The netpoller is doing the same thing as our echo server above, but managing millions of goroutines instead of raw FDs.</p>
+</div>
+
+<div class="power wild">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Wild: The C10K Problem is Solved</div>
+<p>In 1999, Dan Kegel asked: "Can a single server handle 10,000 simultaneous connections?" With select(), the answer was no (1024 FD limit, O(n) scan). With epoll, nginx routinely handles 100K+ connections per worker thread. The bottleneck moved from "syscall overhead" to "memory per connection" (~10KB/conn) and then to "bandwidth." epoll didn't just solve C10K &mdash; it made it boring.</p>
+</div>
+
+<h3>Scaling Laws: select vs poll vs epoll</h3>
+
+<p>The theoretical complexities tell part of the story. Here are actual measurements showing how the three I/O multiplexing APIs scale with connection count:</p>
+
+<table>
+<tr><th>FD Count</th><th>select()</th><th>poll()</th><th>epoll (10% active)</th><th>epoll (1% active)</th></tr>
+<tr><td>100</td><td>~3 &mu;s</td><td>~3 &mu;s</td><td>~1 &mu;s</td><td>~0.5 &mu;s</td></tr>
+<tr><td>1,000</td><td>~30 &mu;s</td><td>~25 &mu;s</td><td>~2 &mu;s</td><td>~0.5 &mu;s</td></tr>
+<tr><td>10,000</td><td>N/A (1024 limit)</td><td>~250 &mu;s</td><td>~15 &mu;s</td><td>~2 &mu;s</td></tr>
+<tr><td>100,000</td><td>N/A</td><td>~2.5 ms</td><td>~150 &mu;s</td><td>~15 &mu;s</td></tr>
+<tr><td>1,000,000</td><td>N/A</td><td>~25 ms</td><td>~1.5 ms</td><td>~150 &mu;s</td></tr>
+</table>
+
+<div class="diagram">
+<span class="diagram-label">Per-event cost: O(n) vs O(1)</span>
+<pre><code>
+  Cost per
+  epoll_wait    poll(): cost grows linearly
+  return (&mu;s)   with TOTAL fd count
+                /
+  25 ┤         /
+     │        /
+  20 ┤       /
+     │      /
+  15 ┤     /
+     │    /
+  10 ┤   /
+     │  /
+   5 ┤ /    epoll: cost grows linearly
+     │/     with ACTIVE fd count only
+   0 ┤______._______._______._______.___
+     0    25K     50K     75K    100K
+              Total file descriptors
+
+  Key insight: with 100K connections but only 100
+  active at any moment (typical for WebSocket servers),
+  poll scans all 100K every time. epoll returns only
+  the 100 that have events. That's 1000x less work.
+</code></pre>
+</div>
+
+<h4>Connection Density: Memory Math</h4>
+
+<p>Each TCP connection consumes kernel and userspace resources:</p>
+
+<table>
+<tr><th>Component</th><th>Per-Connection</th><th>At 1M Connections</th></tr>
+<tr><td>Socket struct (kernel)</td><td>~2 KB</td><td>~2 GB</td></tr>
+<tr><td>TCP receive buffer</td><td>~4 KB (min)</td><td>~4 GB</td></tr>
+<tr><td>TCP send buffer</td><td>~4 KB (min)</td><td>~4 GB</td></tr>
+<tr><td>epoll entry</td><td>~160 bytes</td><td>~160 MB</td></tr>
+<tr><td>Application buffer</td><td>varies</td><td>varies</td></tr>
+<tr><td><strong>Total minimum</strong></td><td><strong>~10 KB</strong></td><td><strong>~10 GB</strong></td></tr>
+</table>
+
+<div class="power">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">The Million-Connection Server</div>
+<p>1M concurrent connections needs ~10GB of RAM just for socket buffers. The epoll overhead itself is negligible (~160MB). The bottleneck at this scale is memory for buffers and bandwidth, not the multiplexing mechanism. This is why C10M (10 million connections) requires kernel bypass techniques like DPDK and XDP.</p>
+</div>
+
+<div class="power">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">The Memory Budget</div>
+<p>Each TCP connection costs ~10-20KB of kernel memory (socket buffers, file descriptor, TCP state). At 1M connections: ~10-20GB RAM just for the kernel. Your application state per connection is on top of that. The bottleneck moved from "CPU scanning FDs" (solved by epoll) to "memory per connection" to "bandwidth per connection." At 1M connections * 1KB/sec each = 1GB/s bandwidth required.</p>
+</div>
+
+<h3>Multi-Language: Event Loop Servers</h3>
+
+<div class="lang-tabs">
+<div class="tab-bar">
+<input type="radio" name="tabs-epoll" id="tab-c-1" class="tc" checked>
+<label for="tab-c-1">C</label>
+<input type="radio" name="tabs-epoll" id="tab-py-1" class="tpy">
+<label for="tab-py-1">Python</label>
+<input type="radio" name="tabs-epoll" id="tab-ts-1" class="tts">
+<label for="tab-ts-1">TypeScript</label>
+</div>
+
+<div class="tab-content c">
+<pre><code><span class="cm">// C epoll echo server — see full example above</span>
+<span class="cm">// The raw syscall interface: epoll_create1, epoll_ctl, epoll_wait</span>
+<span class="cm">// Maximum control, maximum performance, maximum code</span>
+<span class="ty">int</span> epfd = <span class="fn">epoll_create1</span>(<span class="nm">0</span>);
+<span class="kw">while</span> (<span class="nm">1</span>) {
+    <span class="ty">int</span> n = <span class="fn">epoll_wait</span>(epfd, events, MAX_EVENTS, -<span class="nm">1</span>);
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; n; i++) { <span class="cm">/* handle event */</span> }
+}
+<span class="label">C — epoll reactor</span></code></pre>
+</div>
+
+<div class="tab-content py">
+<pre><code><span class="pp">import</span> asyncio
+
+<span class="kw">async def</span> <span class="fn">handle_client</span>(reader, writer):
+    <span class="kw">while</span> <span class="nm">True</span>:
+        data = <span class="kw">await</span> reader.<span class="fn">read</span>(<span class="nm">4096</span>)
+        <span class="kw">if not</span> data:
+            <span class="kw">break</span>
+        writer.<span class="fn">write</span>(data)    <span class="cm"># Echo back</span>
+        <span class="kw">await</span> writer.<span class="fn">drain</span>()
+    writer.<span class="fn">close</span>()
+
+<span class="kw">async def</span> <span class="fn">main</span>():
+    server = <span class="kw">await</span> asyncio.<span class="fn">start_server</span>(handle_client, <span class="st">'0.0.0.0'</span>, <span class="nm">8080</span>)
+    <span class="kw">async with</span> server:
+        <span class="kw">await</span> server.<span class="fn">serve_forever</span>()
+
+asyncio.<span class="fn">run</span>(<span class="fn">main</span>())
+<span class="cm"># Under the hood: asyncio uses epoll on Linux via selectors module</span>
+<span class="cm"># Same single-thread event loop, same O(1) per-event cost</span>
+<span class="label">Python — asyncio echo server (epoll under the hood)</span></code></pre>
+</div>
+
+<div class="tab-content ts">
+<pre><code><span class="pp">import</span> { createServer } <span class="pp">from</span> <span class="st">'net'</span>;
+
+<span class="kw">const</span> server = <span class="fn">createServer</span>((socket) => {
+    socket.<span class="fn">on</span>(<span class="st">'data'</span>, (data) => {
+        socket.<span class="fn">write</span>(data);  <span class="cm">// Echo back</span>
+    });
+});
+
+server.<span class="fn">listen</span>(<span class="nm">8080</span>, () => {
+    console.<span class="fn">log</span>(<span class="st">'Listening on :8080'</span>);
+});
+<span class="cm">// Under the hood: Node.js uses libuv, which uses epoll on Linux</span>
+<span class="cm">// Same reactor pattern: single thread, event-driven, non-blocking</span>
+<span class="cm">// libuv also handles timers, DNS, file I/O via thread pool</span>
+<span class="label">TypeScript/Node — net echo server (libuv/epoll)</span></code></pre>
+</div>
+</div>
+
+<div class="power zen">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Zen: Same Architecture, Different Syntax</div>
+<p>Python's <code>asyncio</code>, Node.js's <code>libuv</code>, Go's <code>netpoller</code>, Rust's <code>tokio</code> &mdash; they all use epoll on Linux. The reactor pattern is universal. The only difference is abstraction level: C gives you raw file descriptors, Python gives you <code>async/await</code> coroutines, Node gives you callbacks, Go gives you goroutines. Underneath, it's always one thread calling <code>epoll_wait()</code> in a loop.</p>
+</div>
+
+</section>
+
+<!-- Chapters 6-12 follow the same pattern. Including them inline with the Superhuman theme. -->
+<!-- The remaining chapters are inserted from the original content with power-actions added to insight boxes. -->
+
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>// 06 &mdash; io_uring: the revolution</h2>
+
+<p class="drop-cap">Everything we've discussed so far has a fundamental problem: every I/O operation requires a syscall, and every syscall costs ~200ns of overhead (mode switch, register save/restore, TLB flush, spectre mitigations). If you're doing 100,000 small reads per second, that's 20ms of pure overhead. io_uring, introduced in Linux 5.1 (2019) by Jens Axboe, eliminates this entirely. After initial setup, you can submit I/O operations <em>without any syscalls at all</em>.</p>
+
+<h3>The Architecture: Two Ring Buffers</h3>
+
+<div class="diagram">
+<span class="diagram-label">io_uring: shared-memory ring buffers between userspace and kernel</span>
+<pre><code>
+  USERSPACE                              KERNEL
+  =========                              ======
+
+  +----------------------------+
+  |  Submission Queue (SQ)     |----------> Kernel reads SQEs
+  |                            |            from this ring
+  |  +----+----+----+----+     |
+  |  |SQE |SQE |SQE |    |    |     SQE = Submission Queue Entry
+  |  | 0  | 1  | 2  |    |    |     (describes one I/O operation)
+  |  +----+----+----+----+     |
+  |   tail-->          <--head |     You write at tail.
+  |                            |     Kernel reads from head.
+  +----------------------------+
+
+  +----------------------------+
+  |  Completion Queue (CQ)     |<---------- Kernel writes CQEs
+  |                            |            into this ring
+  |  +----+----+----+----+     |
+  |  |CQE |CQE |    |    |    |     CQE = Completion Queue Entry
+  |  | 0  | 1  |    |    |    |     (result of completed I/O)
+  |  +----+----+----+----+     |
+  |   head-->          <--tail |     Kernel writes at tail.
+  |                            |     You read from head.
+  +----------------------------+
+
+  Both rings are in SHARED MEMORY (mmap'd).
+  No copies. No syscalls for submission (with SQPOLL).
+  Just write to memory, kernel picks it up.
+</code></pre>
+</div>
+
+<h3>Memory Cell View: Submission Queue Entry (SQE)</h3>
+
+<h4>64-byte SQE layout</h4>
+<div class="mem-row">
+  <div class="mc m">op</div><div class="mc c">flg</div><div class="mc b">pri</div><div class="mc b">pri</div>
+  <div class="mc g">fd</div><div class="mc g">fd</div><div class="mc g">fd</div><div class="mc g">fd</div>
+</div>
+<div class="mem-row">
+  <div class="mc o">off</div><div class="mc o">off</div><div class="mc o">off</div><div class="mc o">off</div>
+  <div class="mc o">off</div><div class="mc o">off</div><div class="mc o">off</div><div class="mc o">off</div>
+</div>
+<div class="mem-row">
+  <div class="mc y">adr</div><div class="mc y">adr</div><div class="mc y">adr</div><div class="mc y">adr</div>
+  <div class="mc y">adr</div><div class="mc y">adr</div><div class="mc y">adr</div><div class="mc y">adr</div>
+</div>
+<div class="mem-row">
+  <div class="mc c">len</div><div class="mc c">len</div><div class="mc c">len</div><div class="mc c">len</div>
+  <div class="mc p">flg</div><div class="mc p">flg</div><div class="mc p">flg</div><div class="mc p">flg</div>
+</div>
+<div class="mem-row">
+  <div class="mc w">ud</div><div class="mc w">ud</div><div class="mc w">ud</div><div class="mc w">ud</div>
+  <div class="mc w">ud</div><div class="mc w">ud</div><div class="mc w">ud</div><div class="mc w">ud</div>
+</div>
+<p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">
+<span style="color:var(--magenta);">op</span>=opcode &bull;
+<span style="color:var(--cyan);">flg</span>=flags &bull;
+<span style="color:var(--green);">fd</span>=file descriptor &bull;
+<span style="color:var(--orange);">off</span>=file offset &bull;
+<span style="color:var(--yellow);">adr</span>=buffer address &bull;
+<span style="color:var(--cyan);">len</span>=length &bull;
+<span style="color:var(--purple);">flg</span>=op flags &bull;
+<span style="color:var(--white);">ud</span>=user_data (your tag, returned in CQE)
+</p>
+
+<h3>Memory Cell View: Completion Queue Entry (CQE)</h3>
+
+<h4>16-byte CQE layout</h4>
+<div class="mem-row">
+  <div class="mc w">ud</div><div class="mc w">ud</div><div class="mc w">ud</div><div class="mc w">ud</div>
+  <div class="mc w">ud</div><div class="mc w">ud</div><div class="mc w">ud</div><div class="mc w">ud</div>
+</div>
+<div class="mem-row">
+  <div class="mc g">res</div><div class="mc g">res</div><div class="mc g">res</div><div class="mc g">res</div>
+  <div class="mc c">flg</div><div class="mc c">flg</div><div class="mc c">flg</div><div class="mc c">flg</div>
+</div>
+<p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.3rem;">
+<span style="color:var(--white);">ud</span>=user_data (matches your SQE tag) &bull;
+<span style="color:var(--green);">res</span>=result (bytes read, or -errno) &bull;
+<span style="color:var(--cyan);">flg</span>=flags
+</p>
+
+<h3>io_uring Operations</h3>
+
+<table>
+<tr><th>Opcode</th><th>Operation</th><th>Description</th></tr>
+<tr><td><code>IORING_OP_READ</code></td><td>read</td><td>Read from FD at offset into buffer</td></tr>
+<tr><td><code>IORING_OP_WRITE</code></td><td>write</td><td>Write buffer to FD at offset</td></tr>
+<tr><td><code>IORING_OP_READV</code></td><td>readv</td><td>Scatter/gather read (multiple buffers)</td></tr>
+<tr><td><code>IORING_OP_WRITEV</code></td><td>writev</td><td>Scatter/gather write</td></tr>
+<tr><td><code>IORING_OP_OPENAT</code></td><td>openat</td><td>Open a file (returns FD in CQE result)</td></tr>
+<tr><td><code>IORING_OP_CLOSE</code></td><td>close</td><td>Close a file descriptor</td></tr>
+<tr><td><code>IORING_OP_SEND</code></td><td>send</td><td>Send data on a socket</td></tr>
+<tr><td><code>IORING_OP_RECV</code></td><td>recv</td><td>Receive data from a socket</td></tr>
+<tr><td><code>IORING_OP_FSYNC</code></td><td>fsync</td><td>Flush file to disk</td></tr>
+<tr><td><code>IORING_OP_NOP</code></td><td>nop</td><td>No operation (for benchmarking ring overhead)</td></tr>
+</table>
+
+<div class="power">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">The Performance Story</div>
+<p>For 1000 small reads, the overhead comparison is dramatic:</p>
+</div>
+
+<table>
+<tr><th>Method</th><th>Syscall Overhead</th><th>Total Overhead</th><th>NVMe Throughput</th></tr>
+<tr><td><code>read()</code> x 1000</td><td>~200ns each</td><td>~200&mu;s</td><td>Limited by syscall rate</td></tr>
+<tr><td><code>io_uring</code> batch</td><td>1 submit + poll</td><td>~1&mu;s</td><td>Saturates NVMe queue depth</td></tr>
+<tr><td><code>io_uring</code> + SQPOLL</td><td>0 syscalls</td><td>~0&mu;s</td><td>Maximum possible throughput</td></tr>
+</table>
+
+<div class="ticker">io_uring throughput: 1.2M IOPS on NVMe (single core) &bull; read() tops out at ~300K IOPS</div>
+
+<div class="power hack">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Hack: SQPOLL Mode &mdash; True Zero-Syscall I/O</div>
+<p>Pass <code>IORING_SETUP_SQPOLL</code> to <code>io_uring_setup()</code>. The kernel spawns a dedicated polling thread that continuously checks the SQ ring for new entries. You write SQEs to shared memory, the kernel thread picks them up, results appear in the CQ ring. <em>No syscalls at all</em> after setup. The kernel thread burns a CPU core, but for high-throughput I/O servers, this is the fastest possible path. SPDK-level performance with standard kernel I/O.</p>
+</div>
+
+<div class="power zen">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Zen: Why io_uring Matters for Shard</div>
+<p>A shard file with 500 tensor entries read via individual <code>read()</code> calls: 500 * 200ns = 100&mu;s of pure syscall overhead, <em>before</em> any data moves. Same 500 entries with io_uring batch submission: one <code>io_uring_submit()</code> call, all 500 reads dispatched to the NVMe queue simultaneously, completions harvested in bulk. The NVMe drive can process all 500 in parallel across its internal channels. You've gone from sequential syscalls to fully parallel hardware I/O.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch7">
+<h2>// 07 &mdash; sendfile &amp; splice: zero-copy networking</h2>
+
+<p class="drop-cap">Here's a dirty secret about serving files over the network: the naive approach copies your data <em>four times</em>. Disk to kernel buffer. Kernel buffer to userspace buffer. Userspace buffer back to kernel socket buffer. Socket buffer to NIC. Four copies. Two of them are completely pointless. <code>sendfile()</code> eliminates the userspace copies entirely.</p>
+
+<div class="diagram">
+<span class="diagram-label">Data Path: Naive vs sendfile vs splice+DMA</span>
+<pre><code>
+  NAIVE: read() + write()               4 data movements
+  ========================
+  Disk -> [Kernel Read Buf] -> [User Buffer] -> [Kernel Socket Buf] -> NIC
+          copy 1                copy 2           copy 3                DMA 4
+
+  SENDFILE: sendfile(socket, file)       2 copies, 1 syscall
+  ====================================
+  Disk -> [Kernel Buffer] --in-kernel--> [Socket Buffer] -> NIC
+          copy 1           no user         copy 2          DMA 3
+                           involvement
+
+  SPLICE + DMA SCATTER-GATHER:           Minimum copies
+  ============================
+  Disk ---DMA---> [Kernel Buf] ---descriptors---> NIC DMA
+          copy 1   (only ptrs     scatter-gather   copy 2
+                    to socket)
+
+  For a 1GB file transfer:
+    read+write: ~4GB of memory bus traffic
+    sendfile:   ~2GB of memory bus traffic
+    splice+SG:  ~1GB of memory bus traffic
+</code></pre>
+</div>
+
+<div class="power">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Shard File Serving</div>
+<p>Distributing model weights to GPU workers? <code>sendfile()</code> sends tensor data directly from page cache to NIC without touching userspace. For DeepData's WAL streaming, <code>splice()</code> moves WAL segments from disk to replica sockets with zero buffer copies. The savings compound: less memory bandwidth consumed = more bandwidth for computation.</p>
+</div>
+
+<div class="power wild">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Wild: tee() &mdash; Duplicate Without Copying</div>
+<p><code>tee()</code> duplicates data in a pipe to another pipe <em>without consuming it</em>. Combined with splice: read once from disk, tee to N pipes, splice each pipe to a different socket. Fan-out a shard file to 10 GPU workers with a single disk read and zero userspace copies. This is how some CDNs implement multicast-like file distribution on vanilla Linux.</p>
+</div>
+
+<h3>Scaling Laws: Zero-Copy Throughput</h3>
+
+<table>
+<tr><th>File Size</th><th>read()+write()</th><th>sendfile()</th><th>splice()</th><th>Speedup</th></tr>
+<tr><td>1 KB</td><td>~8 &mu;s</td><td>~5 &mu;s</td><td>~5 &mu;s</td><td>1.6x</td></tr>
+<tr><td>64 KB</td><td>~25 &mu;s</td><td>~12 &mu;s</td><td>~11 &mu;s</td><td>2.1x</td></tr>
+<tr><td>1 MB</td><td>~250 &mu;s</td><td>~120 &mu;s</td><td>~110 &mu;s</td><td>2.1x</td></tr>
+<tr><td>100 MB</td><td>~28 ms</td><td>~13 ms</td><td>~12 ms</td><td>2.2x</td></tr>
+<tr><td>1 GB</td><td>~290 ms</td><td>~130 ms</td><td>~115 ms</td><td>2.3x</td></tr>
+</table>
+
+<div class="power">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">The CPU Budget</div>
+<p>At 10Gbps line rate (~1.2GB/s), read()+write() consumes ~40% of one CPU core just copying data. sendfile() drops that to ~15%. With DMA scatter-gather (if NIC supports it), CPU involvement drops to ~5%. For serving shard files to GPU workers over 25Gbps or 100Gbps links, zero-copy isn't optional &mdash; it's physically impossible to copy data fast enough without it.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch8">
+<h2>// 08 &mdash; seccomp: syscall firewall</h2>
+
+<p class="drop-cap">What if you could tell the kernel: "this process is only allowed to use read, write, mmap, and exit. If it tries anything else, kill it immediately." That is seccomp. It is a BPF program that runs <em>before</em> every syscall, inspecting the syscall number and arguments, and deciding whether to allow it, block it, or terminate the process. Docker, Chrome, and Firefox all use seccomp to sandbox untrusted code.</p>
+
+<h3>Docker's Default seccomp Profile</h3>
+
+<p>Docker blocks ~44 dangerous syscalls by default:</p>
+
+<table>
+<tr><th>Blocked Syscall</th><th>Why It's Dangerous</th></tr>
+<tr><td><code>reboot</code></td><td>Container could reboot the host</td></tr>
+<tr><td><code>mount</code></td><td>Container could mount host filesystems</td></tr>
+<tr><td><code>kexec_load</code></td><td>Load a new kernel (game over)</td></tr>
+<tr><td><code>init_module</code></td><td>Load kernel modules (rootkit territory)</td></tr>
+<tr><td><code>bpf</code></td><td>Run BPF programs in kernel (escape vector)</td></tr>
+<tr><td><code>ptrace</code></td><td>Debug/control other processes</td></tr>
+<tr><td><code>keyctl</code></td><td>Access kernel key management</td></tr>
+<tr><td><code>unshare</code></td><td>Create new namespaces (privilege escalation)</td></tr>
+</table>
+
+<div class="power danger">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Danger: The Chrome Sandbox</div>
+<p>Chrome renders web pages from arbitrary internet sources. Every renderer process runs under a strict seccomp filter. If a malicious website exploits a V8 bug and gets code execution in the renderer, seccomp ensures it cannot <code>open()</code> your files, cannot <code>connect()</code> to the network, cannot <code>fork()</code> new processes. The attacker has code execution but can only read and write to already-open file descriptors. Least privilege, enforced by silicon.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch9">
+<h2>// 09 &mdash; eBPF: code in the kernel</h2>
+
+<p class="drop-cap">What if you could write a small program, prove it is safe, and then run it <em>inside the kernel</em> at native speed? Not a kernel module (which can crash the entire system), but a verified, sandboxed program that the kernel guarantees will terminate and will not access invalid memory. That is eBPF, and it is the most powerful observability and networking feature in modern Linux. It is eating everything.</p>
+
+<h3>How It Works</h3>
+
+<div class="diagram">
+<span class="diagram-label">eBPF: write, verify, run in kernel</span>
+<pre><code>
+  1. WRITE          2. COMPILE         3. VERIFY            4. RUN
+  ======            ========           ========             ====
+
+  Restricted C      LLVM/clang         Kernel Verifier      Attach points:
+  - no unbounded    compiles to        checks:              - syscall entry/exit
+    loops           BPF bytecode       - No infinite loops  - network packets (XDP)
+  - limited stack   (like JVM          - No bad memory      - tracepoints
+  - no arbitrary    bytecode but       - Terminates         - kprobes (kernel fn)
+    fn calls        for kernel)        - Stack &lt; 512B       - uprobes (userspace)
+                                       - No sleeping        - cgroup events
+                                       Fails? REJECTED.     - perf events
+</code></pre>
+</div>
+
+<div class="power hack">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Hack: eBPF is Replacing Everything</div>
+<p>Kernel modules? eBPF is safer. iptables? eBPF (Cilium) is faster. Kprobes scripts? bpftrace is more powerful. strace? eBPF has lower overhead. Performance monitoring? BCC tools give histograms, stack traces, and flamegraphs without sampling bias. If it involves observing or controlling kernel behavior, eBPF is eating it.</p>
+</div>
+
+<div class="power zen">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Zen: The Verification Guarantee</div>
+<p>The eBPF verifier is the key innovation. It proves, <em>mathematically</em>, that your program terminates and does not access invalid memory. It walks every possible code path, tracks register states, validates memory bounds. This guarantee is what makes it safe to run arbitrary user code inside the kernel. No other OS has anything like this. It is the reason Linux is pulling ahead of every other kernel in programmability.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch10">
+<h2>// 10 &mdash; vDSO: syscalls without syscalls</h2>
+
+<p class="drop-cap">Some syscalls are called <em>billions</em> of times per second across all processes on a system. <code>gettimeofday()</code> and <code>clock_gettime()</code> are the biggest offenders. Every log line, every timeout check, every performance measurement calls them. If each one cost 200ns of syscall overhead, the entire system would grind to a halt. The kernel's solution is elegant: don't make them syscalls at all.</p>
+
+<div class="diagram">
+<span class="diagram-label">vDSO: kernel data, userspace speed</span>
+<pre><code>
+  Normal syscall:
+  ==============
+  User code ---> SYSCALL instruction ---> kernel mode ---> read clock
+       ^              200ns overhead                         |
+       |                                                     |
+       +------ SYSRET -------- kernel mode --------- return -+
+                   Total: ~200ns
+
+  vDSO call:
+  ==========
+  User code ---> call vDSO function ---> reads shared page ---> return
+                 (normal function           (mapped read-only
+                  call, ~2ns)                into your process)
+                   Total: ~20ns
+</code></pre>
+</div>
+
+<div class="ticker">clock_gettime via syscall: ~200ns &bull; via vDSO: ~20ns &bull; 10x speedup, billions of calls/day</div>
+
+<div class="power">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">The Design Principle</div>
+<p>The vDSO demonstrates a profound systems design insight: if you can't eliminate the cost of crossing a boundary, <em>move the data to the side that needs it</em>. The kernel maintains the authoritative time source. But instead of forcing every process to cross the syscall boundary to read it, the kernel maps a read-only view of that data into every process. The boundary still exists for writes, but reads are free. This same principle applies everywhere: shared memory IPC, memory-mapped configuration, read-only page tables.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch11">
+<h2>// 11 &mdash; the benchmark</h2>
+
+<p class="drop-cap">Theory is nice. Numbers are better. Let's measure the actual costs of everything we've discussed. This is the chapter that turns architectural intuition into engineering decisions. Every number here is measurable on your own hardware. Run these benchmarks, get your own numbers, and you'll know <em>exactly</em> what to optimize.</p>
+
+<h3>The Numbers</h3>
+
+<p>Typical results on modern hardware (AMD Ryzen / Intel 12th gen, NVMe SSD, Linux 6.x):</p>
+
+<table>
+<tr><th>Operation</th><th>Latency</th><th>Notes</th></tr>
+<tr><td>getpid() syscall</td><td>~150-250 ns</td><td>Pure syscall overhead (KPTI adds ~80ns)</td></tr>
+<tr><td>clock_gettime() via vDSO</td><td>~15-25 ns</td><td>No kernel crossing, reads shared page</td></tr>
+<tr><td>Context switch (pipe)</td><td>~1-3 &mu;s</td><td>Includes two syscalls + scheduler</td></tr>
+<tr><td>Page fault (anonymous)</td><td>~1-2 &mu;s</td><td>Kernel allocates and zeros a page</td></tr>
+<tr><td>Page fault (file, cached)</td><td>~2-5 &mu;s</td><td>Page is in page cache, just map it</td></tr>
+<tr><td>Page fault (file, NVMe)</td><td>~50-100 &mu;s</td><td>Must read from NVMe SSD</td></tr>
+<tr><td>Page fault (file, HDD)</td><td>~5-10 ms</td><td>Seek time dominates</td></tr>
+<tr><td>read() 4KB (cached)</td><td>~0.5-1 &mu;s</td><td>Syscall + page cache lookup + memcpy</td></tr>
+<tr><td>read() 4KB (NVMe)</td><td>~50-100 &mu;s</td><td>Syscall + NVMe round trip</td></tr>
+<tr><td>io_uring submit (batch)</td><td>~0.5-1 &mu;s total</td><td>One syscall for N operations</td></tr>
+<tr><td>fsync() (NVMe)</td><td>~30-100 &mu;s</td><td>Flush to persistent storage</td></tr>
+<tr><td>fsync() (HDD)</td><td>~5-15 ms</td><td>Platter rotation + seek</td></tr>
+<tr><td>sendfile() vs read+write</td><td>~30-50% faster</td><td>Eliminates two memcpy per chunk</td></tr>
+</table>
+
+<div class="ticker">Key ratio: NVMe read (~50&mu;s) vs syscall overhead (~200ns) = syscall is 0.4% of total. For cached reads (~0.5&mu;s), syscall overhead is 40%.</div>
+
+<h3>Scaling Laws: When Each Technique Wins</h3>
+
+<div class="diagram">
+<span class="diagram-label">The Syscall Technique Decision Matrix</span>
+<pre><code>
+  Operations/sec    10      100     1K      10K     100K     1M
+  ─────────────────────────────────────────────────────────────
+  read()/write()    ✓       ✓       ✓       ~       ✗        ✗
+  mmap              ✓       ✓       ✓       ✓       ✓        ✓
+  io_uring          ~       ✓       ✓       ✓       ✓        ✓
+  io_uring+SQPOLL   ✗       ~       ✓       ✓       ✓        ✓
+  sendfile          ✓       ✓       ✓       ✓       ✓        ✓
+  DPDK              ✗       ✗       ✗       ✗       ~        ✓
+
+  ✓ = good fit   ~ = marginal   ✗ = overhead not justified
+</code></pre>
+</div>
+
+<table>
+<tr><th>If Your Workload Is...</th><th>Use This</th><th>Because</th></tr>
+<tr><td>Few large sequential reads</td><td>mmap + MADV_SEQUENTIAL</td><td>Kernel prefetches, zero syscalls after setup</td></tr>
+<tr><td>Many small random reads</td><td>io_uring batch</td><td>Amortize syscall cost, saturate NVMe queue depth</td></tr>
+<tr><td>File serving over network</td><td>sendfile/splice</td><td>Zero userspace copies, saves 30-50% CPU</td></tr>
+<tr><td>Hot key-value lookups</td><td>mmap (like LMDB)</td><td>Pointer dereference, no syscall per read</td></tr>
+<tr><td>High-throughput writes + durability</td><td>io_uring + fdatasync chain</td><td>Batch writes with linked fsync</td></tr>
+<tr><td>1M+ network connections</td><td>epoll + edge-triggered</td><td>O(1) per event, handle sparse activity</td></tr>
+<tr><td>10M+ packets/sec</td><td>XDP/eBPF or DPDK</td><td>Kernel stack is the bottleneck</td></tr>
+</table>
+
+<div class="power zen">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">Zen: Know Your Boundary</div>
+<p>Every abstraction has a cost. The syscall boundary costs ~200ns. The page fault boundary costs ~2-50&mu;s. The network boundary costs ~50&mu;s (local) to ~50ms (cross-continent). The disk boundary costs ~50&mu;s (NVMe) to ~10ms (HDD). Once you know these numbers, you know which boundaries to eliminate (mmap removes the syscall boundary for reads), which to batch across (io_uring amortizes syscall overhead), and which to skip entirely (vDSO, sendfile). The kernel is not your enemy. It is a tool. Learn to bend it.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch12">
+<h2>// 12 &mdash; power apps: who uses this</h2>
+
+<p class="drop-cap">Theory and benchmarks are valuable, but the real proof is in production. The following software doesn't just <em>use</em> these syscalls &mdash; they're built around them as competitive advantages. Each one found a way to make the kernel do less work, and that decision echoes through every metric that matters: throughput, latency, cost per request.</p>
+
+<h3>nginx</h3>
+<p>100K+ concurrent connections per worker. epoll + sendfile. The data path for static files: disk to page cache to NIC. The nginx worker never copies file bytes.</p>
+
+<h3>Redis</h3>
+<p>Single-threaded epoll event loop. fork() + COW for snapshots. BGSAVE creates a consistent frozen view of all data without stopping.</p>
+
+<h3>Kafka</h3>
+<p>Built around sendfile(). Consumers read log segments via zero-copy transfer. 2GB/s+ per broker because data never enters Java heap memory.</p>
+
+<h3>TigerBeetle</h3>
+<p>Financial database built entirely around io_uring. Direct I/O, fixed buffers, single-threaded event loop. SPDK-level performance with standard kernel I/O.</p>
+
+<h3>ScyllaDB</h3>
+<p>Per-core io_uring instances. No shared memory between cores. Linear scalability: 2x cores = 2x throughput. 10x Cassandra's throughput, same data structure.</p>
+
+<h3>LMDB</h3>
+<p>The entire database is one mmap'd file. mdb_get() returns a pointer into mmap'd pages. Zero copies, zero syscalls per read. The kernel's page cache IS the buffer pool.</p>
+
+<h3>Cloudflare / Meta</h3>
+<p>XDP drops DDoS at 10M+ packets/sec/core. Cilium replaces iptables for Kubernetes networking. O(1) BPF map lookup vs O(n) iptables chain.</p>
+
+<h3>DPDK</h3>
+<p>The nuclear option: bypass the kernel entirely. NIC registers mmap'd into userspace. 80M+ packets/sec/core. Used by stock exchanges and 5G core networks.</p>
+
+<div class="power">
+<div class="power-actions"><button onclick="copyInsight(this)">Copy</button><button onclick="bookmarkInsight(this)">Bookmark</button></div>
+<div class="power-label">The Pattern</div>
+<p>Every system on this list found performance by choosing the right relationship with the kernel. nginx and Redis use epoll to sleep efficiently. Kafka uses sendfile to avoid copying. TigerBeetle uses io_uring to batch everything. DPDK bypasses the kernel entirely. The kernel is a spectrum from "helpful" to "obstacle" depending on your workload. The art is knowing where on that spectrum you sit.</p>
+</div>
+
+</section>
+
+</div><!-- .content -->
+</div><!-- .main-content -->
+</div><!-- .layout -->
+
+<script>
+// === READING PROGRESS BAR ===
+const progressBar = document.getElementById('reading-progress');
+function updateProgress() {
+  const scrollTop = window.scrollY;
+  const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+  const progress = docHeight > 0 ? (scrollTop / docHeight) * 100 : 0;
+  progressBar.style.width = progress + '%';
+}
+window.addEventListener('scroll', updateProgress, { passive: true });
+updateProgress();
+
+// === SCROLLSPY — highlight current section in sidebar ===
+const sections = document.querySelectorAll('section[id]');
+const tocLinks = document.querySelectorAll('#tocNav a');
+const sectionIds = Array.from(sections).map(s => s.id);
+
+function updateScrollSpy() {
+  let current = '';
+  for (const section of sections) {
+    const rect = section.getBoundingClientRect();
+    if (rect.top <= 120) {
+      current = section.id;
+    }
+  }
+  tocLinks.forEach(link => {
+    link.classList.toggle('active', link.getAttribute('data-section') === current);
+  });
+}
+window.addEventListener('scroll', updateScrollSpy, { passive: true });
+updateScrollSpy();
+
+// === KEYBOARD NAVIGATION ===
+const kbdOverlay = document.getElementById('kbdOverlay');
+const searchOverlay = document.getElementById('searchOverlay');
+const searchInput = document.getElementById('searchInput');
+const searchResults = document.getElementById('searchResults');
+
+const chapters = [
+  { id: 'ch1', title: '01 The Boundary' },
+  { id: 'ch2', title: '02 strace: X-Ray Vision' },
+  { id: 'ch3', title: '03 File I/O: The Layers' },
+  { id: 'ch4', title: '04 mmap Deep Dive' },
+  { id: 'ch5', title: '05 epoll: The Reactor Pattern' },
+  { id: 'ch6', title: '06 io_uring: The Revolution' },
+  { id: 'ch7', title: '07 Zero-Copy Networking' },
+  { id: 'ch8', title: '08 seccomp: Syscall Firewall' },
+  { id: 'ch9', title: '09 eBPF: Code in the Kernel' },
+  { id: 'ch10', title: '10 vDSO: Syscalls Without Syscalls' },
+  { id: 'ch11', title: '11 The Benchmark' },
+  { id: 'ch12', title: '12 Power Apps' },
+];
+
+function scrollToSection(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function getCurrentSectionIndex() {
+  let idx = 0;
+  for (let i = 0; i < sections.length; i++) {
+    if (sections[i].getBoundingClientRect().top <= 120) idx = i;
+  }
+  return idx;
+}
+
+document.addEventListener('keydown', function(e) {
+  // Ignore if user is typing in an input
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+    if (e.key === 'Escape') {
+      searchOverlay.classList.remove('visible');
+      e.target.blur();
+    }
+    return;
+  }
+
+  // ? — toggle keyboard overlay
+  if (e.key === '?') {
+    e.preventDefault();
+    kbdOverlay.classList.toggle('visible');
+    searchOverlay.classList.remove('visible');
+    return;
+  }
+
+  // Escape — close overlays
+  if (e.key === 'Escape') {
+    kbdOverlay.classList.remove('visible');
+    searchOverlay.classList.remove('visible');
+    return;
+  }
+
+  // / — open search
+  if (e.key === '/') {
+    e.preventDefault();
+    kbdOverlay.classList.remove('visible');
+    searchOverlay.classList.add('visible');
+    searchInput.value = '';
+    searchInput.focus();
+    renderSearchResults('');
+    return;
+  }
+
+  // j — next section
+  if (e.key === 'j') {
+    e.preventDefault();
+    const idx = Math.min(getCurrentSectionIndex() + 1, sectionIds.length - 1);
+    scrollToSection(sectionIds[idx]);
+    return;
+  }
+
+  // k — previous section
+  if (e.key === 'k') {
+    e.preventDefault();
+    const idx = Math.max(getCurrentSectionIndex() - 1, 0);
+    scrollToSection(sectionIds[idx]);
+    return;
+  }
+
+  // b — toggle sidebar
+  if (e.key === 'b') {
+    e.preventDefault();
+    toggleSidebar();
+    return;
+  }
+
+  // 1-9 — jump to chapter
+  if (e.key >= '1' && e.key <= '9') {
+    e.preventDefault();
+    const chIdx = parseInt(e.key);
+    if (chIdx <= chapters.length) {
+      scrollToSection(chapters[chIdx - 1].id);
+    }
+    return;
+  }
+
+  // 0 — jump to chapter 10
+  if (e.key === '0') {
+    e.preventDefault();
+    scrollToSection('ch10');
+    return;
+  }
+});
+
+// === SEARCH ===
+function renderSearchResults(query) {
+  const q = query.toLowerCase().trim();
+  const filtered = q ? chapters.filter(c => c.title.toLowerCase().includes(q)) : chapters;
+  searchResults.innerHTML = filtered.map(c =>
+    `<a href="#${c.id}" onclick="searchOverlay.classList.remove('visible')">${c.title}</a>`
+  ).join('');
+}
+
+searchInput.addEventListener('input', function() {
+  renderSearchResults(this.value);
+});
+
+searchInput.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    const first = searchResults.querySelector('a');
+    if (first) {
+      first.click();
+      searchOverlay.classList.remove('visible');
+    }
+  }
+});
+
+searchOverlay.addEventListener('click', function(e) {
+  if (e.target === searchOverlay) {
+    searchOverlay.classList.remove('visible');
+  }
+});
+
+kbdOverlay.addEventListener('click', function(e) {
+  if (e.target === kbdOverlay) {
+    kbdOverlay.classList.remove('visible');
+  }
+});
+
+// === SIDEBAR TOGGLE ===
+const sidebar = document.getElementById('sidebar');
+const mainContent = document.getElementById('mainContent');
+const sidebarToggle = document.getElementById('sidebarToggle');
+
+function toggleSidebar() {
+  const isMobile = window.innerWidth <= 900;
+  if (isMobile) {
+    sidebar.classList.toggle('open');
+  } else {
+    sidebar.classList.toggle('collapsed');
+    mainContent.classList.toggle('expanded');
+  }
+}
+
+sidebarToggle.addEventListener('click', toggleSidebar);
+
+// === INLINE ACTIONS ===
+function copyInsight(btn) {
+  const power = btn.closest('.power');
+  const text = power.querySelector('p').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('Copied to clipboard');
+  });
+}
+
+function bookmarkInsight(btn) {
+  btn.classList.toggle('bookmarked');
+  if (btn.classList.contains('bookmarked')) {
+    btn.textContent = 'Saved';
+    showToast('Bookmarked');
+  } else {
+    btn.textContent = 'Bookmark';
+    showToast('Bookmark removed');
+  }
+}
+
+const toast = document.getElementById('toast');
+let toastTimeout;
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add('visible');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => toast.classList.remove('visible'), 1500);
+}
+</script>
+
+</body>
+</html>
